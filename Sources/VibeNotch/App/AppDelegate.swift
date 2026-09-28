@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if snapshotDir == nil {
             // A screenshot run must not steal the hook bridge or read real sessions from a running copy.
             HookInstaller.writeScript()
+            HookInstaller.upgradeIfNeeded()
             HookServer.shared.onRequest = { req, reply in
                 MainActor.assumeIsolated { HookRouter.handle(req, reply) }
             }
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ClipboardStore.shared.start()
             CalendarStore.shared.start()
             MusicStore.shared.start()
+            ClaudeAppMonitor.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -102,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = nil
     }
 
+    func screenChoiceChanged() { controller.screenChoiceChanged() }
+
     func connect(_ kind: AgentKind) {
         do {
             switch kind {
@@ -124,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         menu.addItem(item("Abrir VibeNotch", key: "⌃⌥N") { [weak self] in self?.controller.toggle() })
         menu.addItem(item("Abrir portapapeles", key: "⌃⌥V") { [weak self] in self?.controller.toggleClipboard() })
+        menu.addItem(item("Ajustes…", key: ",") { SettingsWindow.shared.show() })
         menu.addItem(.separator())
 
         let screens = NSMenu()

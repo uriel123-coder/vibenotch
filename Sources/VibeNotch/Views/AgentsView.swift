@@ -47,34 +47,212 @@ struct AskCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 StatusGlyph(kind: ask.kind, status: .waiting, size: 18)
-                Text("\(ask.kind.short) pide permiso").font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                Text(ask.title).font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 Text(ask.project).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
                 Text(ask.tool)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.warn.opacity(0.2)))
-                    .foregroundStyle(Color.warn)
+                    .background(Capsule().fill(accent.opacity(0.2)))
+                    .foregroundStyle(accent)
             }
-            Text(ask.detail)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(compact ? 2 : 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35)))
-                .textSelection(.enabled)
-            HStack(spacing: 8) {
-                Button("Responder en terminal") { AgentStore.shared.resolve(ask, .terminal) }
-                    .buttonStyle(PillStyle(fill: .clear, foreground: .white.opacity(0.55)))
-                Spacer()
-                Button("Rechazar") { AgentStore.shared.resolve(ask, .deny) }
-                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                Button("Permitir") { AgentStore.shared.resolve(ask, .allow) }
-                    .buttonStyle(PillStyle(fill: .warn, foreground: .black))
+            switch ask.style {
+            case .permission: permission
+            case .questions(let questions): QuestionsForm(ask: ask, questions: questions, compact: compact)
+            case .plan(let plan): planView(plan)
             }
         }
-        .card(.warn, opacity: 0.12)
+        .card(accent, opacity: 0.12)
+    }
+
+    private var accent: Color {
+        if case .permission = ask.style { return .warn }
+        return Color(red: 0.55, green: 0.7, blue: 1)
+    }
+
+    @ViewBuilder private var permission: some View {
+        Text(ask.detail)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.85))
+            .lineLimit(compact ? 2 : 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35)))
+            .textSelection(.enabled)
+        HStack(spacing: 8) {
+            terminalButton
+            Spacer()
+            Button("Rechazar") { AgentStore.shared.resolve(ask, .deny) }
+                .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+            Button("Permitir") { AgentStore.shared.resolve(ask, .allow) }
+                .buttonStyle(PillStyle(fill: .warn, foreground: .black))
+        }
+    }
+
+    @ViewBuilder private func planView(_ plan: String) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            Text(plan.isEmpty ? "Revisa el plan en la terminal." : plan)
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .frame(maxHeight: compact ? 120 : 220)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.black.opacity(0.35)))
+        HStack(spacing: 8) {
+            terminalButton
+            Spacer()
+            Button("Seguir planeando") { AgentStore.shared.resolve(ask, .deny) }
+                .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+            Button("Aprobar plan") { AgentStore.shared.resolve(ask, .allow) }
+                .buttonStyle(PillStyle(fill: accent, foreground: .black))
+        }
+    }
+
+    private var terminalButton: some View {
+        Button("Responder en terminal") { AgentStore.shared.resolve(ask, .terminal) }
+            .buttonStyle(PillStyle(fill: .clear, foreground: .white.opacity(0.55)))
+    }
+}
+
+/// Claude's AskUserQuestion: 1–4 questions, each single or multiple choice, plus an optional written answer.
+struct QuestionsForm: View {
+    let ask: PermissionAsk
+    let questions: [AgentQuestion]
+    var compact: Bool
+    @State private var picked: [String: Set<String>] = [:]
+    @State private var written: [String: String] = [:]
+    @State private var writing: String?
+    @FocusState private var focused: Bool
+
+    private let columns = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(questions) { q in block(q) }
+            }
+        }
+        .frame(maxHeight: compact ? 300 : 420)
+        HStack(spacing: 8) {
+            Button("Responder en terminal") { AgentStore.shared.resolve(ask, .terminal) }
+                .buttonStyle(PillStyle(fill: .clear, foreground: .white.opacity(0.55)))
+            Spacer()
+            if needsSubmit {
+                Button("Enviar") { submit() }
+                    .buttonStyle(PillStyle(fill: complete ? Color(red: 0.55, green: 0.7, blue: 1) : .white.opacity(0.12),
+                                           foreground: complete ? .black : .white.opacity(0.5)))
+                    .disabled(!complete)
+                    .keyboardShortcut(.return, modifiers: [])
+            }
+        }
+    }
+
+    @ViewBuilder private func block(_ q: AgentQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                if !q.header.isEmpty {
+                    Text(q.header.uppercased()).font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+                if q.multiSelect {
+                    Text("elige varias").font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.35))
+                }
+            }
+            Text(q.question).font(.system(size: 12, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
+                ForEach(q.options) { o in option(o, in: q) }
+                other(q)
+            }
+        }
+    }
+
+    private func option(_ o: AgentQuestion.Option, in q: AgentQuestion) -> some View {
+        let on = picked[q.question]?.contains(o.label) == true
+        return Button { toggle(o.label, in: q) } label: {
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: q.multiSelect ? (on ? "checkmark.square.fill" : "square") : (on ? "largecircle.fill.circle" : "circle"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(on ? Color(red: 0.55, green: 0.7, blue: 1) : .white.opacity(0.4))
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(o.label).font(.system(size: 11.5, weight: .semibold))
+                    if !o.detail.isEmpty {
+                        Text(o.detail).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(on ? 0.14 : 0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(on ? Color(red: 0.55, green: 0.7, blue: 1).opacity(0.6) : .clear, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+    }
+
+    @ViewBuilder private func other(_ q: AgentQuestion) -> some View {
+        if writing == q.question {
+            TextField("Escribe tu respuesta…", text: Binding(get: { written[q.question] ?? "" },
+                                                            set: { written[q.question] = $0 }))
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5))
+                .focused($focused)
+                .padding(.horizontal, 8).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.1)))
+                .onSubmit { if complete { submit() } }
+                .onAppear {
+                    NotchPanel.focus()
+                    focused = true
+                }
+        } else {
+            Button {
+                writing = q.question
+                if !q.multiSelect { picked[q.question] = [] }
+            } label: {
+                Label("Otra respuesta", systemImage: "pencil")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 8).padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [3])))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+        }
+    }
+
+    /// One single-choice question answers on the first tap; anything else needs "Enviar".
+    private var needsSubmit: Bool { questions.count > 1 || questions.contains(where: \.multiSelect) || writing != nil }
+
+    private func answer(_ q: AgentQuestion) -> String? {
+        var parts = q.options.map(\.label).filter { picked[q.question]?.contains($0) == true }
+        if let text = written[q.question]?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { parts.append(text) }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private var complete: Bool { questions.allSatisfy { answer($0) != nil } }
+
+    private func toggle(_ label: String, in q: AgentQuestion) {
+        var set = picked[q.question] ?? []
+        if q.multiSelect {
+            if set.contains(label) { set.remove(label) } else { set.insert(label) }
+        } else {
+            set = [label]
+            if writing == q.question { writing = nil; written[q.question] = nil }
+        }
+        picked[q.question] = set
+        if !needsSubmit { submit() }
+    }
+
+    private func submit() {
+        var answers: [String: String] = [:]
+        for q in questions { if let a = answer(q) { answers[q.question] = a } }
+        guard answers.count == questions.count else { return }
+        AgentStore.shared.resolve(ask, .answers(answers))
     }
 }
 
@@ -92,19 +270,55 @@ struct SessionRow: View {
     let session: AgentSession
     @State private var hover = false
 
+    private var line: String {
+        switch session.status {
+        case .done:
+            let took = session.lastTurn.flatMap { $0 >= 20 ? "tardó \(Fmt.elapsed($0))" : nil }
+            return [session.summary ?? session.title ?? "Terminó", took].compactMap { $0 }.joined(separator: " · ")
+        case .working:
+            let running = session.turnStarted.map { Date().timeIntervalSince($0) }.flatMap { $0 >= 30 ? Fmt.elapsed($0) : nil }
+            return [session.activity ?? session.status.label, running].compactMap { $0 }.joined(separator: " · ")
+        default:
+            return session.activity ?? session.title ?? session.status.label
+        }
+    }
+
+    private var lineColor: Color {
+        switch session.status {
+        case .waiting: .warn
+        case .done: .white.opacity(0.75)
+        default: .secondary
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             StatusGlyph(kind: session.kind, status: session.status, size: 22)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(session.project).font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    Text(session.title.flatMap { $0.isEmpty ? nil : $0 } ?? session.project)
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .help(session.project)
                     Text(session.kind.short).font(.system(size: 10.5, weight: .medium)).foregroundStyle(session.kind.color)
+                    if let source = session.source {
+                        Text(source).font(.system(size: 9, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(.white.opacity(0.1)))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
                     if let m = session.model {
                         Text(m).font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
                     }
                 }
-                Text(session.activity ?? session.status.label)
-                    .font(.system(size: 11)).foregroundStyle(session.status == .waiting ? Color.warn : .secondary)
+                HStack(spacing: 4) {
+                    if session.status == .done {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundStyle(Color.ok)
+                    }
+                    Text(line)
+                        .font(.system(size: 11)).foregroundStyle(lineColor)
+                }
+                .help(session.summary ?? "")
             }
             .lineLimit(1)
             Spacer(minLength: 8)

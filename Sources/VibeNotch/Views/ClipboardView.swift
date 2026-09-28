@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ClipboardView: View {
-    enum Section: String, CaseIterable { case history = "Historial", saved = "Guardados" }
+    enum Section: String, CaseIterable { case history = "Historial", saved = "Guardados", notes = "Notas" }
 
     @ObservedObject private var clips = ClipboardStore.shared
     @ObservedObject private var model = NotchModel.shared
@@ -9,6 +9,7 @@ struct ClipboardView: View {
     @State private var query = ""
     @State private var composing = false
     @State private var draft = ""
+    @State private var editingNote: Note?
     @FocusState private var searchFocused: Bool
     @Namespace private var segNS
 
@@ -27,7 +28,13 @@ struct ClipboardView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .focused($searchFocused)
-                        .onSubmit { if let first = items.first { clips.copy(first) } }
+                        .onSubmit {
+                            if section == .notes {
+                                if let first = NotesStore.shared.sorted.first(where: { query.isEmpty || $0.text.localizedCaseInsensitiveContains(query) }) {
+                                    NotesStore.shared.copy(first)
+                                }
+                            } else if let first = items.first { clips.copy(first) }
+                        }
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 26)
@@ -35,7 +42,11 @@ struct ClipboardView: View {
 
                 segmented
 
-                if section == .saved {
+                if section == .notes {
+                    IconButton(symbol: editingNote == nil ? "plus" : "xmark", help: "Nueva nota") {
+                        withAnimation(.snappy) { editingNote = editingNote == nil ? Note(text: "") : nil }
+                    }
+                } else if section == .saved {
                     IconButton(symbol: composing ? "xmark" : "plus", help: "Nuevo texto guardado") {
                         withAnimation(.snappy) { composing.toggle() }
                     }
@@ -62,7 +73,9 @@ struct ClipboardView: View {
 
             if composing && section == .saved { composer }
 
-            if items.isEmpty {
+            if section == .notes {
+                NotesGrid(query: query, editing: $editingNote)
+            } else if items.isEmpty {
                 empty
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
@@ -77,7 +90,18 @@ struct ClipboardView: View {
             }
         }
         .onChange(of: model.focusSearch) { searchFocused = true }
-        .onAppear { if model.focusSearch > 0 { searchFocused = true } }
+        .onChange(of: model.clipSection) { takeSectionRequest() }
+        .onAppear {
+            takeSectionRequest()
+            if model.focusSearch > 0 { searchFocused = true }
+        }
+    }
+
+    private func takeSectionRequest() {
+        guard let s = model.clipSection else { return }
+        section = s
+        model.clipSection = nil
+        if s == .notes && NotesStore.shared.notes.isEmpty { editingNote = Note(text: "") }
     }
 
     private var segmented: some View {

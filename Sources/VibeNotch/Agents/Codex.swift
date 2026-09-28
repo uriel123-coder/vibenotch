@@ -41,6 +41,7 @@ final class CodexMonitor {
         timer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { _ in
             MainActor.assumeIsolated { CodexMonitor.shared.scan(initial: false) }
         }
+        timer?.tolerance = 1
     }
 
     private func scan(initial: Bool) {
@@ -130,7 +131,9 @@ final class CodexMonitor {
                 if let cwd = u.cwd { s.cwd = cwd }
                 for e in u.events {
                     switch e {
-                    case .started: s.status = .working; s.activity = "Pensando…"
+                    case .started:
+                        if s.status != .working || s.turnStarted == nil { s.turnStarted = u.modified }
+                        s.status = .working; s.activity = "Pensando…"
                     case .completed(let msg): s.status = .done; s.activity = nil; finished = .some(msg)
                     case .aborted: s.status = .idle; s.activity = "Interrumpido"
                     case .approval(let what): s.status = .waiting; s.activity = "Esperando aprobación · \(what)"
@@ -144,8 +147,7 @@ final class CodexMonitor {
                 }
             }
             if !u.fresh, case .some(let msg) = finished {
-                let snippet = msg.map { String($0.replacingOccurrences(of: "\n", with: " ").prefix(70)) }
-                store.finished(id, kind: .codex, project: u.project, title: "Codex terminó", detail: snippet)
+                store.finished(id, kind: .codex, project: u.project, title: "Codex terminó", summary: msg)
             }
         }
     }

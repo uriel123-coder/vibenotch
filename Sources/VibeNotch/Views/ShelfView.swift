@@ -57,7 +57,8 @@ struct ShelfView: View {
             .help("Abrir estos archivos en Convertir")
             Menu {
                 Button("Copiar rutas (para pegar en un prompt)") { FileTools.copyPaths(shelf.urls) }
-                Button("Comprimir todo en .zip") { let urls = shelf.urls; shelf.produce { await FileTools.zip(urls) } }
+                Button("Reducir el peso de todo") { shelf.lighten(shelf.urls) }
+                Button("Juntar todo en un .zip") { let urls = shelf.urls; shelf.produce { await FileTools.zip(urls) } }
                 Button("Enviar todo por AirDrop") { FileTools.airDrop(shelf.urls) }
                 Divider()
                 Button("Vaciar estante", role: .destructive) { withAnimation(.snappy) { shelf.clear() } }
@@ -148,7 +149,8 @@ struct ShelfTile: View {
                 ToolsStore.shared.add([url])
                 NotchModel.shared.tab = .tools
             }
-            Button("Comprimir en .zip") { shelf.produce { await FileTools.zip([url]) } }
+            Button("Reducir peso") { shelf.lighten([url]) }
+            Button("Hacer un .zip") { shelf.produce { await FileTools.zip([url]) } }
             Button("Enviar por AirDrop") { FileTools.airDrop([url]) }
             if FileTools.isImage(url) {
                 Menu("Imagen") {

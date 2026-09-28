@@ -58,36 +58,149 @@ extension Animation {
     static let snappy = Animation.spring(response: 0.3, dampingFraction: 0.75)
 }
 
+@MainActor
+enum Motion {
+    /// Looping decorations stop when the user or macOS asks for less motion.
+    static var reduced: Bool {
+        AppSettings.shared.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+}
+
+// Endless decorations run as Core Animation layers: the window server animates them, so SwiftUI
+// doesn't re-render the notch 60–120 times a second while an agent works.
+
 struct Spinner: View {
     var color: Color
     var size: CGFloat = 12
-    @State private var spin = false
 
     var body: some View {
-        Circle()
-            .trim(from: 0.2, to: 1)
-            .stroke(color, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(spin ? 360 : 0))
-            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
-            .onAppear { spin = true }
+        LoopLayer(kind: .spinner, color: NSColor(color)).frame(width: size, height: size)
     }
 }
 
 struct PulseDot: View {
     var color: Color
     var size: CGFloat = 8
-    @State private var pulse = false
 
     var body: some View {
         Circle().fill(color).frame(width: size, height: size)
-            .background(
-                Circle().fill(color.opacity(0.45))
-                    .scaleEffect(pulse ? 2.4 : 1)
-                    .opacity(pulse ? 0 : 1)
-                    .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: pulse)
-            )
-            .onAppear { pulse = true }
+            .background(LoopLayer(kind: .pulse, color: NSColor(color)).frame(width: size, height: size))
+    }
+}
+
+struct LoopLayer: NSViewRepresentable {
+    enum Kind { case spinner, pulse, equalizer }
+    var kind: Kind
+    var color: NSColor
+
+    func makeNSView(context: Context) -> LoopLayerView { LoopLayerView(kind: kind) }
+    func updateNSView(_ view: LoopLayerView, context: Context) { view.color = color }
+}
+
+final class LoopLayerView: NSView {
+    private let kind: LoopLayer.Kind
+    private var layers: [CAShapeLayer] = []
+    var color: NSColor = .white { didSet { if color != oldValue { needsLayout = true } } }
+
+    init(kind: LoopLayer.Kind) {
+        self.kind = kind
+        super.init(frame: .zero)
+        wantsLayer = true
+        clipsToBounds = false
+        let count = kind == .equalizer ? 4 : 1
+        for _ in 0..<count {
+            let l = CAShapeLayer()
+            layer?.addSublayer(l)
+            layers.append(l)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let b = bounds
+        let cg = color.cgColor
+        switch kind {
+        case .spinner:
+            let l = layers[0]
+            l.frame = b
+            l.path = CGPath(ellipseIn: b.insetBy(dx: 0.9, dy: 0.9), transform: nil)
+            l.fillColor = nil
+            l.strokeColor = cg
+            l.lineWidth = 1.8
+            l.lineCap = .round
+            l.strokeStart = 0.2
+        case .pulse:
+            let l = layers[0]
+            l.frame = b
+            l.path = CGPath(ellipseIn: b, transform: nil)
+            l.fillColor = color.withAlphaComponent(0.45).cgColor
+            l.opacity = 0
+        case .equalizer:
+            let w: CGFloat = 2.5, gap: CGFloat = 2
+            for (i, l) in layers.enumerated() {
+                l.anchorPoint = CGPoint(x: 0.5, y: 0)
+                l.frame = CGRect(x: CGFloat(i) * (w + gap), y: 0, width: w, height: b.height)
+                l.path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: w, height: b.height), cornerWidth: w / 2, cornerHeight: w / 2, transform: nil)
+                l.fillColor = cg
+            }
+        }
+        CATransaction.commit()
+        animate()
+    }
+
+    private func animate() {
+        let running = window != nil && !Motion.reduced
+        for l in layers { l.removeAllAnimations() }
+        guard running else {
+            if kind == .equalizer { for (i, l) in layers.enumerated() { l.transform = CATransform3DMakeScale(1, [0.5, 0.8, 0.4, 0.7][i], 1) } }
+            return
+        }
+        switch kind {
+        case .spinner:
+            let a = CABasicAnimation(keyPath: "transform.rotation.z")
+            a.fromValue = 0
+            a.toValue = -2 * Double.pi
+            a.duration = 0.9
+            a.repeatCount = .infinity
+            layers[0].add(a, forKey: "loop")
+        case .pulse:
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = 1
+            scale.toValue = 2.4
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1
+            fade.toValue = 0
+            let group = CAAnimationGroup()
+            group.animations = [scale, fade]
+            group.duration = 1.1
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            group.repeatCount = .infinity
+            layers[0].add(group, forKey: "loop")
+        case .equalizer:
+            let lows: [CGFloat] = [0.33, 0.9, 0.4, 0.75], highs: [CGFloat] = [0.85, 0.4, 1, 0.55]
+            let durations = [0.42, 0.36, 0.5, 0.4]
+            for (i, l) in layers.enumerated() {
+                let a = CABasicAnimation(keyPath: "transform.scale.y")
+                a.fromValue = lows[i]
+                a.toValue = highs[i]
+                a.duration = durations[i]
+                a.autoreverses = true
+                a.repeatCount = .infinity
+                a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                l.add(a, forKey: "loop")
+            }
+        }
     }
 }
 

@@ -22,9 +22,18 @@ enum Snapshot {
             await shot("\(prefix)-5-estante", panel, dir, height: 420)
             m.open(.clipboard)
             await shot("\(prefix)-6-portapapeles", panel, dir, height: 420)
+            m.clipSection = .notes
+            await shot("\(prefix)-6b-notas", panel, dir, height: 420)
+            m.clipSection = .history
             TimerStore.shared.start(minutes: 25, label: "Pomodoro")
             m.open(.today)
             await shot("\(prefix)-7-hoy", panel, dir, height: 420)
+            AppSettings.shared.widgets = [.system, .notes, .battery, .calendar]
+            m.open(.agents)
+            try? await Task.sleep(for: .milliseconds(200))
+            m.open(.today)
+            await shot("\(prefix)-7b-hoy-sistema", panel, dir, height: 420)
+            AppSettings.shared.widgets = [.music, .timer, .notes, .battery, .calendar, .system]
 
             let tools = ToolsStore.shared
             let savedPref = tools.nextToOriginal
@@ -47,6 +56,19 @@ enum Snapshot {
             AgentStore.shared.addAsk(ask)
             await shot("\(prefix)-4-permiso", panel, dir, height: 220)
             AgentStore.shared.dropAsk(ask.id)
+            m.close()
+            let question = PermissionAsk(kind: .claude, sessionID: "claude:demo", project: "vibenotch", tool: "AskUserQuestion",
+                                         detail: "", style: .questions([
+                AgentQuestion(question: "¿Qué base de datos usamos para guardar las notas?", header: "Base de datos", options: [
+                    .init(label: "SQLite", detail: "Un archivo local, sin servidor"),
+                    .init(label: "JSON", detail: "Lo más simple, ya lo usamos"),
+                    .init(label: "Core Data", detail: "Integrado en macOS"),
+                    .init(label: "Postgres", detail: "Si luego hay sincronización"),
+                ], multiSelect: false),
+            ])) { _ in }
+            AgentStore.shared.addAsk(question)
+            await shot("\(prefix)-4b-pregunta", panel, dir, height: 330)
+            AgentStore.shared.dropAsk(question.id)
             m.close()
             m.announce(Announcement(kind: .codex, title: "Codex terminó", subtitle: "api-server · Listo, pasaron las 48 pruebas"))
             await shot("\(prefix)-9-aviso", panel, dir, height: 170)
@@ -78,8 +100,24 @@ enum Snapshot {
         }
         agents.update("cursor:demo", kind: .cursor, project: "landing-page", at: now.addingTimeInterval(-40)) {
             $0.status = .done
-            $0.activity = "Listo · 6 archivos editados"
+            $0.summary = "Listo: el hero ahora es responsive y el formulario valida el correo."
+            $0.lastTurn = 214
         }
+        agents.update("claude:app-demo", kind: .claude, project: "Claude", at: now.addingTimeInterval(-120)) {
+            $0.status = .done
+            $0.source = "App"
+            $0.title = "Informe de ventas"
+            $0.summary = "Terminé el informe: 3 gráficas y un resumen de una página."
+            $0.lastTurn = 95
+        }
+        NotesStore.shared.demo([
+            Note(title: "Correo del trabajo", text: "uriel@ejemplo.com", color: 2, pinned: true),
+            Note(title: "Wi-Fi de la oficina", text: "Red: Estudio-5G\nClave: girasol-2026", color: 1, pinned: true),
+            Note(title: "Prompt de revisión", text: "Revisa este código, busca errores y explícame cada cambio en español.", color: 4),
+            Note(title: "Dirección de envío", text: "Av. Reforma 222, piso 4, CDMX", color: 0),
+        ])
+        AppSettings.shared.tabs = NotchTab.allCases
+        AppSettings.shared.widgets = [.music, .timer, .notes, .battery, .calendar, .system]
         agents.limits[.claude] = AgentLimits(windows: [
             LimitWindow(label: "5 h", used: 0.42, resetsAt: now.addingTimeInterval(2 * 3600 + 900)),
             LimitWindow(label: "Semana", used: 0.23, resetsAt: now.addingTimeInterval(4 * 86_400)),
@@ -143,15 +181,28 @@ enum Snapshot {
         func log(_ name: String, _ url: URL?) {
             lines.append("\(url == nil ? "FAIL" : "ok  ") \(name): \(url?.lastPathComponent ?? "-") \(url.map { ToolsStore.size($0) } ?? 0) B")
         }
+        func lighter(_ name: String, _ src: URL) async {
+            let before = ToolsStore.size(src)
+            guard let r = await Compress.best(src, out: out) else { return lines.append("FAIL lighter-\(name)") }
+            let after = ToolsStore.size(r)
+            lines.append(r == src ? "same lighter-\(name): ya optimizado \(before) B" : "ok   lighter-\(name): \(before) → \(after) B (\(r.lastPathComponent))")
+        }
         log("jpg", await Convert.image(png, to: .jpeg, out: out))
         log("heic", Convert.canWriteHEIC ? await Convert.image(png, to: .heic, quality: 0.8, out: out) : nil)
-        log("shrink", await Convert.shrink(png, out: out))
         log("rotate", await Convert.rotate(png, out: out))
         log("strip", await Convert.stripMetadata(png, out: out))
         log("cutout", await Convert.removeBackground(png, out: out))
         lines.append("ocr: \(await Convert.text(inImage: png) ?? "FAIL")")
         log("merge", await Convert.mergePDF([pdf, png], out: out))
-        log("shrinkPDF", await Convert.shrinkPDF(pdf, out: out))
+        await lighter("png", png)
+        await lighter("pdf", pdf)
+        await lighter("txt", samples[2])
+        if let jpg = try? FileManager.default.contentsOfDirectory(at: out, includingPropertiesForKeys: nil).first(where: { $0.lastPathComponent.contains("(ligero)") }) {
+            await lighter("again", jpg)
+        }
+        for pic in (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), includingPropertiesForKeys: nil))?.filter({ $0.pathExtension == "heic" }).prefix(1) ?? [] {
+            await lighter("heic-wallpaper", pic)
+        }
         log("pdfImages", await Convert.pdfToImages(pdf, out: out))
         let zip = await FileTools.zip(samples, out: out)
         log("zip", zip)
@@ -159,7 +210,7 @@ enum Snapshot {
         let movie = out.appendingPathComponent("clip.mov")
         if await makeMovie(movie) {
             log("mp4", await Convert.toMP4(movie, out: out))
-            log("compressVideo", await Convert.compressVideo(movie, out: out))
+            await lighter("video", movie)
             log("gif", await Convert.gif(movie, out: out))
         } else {
             lines.append("FAIL makeMovie")
@@ -178,7 +229,10 @@ enum Snapshot {
             kCVPixelBufferWidthKey as String: 640, kCVPixelBufferHeightKey as String: 360,
         ])
         writer.add(input)
-        guard writer.startWriting() else { return false }
+        guard writer.startWriting() else {
+            FileHandle.standardError.write(Data("makeMovie start: \(String(describing: writer.error))\n".utf8))
+            return false
+        }
         writer.startSession(atSourceTime: .zero)
         for i in 0..<40 {
             while !input.isReadyForMoreMediaData { try? await Task.sleep(for: .milliseconds(5)) }
@@ -192,6 +246,7 @@ enum Snapshot {
         }
         input.markAsFinished()
         await writer.finishWriting()
+        if let error = writer.error { FileHandle.standardError.write(Data("makeMovie: \(error)\n".utf8)) }
         return writer.status == .completed
     }
 

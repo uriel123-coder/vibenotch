@@ -29,9 +29,17 @@ final class BatteryMonitor: ObservableObject {
 
     func start() {
         info = Self.read()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+        guard info != nil else { return }
+        // Plug/unplug arrives instantly through this source; the timer only refreshes the estimate.
+        if let source = IOPSNotificationCreateRunLoopSource({ _ in
+            MainActor.assumeIsolated { BatteryMonitor.shared.refresh() }
+        }, nil)?.takeRetainedValue() {
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             MainActor.assumeIsolated { BatteryMonitor.shared.refresh() }
         }
+        timer?.tolerance = 10
     }
 
     private func refresh() {

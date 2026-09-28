@@ -33,6 +33,33 @@ final class ShelfStore: ObservableObject {
         }
     }
 
+    /// Smaller copies land on the shelf; the originals stay where they are.
+    func lighten(_ urls: [URL]) {
+        busy = true
+        Task { @MainActor in
+            var saved: Int64 = 0, done = 0, optimal = 0
+            for url in urls {
+                guard let out = await Compress.best(url, out: Paths.folder("Shelf")) else { continue }
+                if out == url { optimal += 1; continue }
+                saved += ToolsStore.size(url) - ToolsStore.size(out)
+                done += 1
+                add([out])
+            }
+            busy = false
+            let model = NotchModel.shared
+            if done > 0 {
+                model.announce(Announcement(symbol: "scalemass.fill", tint: .ok,
+                                            title: "Ahorraste \(Fmt.bytes(saved))",
+                                            subtitle: optimal > 0 ? "\(optimal) ya estaban optimizados" : "La copia ligera está en el estante"))
+            } else if optimal > 0 {
+                model.announce(Announcement(symbol: "checkmark.seal.fill", tint: .ok, title: "Ya estaba optimizado",
+                                            subtitle: "No se puede aligerar más sin perder calidad"))
+            } else {
+                model.announce(Announcement(symbol: "exclamationmark.triangle.fill", tint: .warn, title: "No se pudo reducir el peso"))
+            }
+        }
+    }
+
     func copyText(from url: URL) {
         Task { @MainActor in
             if let text = await FileTools.recognizeText(url) {

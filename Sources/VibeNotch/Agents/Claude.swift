@@ -71,16 +71,48 @@ enum Claude {
         case "SessionStart":
             store.update(id, kind: .claude, project: project) { $0.status = .idle }
         case "UserPromptSubmit":
-            store.update(id, kind: .claude, project: project) {
-                $0.status = .working
-                $0.activity = "Pensando…"
-            }
+            store.started(id, kind: .claude, project: project)
         case "PreToolUse":
-            let d = HookRouter.describe(tool: b.str("tool_name") ?? "Tool", input: b.obj("tool_input") ?? [:])
+            let tool = b.str("tool_name") ?? "Tool"
+            // These two are held by their own hook below; don't flip the row back to "working".
+            if tool == "AskUserQuestion" || tool == "ExitPlanMode" { break }
+            let d = HookRouter.describe(tool: tool, input: b.obj("tool_input") ?? [:])
             store.update(id, kind: .claude, project: project) {
+                if $0.turnStarted == nil { $0.turnStarted = Date() }
                 $0.status = .working
                 $0.activity = d.short
             }
+        case "AskUserQuestion":
+            let input = b.obj("tool_input") ?? [:]
+            let raw = input["questions"] as? [[String: Any]] ?? []
+            let questions = raw.compactMap(question)
+            guard !questions.isEmpty, AppSettings.shared.answerQuestions else { break }
+            store.update(id, kind: .claude, project: project) {
+                $0.status = .waiting
+                $0.activity = "Te hizo una pregunta"
+            }
+            let ask = PermissionAsk(kind: .claude, sessionID: id, project: project ?? "Claude", tool: "Pregunta",
+                                    detail: questions[0].question, style: .questions(questions)) { decision in
+                reply.send(preToolJSON(decision, input: input))
+            }
+            reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } }
+            store.addAsk(ask)
+            return
+        case "ExitPlanMode":
+            guard AppSettings.shared.answerQuestions else { break }
+            let input = b.obj("tool_input") ?? [:]
+            let plan = input.str("plan") ?? ""
+            store.update(id, kind: .claude, project: project) {
+                $0.status = .waiting
+                $0.activity = "Espera que apruebes el plan"
+            }
+            let ask = PermissionAsk(kind: .claude, sessionID: id, project: project ?? "Claude", tool: "Plan",
+                                    detail: plan, style: .plan(plan)) { decision in
+                reply.send(preToolJSON(decision, input: input))
+            }
+            reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } }
+            store.addAsk(ask)
+            return
         case "PostToolUse":
             store.update(id, kind: .claude, project: project) { $0.status = .working }
         case "PermissionRequest":
@@ -112,7 +144,17 @@ enum Claude {
                 }
             }
         case "Stop":
-            store.finished(id, kind: .claude, project: project, title: "Claude terminó")
+            store.finished(id, kind: .claude, project: project, title: "Claude terminó", summary: b.str("last_assistant_message"))
+        case "StopFailure":
+            store.update(id, kind: .claude, project: project) {
+                $0.status = .idle
+                $0.activity = b.str("last_assistant_message") ?? "Se detuvo por un error"
+                $0.turnStarted = nil
+            }
+            NotchModel.shared.announce(Announcement(symbol: "exclamationmark.triangle.fill", tint: .warn,
+                                                    title: "Claude se detuvo · \(project ?? "Claude")",
+                                                    subtitle: b.str("last_assistant_message") ?? b.str("error") ?? ""))
+            Sound.play(.ask)
         case "SessionEnd":
             store.remove(id)
         default:
@@ -127,13 +169,50 @@ enum Claude {
     private static func permissionJSON(_ d: PermissionDecision) -> String {
         let decision: [String: Any]
         switch d {
-        case .allow: decision = ["behavior": "allow"]
+        case .allow, .answers: decision = ["behavior": "allow"]
         case .deny: decision = ["behavior": "deny", "message": "El usuario lo rechazó desde VibeNotch."]
         case .terminal: return ""
         }
-        let obj: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
+        return json(["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]])
+    }
+
+    /// AskUserQuestion / ExitPlanMode only continue with "allow" plus the full `updatedInput`.
+    private static func preToolJSON(_ d: PermissionDecision, input: [String: Any]) -> String {
+        var out: [String: Any] = ["hookEventName": "PreToolUse"]
+        switch d {
+        case .answers(let answers):
+            var updated = input
+            updated["answers"] = answers
+            out["permissionDecision"] = "allow"
+            out["permissionDecisionReason"] = "Respondido desde VibeNotch"
+            out["updatedInput"] = updated
+        case .allow:
+            out["permissionDecision"] = "allow"
+            out["permissionDecisionReason"] = "Aprobado desde VibeNotch"
+            out["updatedInput"] = input
+        case .deny:
+            out["permissionDecision"] = "deny"
+            out["permissionDecisionReason"] = "El usuario quiere seguir ajustando el plan antes de empezar. Pregúntale qué cambiar."
+        case .terminal:
+            return ""
+        }
+        return json(["hookSpecificOutput": out])
+    }
+
+    private static func json(_ obj: [String: Any]) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static func question(_ q: [String: Any]) -> AgentQuestion? {
+        guard let text = q.str("question"), !text.isEmpty else { return nil }
+        let options: [AgentQuestion.Option] = (q["options"] as? [Any] ?? []).compactMap { o in
+            if let s = o as? String { return .init(label: s, detail: "") }
+            guard let d = o as? [String: Any], let label = d.str("label") else { return nil }
+            return .init(label: label, detail: d.str("description") ?? "")
+        }
+        return AgentQuestion(question: text, header: q.str("header") ?? "", options: options,
+                             multiSelect: q["multiSelect"] as? Bool ?? false)
     }
 
     private static func statusLine(id: String, project: String?, _ b: [String: Any]) -> String {
@@ -182,10 +261,7 @@ enum CursorHooks {
         defer { store.setCwd(id, root) }
         switch evt {
         case "beforeSubmitPrompt":
-            store.update(id, kind: .cursor, project: project) {
-                $0.status = .working
-                $0.activity = "Pensando…"
-            }
+            store.started(id, kind: .cursor, project: project)
         case "afterShellExecution":
             store.update(id, kind: .cursor, project: project) {
                 $0.status = .working
@@ -196,10 +272,15 @@ enum CursorHooks {
                 $0.status = .working
                 $0.activity = "Editó · \(HookRouter.project(b.str("file_path")) ?? "")"
             }
+        case "afterAgentResponse":
+            if let text = b.str("text"), !text.isEmpty {
+                store.update(id, kind: .cursor, project: project) { $0.summary = AgentStore.firstLines(text) }
+            }
         case "stop":
             let status = b.str("status") ?? "completed"
             store.finished(id, kind: .cursor, project: project,
-                           title: status == "completed" ? "Cursor terminó" : "Cursor se detuvo")
+                           title: status == "completed" ? "Cursor terminó" : "Cursor se detuvo",
+                           summary: status == "completed" ? store.sessions[id]?.summary : nil)
         default:
             break
         }

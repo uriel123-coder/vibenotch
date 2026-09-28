@@ -136,7 +136,17 @@ final class ToolsStore: ObservableObject {
         }
     }
 
-    private func finish(_ tool: Tool, _ targets: [URL], _ outputs: [URL]) {
+    private func finish(_ tool: Tool, _ targets: [URL], _ produced: [URL]) {
+        // A compressor hands back the source itself when no smaller version was possible.
+        let untouched = produced.filter(targets.contains)
+        let outputs = produced.filter { !targets.contains($0) }
+        let targets = targets.filter { !untouched.contains($0) }
+        if !untouched.isEmpty {
+            let name = untouched.count == 1 ? untouched[0].lastPathComponent : "\(untouched.count) archivos"
+            NotchModel.shared.announce(Announcement(symbol: "checkmark.seal.fill", tint: .ok, title: "Ya estaba optimizado",
+                                                    subtitle: "\(name) no se puede aligerar sin perder calidad"))
+            if outputs.isEmpty { return }
+        }
         guard !outputs.isEmpty else {
             NotchModel.shared.announce(Announcement(symbol: "exclamationmark.triangle.fill", tint: .warn,
                                                     title: "No se pudo: \(tool.title)",
@@ -159,7 +169,7 @@ final class ToolsStore: ObservableObject {
         return Paths.folder("Shelf")
     }
 
-    static func size(_ url: URL) -> Int64 {
+    nonisolated static func size(_ url: URL) -> Int64 {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return 0 }
@@ -200,7 +210,7 @@ final class ToolsStore: ObservableObject {
         }
         list += [
             Tool(id: "shrink-img", title: "Comprimir", detail: "Menos peso", symbol: "arrow.down.right.and.arrow.up.left",
-                 tint: .ok, section: .image, kinds: [.image], shrinks: true, work: .each { await Convert.shrink($0, out: $1) }),
+                 tint: .ok, section: .image, kinds: [.image], shrinks: true, work: .each { await Compress.best($0, out: $1) }),
             Tool(id: "half", title: "Reducir 50%", detail: "Mitad de tamaño", symbol: "square.resize.down", tint: .ok,
                  section: .image, kinds: [.image], shrinks: true,
                  work: .each { await Convert.image($0, to: .jpeg, scale: 0.5, suffix: " (50%)", out: $1) }),
@@ -220,7 +230,7 @@ final class ToolsStore: ObservableObject {
             Tool(id: "merge-pdf", title: "Unir en PDF", detail: "PDFs e imágenes", symbol: "doc.on.doc.fill", tint: red,
                  section: .pdf, kinds: [.pdf, .image], work: .all { await Convert.mergePDF($0, out: $1) }),
             Tool(id: "shrink-pdf", title: "Comprimir", detail: "PDF más ligero", symbol: "arrow.down.doc.fill", tint: .ok,
-                 section: .pdf, kinds: [.pdf], shrinks: true, work: .each { await Convert.shrinkPDF($0, out: $1) }),
+                 section: .pdf, kinds: [.pdf], shrinks: true, work: .each { await Compress.best($0, out: $1) }),
             Tool(id: "pdf-img", title: "A imágenes", detail: "PNG por página", symbol: "photo.on.rectangle.angled", tint: blue,
                  section: .pdf, kinds: [.pdf], work: .each { await Convert.pdfToImages($0, out: $1) }),
             Tool(id: "pdf-text", title: "Copiar texto", detail: "Texto del PDF", symbol: "text.alignleft", tint: yellow,
@@ -231,8 +241,8 @@ final class ToolsStore: ObservableObject {
                           empty: "El PDF no tiene texto seleccionable")
                  }),
 
-            Tool(id: "shrink-video", title: "Comprimir", detail: "MP4 720p", symbol: "film.stack", tint: .ok,
-                 section: .media, kinds: [.video], shrinks: true, work: .each { await Convert.compressVideo($0, out: $1) }),
+            Tool(id: "shrink-video", title: "Comprimir", detail: "MP4 más ligero", symbol: "film.stack", tint: .ok,
+                 section: .media, kinds: [.video], shrinks: true, work: .each { await Compress.best($0, out: $1) }),
             Tool(id: "mp4", title: "A MP4", detail: "Máxima calidad", symbol: "film", tint: blue,
                  section: .media, kinds: [.video], work: .each { await Convert.toMP4($0, out: $1) }),
             Tool(id: "gif", title: "A GIF", detail: "12 s · 480 px", symbol: "sparkles.tv", tint: pink,
@@ -242,7 +252,10 @@ final class ToolsStore: ObservableObject {
             Tool(id: "m4a", title: "A M4A", detail: "Audio ligero", symbol: "music.note", tint: pink,
                  section: .media, kinds: [.audio], shrinks: true, work: .each { await Convert.toM4A($0, out: $1) }),
 
-            Tool(id: "zip", title: "Zip", detail: "Todo en uno", symbol: "archivebox.fill", tint: yellow,
+            Tool(id: "lighter", title: "Reducir peso", detail: "Lo que sea", symbol: "scalemass.fill", tint: .ok,
+                 section: .files, kinds: [.image, .pdf, .video, .audio, .folder, .other], shrinks: true,
+                 work: .each { await Compress.best($0, out: $1) }),
+            Tool(id: "zip", title: "Hacer .zip", detail: "Todo en uno", symbol: "archivebox.fill", tint: yellow,
                  section: .files, kinds: [.image, .pdf, .video, .audio, .archive, .folder, .other], shrinks: true,
                  work: .all { await FileTools.zip($0, out: $1) }),
             Tool(id: "unzip", title: "Descomprimir", detail: "Abre el .zip", symbol: "shippingbox.and.arrow.backward.fill", tint: yellow,

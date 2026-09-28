@@ -2,35 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>VibeNotch</string>
-    <key>CFBundleDisplayName</key>
-    <string>VibeNotch</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.urielnak.vibenotch</string>
-    <key>CFBundleExecutable</key>
-    <string>VibeNotch</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
-    <key>NSCalendarsUsageDescription</key>
-    <string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>VibeNotch usa esto para pausar y cambiar la canción en Spotify o Música.</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>© 2026 Uriel Nakach · MIT</string>
+	<key>CFBundleDisplayName</key>
+	<string>VibeNotch</string>
+	<key>CFBundleExecutable</key>
+	<string>VibeNotch</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.urielnak.vibenotch</string>
+	<key>CFBundleName</key>
+	<string>VibeNotch</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>VibeNotch usa esto para pausar y cambiar la canción en Spotify o Música.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Uriel Nakach · MIT</string>
 </dict>
 </plist>

@@ -69,6 +69,13 @@ struct AgentSession: Identifiable {
     var tokensIn: Int?
     var tokensOut: Int?
     var tokensTotal: Int?
+    /// Where it runs when that isn't obvious from the kind, e.g. "App".
+    var source: String?
+    var title: String?
+    var turnStarted: Date?
+    var lastTurn: TimeInterval?
+    /// First lines of the final answer of the last turn.
+    var summary: String?
 
     var contextFraction: Double? {
         guard let u = contextUsed, let w = contextWindow, w > 0 else { return nil }
@@ -76,16 +83,47 @@ struct AgentSession: Identifiable {
     }
 }
 
-enum PermissionDecision { case allow, deny, terminal }
+enum PermissionDecision {
+    case allow, deny, terminal
+    /// Question text → chosen label(s), for AskUserQuestion.
+    case answers([String: String])
+}
+
+struct AgentQuestion: Identifiable {
+    struct Option: Identifiable {
+        var id: String { label }
+        let label: String
+        let detail: String
+    }
+    var id: String { question }
+    let question: String
+    let header: String
+    let options: [Option]
+    let multiSelect: Bool
+}
 
 struct PermissionAsk: Identifiable {
+    enum Style {
+        case permission
+        case questions([AgentQuestion])
+        case plan(String)
+    }
     let id = UUID()
     let kind: AgentKind
     let sessionID: String
     let project: String
     let tool: String
     let detail: String
+    var style: Style = .permission
     let reply: (PermissionDecision) -> Void
+
+    var title: String {
+        switch style {
+        case .permission: "\(kind.short) pide permiso"
+        case .questions(let q): q.count == 1 ? "\(kind.short) te pregunta" : "\(kind.short) te hace \(q.count) preguntas"
+        case .plan: "\(kind.short) tiene un plan"
+        }
+    }
 }
 
 struct LimitWindow: Identifiable {
@@ -122,6 +160,7 @@ final class AgentStore: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             MainActor.assumeIsolated { AgentStore.shared.prune() }
         }
+        timer?.tolerance = 2
     }
 
     var ordered: [AgentSession] {
@@ -185,15 +224,42 @@ final class AgentStore: ObservableObject {
         dropped.forEach { $0.reply(.terminal) }
     }
 
-    func finished(_ id: String, kind: AgentKind, project: String?, title: String, detail: String? = nil) {
+    func started(_ id: String, kind: AgentKind, project: String?, activity: String = "Pensando…") {
+        update(id, kind: kind, project: project) {
+            if $0.status != .working || $0.turnStarted == nil { $0.turnStarted = Date() }
+            $0.status = .working
+            $0.activity = activity
+        }
+    }
+
+    func finished(_ id: String, kind: AgentKind, project: String?, title: String, summary: String? = nil) {
+        let clean = summary.map(Self.firstLines).flatMap { $0.isEmpty ? nil : $0 }
         update(id, kind: kind, project: project) {
             $0.status = .done
             $0.activity = nil
+            if let clean { $0.summary = clean }
+            if let t = $0.turnStarted { $0.lastTurn = Date().timeIntervalSince(t) }
+            $0.turnStarted = nil
         }
-        let name = project ?? sessions[id]?.project ?? kind.short
-        NotchModel.shared.announce(Announcement(kind: kind, title: title,
-                                                subtitle: [name, detail].compactMap { $0 }.joined(separator: " · ")))
+        let s = sessions[id]
+        let name = project ?? s?.project ?? kind.short
+        let took = s?.lastTurn.flatMap { $0 >= 20 ? "tardó \(Fmt.elapsed($0))" : nil }
+        let preview = AppSettings.shared.showSummaries ? clean : nil
+        let subtitle = preview ?? [name, took].compactMap { $0 }.joined(separator: " · ")
+        let heading = preview == nil ? title : "\(title) · \(name)"
+        NotchModel.shared.announce(Announcement(kind: kind, title: heading, subtitle: subtitle), for: preview == nil ? 4.5 : 6.5)
         Sound.play(.done)
+    }
+
+    /// Markdown-light first sentence(s) of an answer, good for a one-line preview.
+    static func firstLines(_ text: String) -> String {
+        let lines = text.split(whereSeparator: \.isNewline).map { line in
+            line.trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "#>*-• `"))
+                .replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "`", with: "")
+        }.filter { !$0.isEmpty }
+        return String(lines.prefix(3).joined(separator: " ").prefix(220))
     }
 
     func addAsk(_ ask: PermissionAsk) {
@@ -207,10 +273,13 @@ final class AgentStore: ObservableObject {
         asks.removeAll { $0.id == ask.id }
         ask.reply(decision)
         update(ask.sessionID, kind: ask.kind, project: nil) {
-            switch decision {
-            case .allow: $0.status = .working; $0.activity = "Permitido · \(ask.tool)"
-            case .deny: $0.status = .working; $0.activity = "Rechazado · \(ask.tool)"
-            case .terminal: $0.status = .waiting; $0.activity = "Responde en la terminal"
+            switch (decision, ask.style) {
+            case (.allow, .plan): $0.status = .working; $0.activity = "Plan aprobado"
+            case (.deny, .plan): $0.status = .working; $0.activity = "Ajustando el plan"
+            case (.allow, _): $0.status = .working; $0.activity = "Permitido · \(ask.tool)"
+            case (.deny, _): $0.status = .working; $0.activity = "Rechazado · \(ask.tool)"
+            case (.answers(let a), _): $0.status = .working; $0.activity = "Respondiste · \(a.values.joined(separator: ", "))"
+            case (.terminal, _): $0.status = .waiting; $0.activity = "Responde en la terminal"
             }
         }
         NotchModel.shared.askResolved()

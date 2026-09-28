@@ -21,7 +21,7 @@ enum HookInstaller {
         --data-binary @- "http://127.0.0.1:$PORT/hook?src=$SRC&evt=$EVT" 2>/dev/null
     }
     case "$SRC:$EVT" in
-      claude:PermissionRequest) post 290 ;;
+      claude:PermissionRequest|claude:AskUserQuestion|claude:ExitPlanMode) post 290 ;;
       claude:statusline) post 1 ;;
       *) post 1 >/dev/null; fallback ;;
     esac
@@ -43,17 +43,35 @@ enum HookInstaller {
         (try? String(contentsOf: url, encoding: .utf8))?.contains(marker) ?? false
     }
 
+    private static let cursorEvents = ["beforeSubmitPrompt", "afterShellExecution", "afterFileEdit", "afterAgentResponse", "stop"]
+    /// (hook event, matcher, bridge event name, timeout). Questions and plans wait for the user, like permissions.
+    private static let claudeEvents: [(String, String?, String, Int)] = [
+        ("SessionStart", nil, "SessionStart", 5), ("UserPromptSubmit", nil, "UserPromptSubmit", 5),
+        ("PreToolUse", "*", "PreToolUse", 5),
+        ("PreToolUse", "AskUserQuestion", "AskUserQuestion", 300), ("PreToolUse", "ExitPlanMode", "ExitPlanMode", 300),
+        ("PostToolUse", "*", "PostToolUse", 5), ("PermissionRequest", "*", "PermissionRequest", 300),
+        ("Notification", nil, "Notification", 5), ("Stop", nil, "Stop", 5), ("StopFailure", nil, "StopFailure", 5),
+        ("SessionEnd", nil, "SessionEnd", 5),
+    ]
+
+    /// Re-registers hooks written by an older version so new events (questions, plans…) start flowing.
+    static func upgradeIfNeeded() {
+        if claudeInstalled, let text = try? String(contentsOf: claudeSettings, encoding: .utf8),
+           !claudeEvents.allSatisfy({ text.contains(" claude \($0.2)\"") }) {
+            try? setClaude(true)
+        }
+        if cursorInstalled, let text = try? String(contentsOf: cursorHooks, encoding: .utf8),
+           !cursorEvents.allSatisfy({ text.contains(" cursor \($0)\"") }) {
+            try? setCursor(true)
+        }
+    }
+
     static func setClaude(_ on: Bool) throws {
         var root = try readJSON(claudeSettings)
         var hooks = strip(root["hooks"] as? [String: Any] ?? [:])
         if on {
-            let events: [(String, String?, Int)] = [
-                ("SessionStart", nil, 5), ("UserPromptSubmit", nil, 5), ("PreToolUse", "*", 5),
-                ("PostToolUse", "*", 5), ("PermissionRequest", "*", 300), ("Notification", nil, 5),
-                ("Stop", nil, 5), ("SessionEnd", nil, 5),
-            ]
-            for (evt, matcher, timeout) in events {
-                var group: [String: Any] = ["hooks": [["type": "command", "command": command("claude", evt), "timeout": timeout]]]
+            for (evt, matcher, name, timeout) in claudeEvents {
+                var group: [String: Any] = ["hooks": [["type": "command", "command": command("claude", name), "timeout": timeout]]]
                 if let matcher { group["matcher"] = matcher }
                 hooks[evt] = (hooks[evt] as? [Any] ?? []) + [group]
             }
@@ -71,7 +89,7 @@ enum HookInstaller {
         var root = try readJSON(cursorHooks)
         var hooks = strip(root["hooks"] as? [String: Any] ?? [:])
         if on {
-            for evt in ["beforeSubmitPrompt", "afterShellExecution", "afterFileEdit", "stop"] {
+            for evt in cursorEvents {
                 hooks[evt] = (hooks[evt] as? [Any] ?? []) + [["command": command("cursor", evt)]]
             }
         }

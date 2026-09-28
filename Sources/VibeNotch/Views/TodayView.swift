@@ -1,18 +1,127 @@
 import SwiftUI
 
 struct TodayView: View {
+    @ObservedObject private var settings = AppSettings.shared
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        let widgets = settings.widgets
+        if widgets.isEmpty {
             VStack(spacing: 8) {
-                MusicCard()
-                BatteryCard()
+                Image(systemName: "square.grid.2x2").font(.system(size: 22)).foregroundStyle(.white.opacity(0.4))
+                Text("No hay widgets activos").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.secondary)
+                Button("Elegir widgets") { SettingsWindow.shared.show(.today) }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.14)))
             }
-            VStack(spacing: 8) {
-                TimerCard()
-                CalendarCard()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 8) {
+                    column(widgets.enumerated().filter { $0.offset % 2 == 0 }.map(\.element))
+                    if widgets.count > 1 {
+                        column(widgets.enumerated().filter { $0.offset % 2 == 1 }.map(\.element))
+                    }
+                }
+                .padding(.horizontal, 2)
             }
         }
-        .padding(.horizontal, 2)
+    }
+
+    private func column(_ items: [TodayWidget]) -> some View {
+        VStack(spacing: 8) {
+            ForEach(items) { widget($0) }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private func widget(_ w: TodayWidget) -> some View {
+        switch w {
+        case .music: MusicCard()
+        case .timer: TimerCard()
+        case .battery: BatteryCard()
+        case .calendar: CalendarCard()
+        case .system: SystemCard()
+        case .notes: PinnedNotesCard()
+        }
+    }
+}
+
+struct SystemCard: View {
+    @ObservedObject private var monitor = SystemMonitor.shared
+
+    var body: some View {
+        let s = monitor.stats
+        VStack(alignment: .leading, spacing: 7) {
+            CardTitle(symbol: "memorychip", title: "Sistema", tint: .teal)
+            meter("CPU", s.cpu, "\(Int((s.cpu * 100).rounded()))%")
+            meter("RAM", s.memoryFraction, "\(Fmt.memory(s.memoryUsed)) de \(Fmt.memory(s.memoryTotal))")
+            meter("Disco", s.diskFraction, "\(Fmt.bytes(s.diskFree)) libres")
+            Text("VibeNotch usa \(Fmt.memory(s.ownMemory))")
+                .font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.35))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+        .onAppear { monitor.watch() }
+        .onDisappear { monitor.unwatch() }
+    }
+
+    private func meter(_ label: String, _ value: Double, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label).font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                Spacer()
+                Text(detail).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.1))
+                    Capsule().fill(color(value)).frame(width: max(4, g.size.width * min(1, max(0, value))))
+                }
+            }
+            .frame(height: 4)
+            .animation(.snappy, value: value)
+        }
+    }
+
+    private func color(_ v: Double) -> Color { v > 0.9 ? .danger : v > 0.75 ? .warn : .teal }
+}
+
+struct PinnedNotesCard: View {
+    @ObservedObject private var notes = NotesStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CardTitle(symbol: "note.text", title: "Notas", tint: .yellow)
+            let list = notes.pinned.isEmpty ? Array(notes.sorted.prefix(3)) : Array(notes.pinned.prefix(4))
+            if list.isEmpty {
+                Text("Crea notas en Clips › Notas y fíjalas para tenerlas aquí.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Button("Nueva nota") {
+                    NotchModel.shared.clipSection = .notes
+                    NotchModel.shared.tab = .clipboard
+                }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+            } else {
+                ForEach(list) { note in
+                    let copied = notes.lastCopied == note.id
+                    HStack(spacing: 8) {
+                        Capsule().fill(note.tint).frame(width: 3, height: 18)
+                        Text(note.heading).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(copied ? Color.ok : .white.opacity(0.4))
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .onTapGesture { notes.copy(note) }
+                    .help("Clic para copiar")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 }
 
@@ -233,19 +342,9 @@ struct Artwork: View {
 /// Animated bars shown while music plays.
 struct Equalizer: View {
     var color: Color
-    @State private var phase = false
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<4, id: \.self) { i in
-                Capsule()
-                    .fill(color)
-                    .frame(width: 2.5, height: phase ? [10, 5, 12, 7][i] : [4, 11, 5, 9][i])
-                    .animation(.easeInOut(duration: [0.42, 0.36, 0.5, 0.4][i]).repeatForever(autoreverses: true), value: phase)
-            }
-        }
-        .frame(height: 12, alignment: .bottom)
-        .onAppear { phase = true }
+        LoopLayer(kind: .equalizer, color: NSColor(color)).frame(width: 16, height: 12)
     }
 }
 

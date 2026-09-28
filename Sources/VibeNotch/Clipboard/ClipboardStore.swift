@@ -46,7 +46,6 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var saved: [ClipItem] = []
     @Published private(set) var lastCopied: UUID?
 
-    private let maxHistory = 200
     private var changeCount = NSPasteboard.general.changeCount
     private var timer: Timer?
     private var saveGeneration = 0
@@ -69,6 +68,7 @@ final class ClipboardStore: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             MainActor.assumeIsolated { ClipboardStore.shared.poll() }
         }
+        timer?.tolerance = 0.2
     }
 
     private func poll() {
@@ -96,9 +96,12 @@ final class ClipboardStore: ObservableObject {
             history.remove(at: dupe)
         }
         history.insert(item, at: 0)
-        while history.count > maxHistory { discard(history.removeLast()) }
+        while history.count > max(20, AppSettings.shared.historySize) { discard(history.removeLast()) }
         scheduleSave()
     }
+
+    /// Our own writes (notes, tools) shouldn't show up as history entries.
+    func skipCurrentChange() { changeCount = NSPasteboard.general.changeCount }
 
     func copy(_ item: ClipItem) {
         let pb = NSPasteboard.general

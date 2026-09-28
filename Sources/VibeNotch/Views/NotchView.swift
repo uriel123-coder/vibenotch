@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotchRootView: View {
     @ObservedObject private var model = NotchModel.shared
+    @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var agents = AgentStore.shared
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
@@ -12,7 +13,7 @@ struct NotchRootView: View {
         let size = model.size()
         let r = model.radii
         let shape = NotchShape(topRadius: r.top, bottomRadius: r.bottom, island: model.island)
-        let hidden = model.island && model.state == .closed && !model.showsIndicators
+        let hidden = model.island && model.state == .closed && !model.showsIndicators && !model.showsHandle
 
         ZStack(alignment: .top) {
             shape.fill(.black)
@@ -160,7 +161,9 @@ struct PeekView: View {
     var body: some View {
         VStack(spacing: 6) {
             if !model.island { Color.clear.frame(height: model.notchSize.height - 6) }
-            if let ask = agents.asks.first {
+            if model.dropHint {
+                dropHint
+            } else if let ask = agents.asks.first {
                 AskCard(ask: ask, compact: true)
             } else if let a = model.announcement {
                 announcement(a)
@@ -171,6 +174,27 @@ struct PeekView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, model.island ? 8 : 0)
         .frame(maxHeight: model.island ? .infinity : nil)
+    }
+
+    private var dropHint: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "tray.and.arrow.down.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.ok)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.ok.opacity(0.16)))
+                .symbolEffect(.bounce, options: .repeating, value: model.dropHint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Suéltalo aquí").font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                Text("Se guarda en el estante para usarlo después").font(.system(size: 10.5)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 4)
+        .foregroundStyle(.white)
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Color.ok.opacity(0.45), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+            .padding(-5))
     }
 
     private func announcement(_ a: Announcement) -> some View {
@@ -262,13 +286,14 @@ struct LimitChip: View {
 struct OpenView: View {
     @ObservedObject private var model = NotchModel.shared
     @ObservedObject private var agents = AgentStore.shared
+    @ObservedObject private var settings = AppSettings.shared
     @Namespace private var tabNS
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 0) {
                 HStack(spacing: 2) {
-                    ForEach(NotchTab.allCases, id: \.self) { tab in tabButton(tab) }
+                    ForEach(settings.tabs, id: \.self) { tab in tabButton(tab) }
                 }
                 .fixedSize()
                 .compositingGroup()
@@ -279,7 +304,7 @@ struct OpenView: View {
                     if !agents.asks.isEmpty {
                         PulseDot(color: .warn, size: 6).padding(.trailing, 6)
                     }
-                    IconButton(symbol: "gearshape.fill", help: "Ajustes") { AppDelegate.shared.showMenu() }
+                    IconButton(symbol: "gearshape.fill", help: "Ajustes") { SettingsWindow.shared.show() }
                 }
                 .frame(maxWidth: model.island ? nil : .infinity, alignment: .trailing)
             }

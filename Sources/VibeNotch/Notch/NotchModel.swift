@@ -64,9 +64,15 @@ final class NotchModel: ObservableObject {
     @Published var tab: NotchTab = .agents
     @Published var announcement: Announcement?
     @Published var dropTargeted = false
+    /// A file drag is in progress somewhere on screen: show where to drop it.
+    @Published var dropHint = false
+    /// Asks the Clips tab to switch section (e.g. "Nueva nota" from Hoy).
+    @Published var clipSection: ClipboardView.Section?
     @Published var notchSize = CGSize(width: 185, height: 32)
     /// Macs without a notch get a floating island below the menu bar instead of a fake notch.
     @Published var hasNotch = true
+    /// What the current display really has, whatever style the user picked.
+    @Published var detectedNotch = false
     @Published var islandTop: CGFloat = 0
     @Published var fullscreen = false
     @Published var focusSearch = 0
@@ -102,18 +108,45 @@ final class NotchModel: ObservableObject {
         return hasLiveActivity || (!island && !ShelfStore.shared.items.isEmpty)
     }
 
+    /// Tiny pill that tells people without a notch where VibeNotch lives.
+    var showsHandle: Bool { island && AppSettings.shared.islandHandle && !fullscreen }
+
     var sideWidth: CGFloat { TimerStore.shared.isActive ? 52 : 34 }
+
+    /// Height of the ask card in the peek, which grows with the number of questions and options.
+    private func askHeight(_ ask: PermissionAsk) -> CGFloat {
+        switch ask.style {
+        case .permission: return 126
+        case .plan: return 250
+        case .questions(let questions):
+            var h: CGFloat = 26 + 22
+            for q in questions {
+                let rows = CGFloat((q.options.count + 2) / 2)
+                let tall = q.options.contains { !$0.detail.isEmpty }
+                h += 16 + CGFloat(max(1, (q.question.count + 69) / 70)) * 16 + rows * (tall ? 46 : 32) + 14
+            }
+            return min(h, 400)
+        }
+    }
 
     func size() -> CGSize {
         let n = notchSize
-        let hasAsk = !AgentStore.shared.asks.isEmpty
+        let ask = AgentStore.shared.asks.first
         switch state {
         case .closed:
-            if island { return showsIndicators ? CGSize(width: 260, height: 30) : CGSize(width: 120, height: 0) }
+            if island {
+                if showsIndicators { return CGSize(width: 260, height: 30) }
+                return showsHandle ? CGSize(width: 64, height: 6) : CGSize(width: 120, height: 0)
+            }
             return CGSize(width: n.width + (showsIndicators ? sideWidth * 2 : 0), height: n.height)
         case .peek:
-            if island { return hasAsk ? CGSize(width: 470, height: 134) : CGSize(width: 420, height: 58) }
-            if hasAsk { return CGSize(width: max(n.width + 280, 470), height: n.height + 126) }
+            if dropHint { return island ? CGSize(width: 360, height: 64) : CGSize(width: max(n.width + 200, 400), height: n.height + 56) }
+            if let ask {
+                let wide: CGFloat = { if case .permission = ask.style { return 470 }; return 540 }()
+                return island ? CGSize(width: wide, height: askHeight(ask) + 8)
+                              : CGSize(width: max(n.width + 300, wide), height: n.height + askHeight(ask))
+            }
+            if island { return CGSize(width: 420, height: 58) }
             return CGSize(width: max(n.width + 220, 420), height: n.height + 50)
         case .open:
             if island { return CGSize(width: 620, height: 350) }
@@ -124,6 +157,8 @@ final class NotchModel: ObservableObject {
 
     func open(_ tab: NotchTab? = nil) {
         if let tab { self.tab = tab } else if !AgentStore.shared.asks.isEmpty { self.tab = .agents }
+        else if !AppSettings.shared.tabs.contains(self.tab), let first = AppSettings.shared.tabs.first { self.tab = first }
+        dropHint = false
         state = .open
     }
 
@@ -133,6 +168,7 @@ final class NotchModel: ObservableObject {
         engaged = false
         announcement = nil
         dropTargeted = false
+        dropHint = false
         onClose?()
     }
 

@@ -18,6 +18,11 @@ final class NotchPanel: NSPanel {
     }
 
     override var canBecomeKey: Bool { true }
+
+    /// Lets a text field in the notch take typing without pulling the user's app out of focus.
+    static func focus() {
+        NSApp.windows.first { $0 is NotchPanel }?.makeKey()
+    }
     override var canBecomeMain: Bool { false }
     /// AppKit would push the panel below a menu bar that displays without one don't have.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -39,6 +44,8 @@ final class NotchController {
     private var dragBaseline = NSPasteboard(name: .drag).changeCount
     private var cancellables = Set<AnyCancellable>()
     private var fullscreenTimer: Timer?
+    private var dropHintCheck: Timer?
+    private var dragStart: (NSPoint, Date)?
 
     init() {
         let host = FirstMouseHostingView(rootView: NotchRootView())
@@ -70,15 +77,25 @@ final class NotchController {
             return e
         }) { monitors.append(m) }
 
-        if !snapshot { fullscreenTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let fs = self.frontAppIsFullscreen()
-                if fs != self.model.fullscreen { self.model.fullscreen = fs }
+        if !snapshot {
+            // Space and app switches cover almost every change; the slow timer catches the rest
+            // (e.g. the green button pressed in the app that's already in front).
+            let ws = NSWorkspace.shared.notificationCenter
+            for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
+                ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshFullscreen(soon: true) }
+                }
             }
-        } }
+            fullscreenTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshFullscreen() }
+            }
+            fullscreenTimer?.tolerance = 1
+        }
 
         model.onClose = { [weak self] in self?.restoreFocus() }
+        AppSettings.shared.$style.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.layout() } }
+        }.store(in: &cancellables)
         guard !snapshot else { return }
         model.$state.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
@@ -129,6 +146,12 @@ final class NotchController {
     func layout() {
         let f = screen.frame
         let env = ProcessInfo.processInfo.environment
+        let menuBar = max(0, f.maxY - screen.visibleFrame.maxY)
+        let real: CGSize? = {
+            guard screen.safeAreaInsets.top > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea else { return nil }
+            return CGSize(width: (f.width - l.width - r.width).rounded(), height: screen.safeAreaInsets.top)
+        }()
+        model.detectedNotch = real != nil
         if env["VIBENOTCH_FAKE_NOTCH"] != nil {
             model.notchSize = CGSize(width: 185, height: 32)
             model.hasNotch = true
@@ -137,15 +160,19 @@ final class NotchController {
             model.notchSize = CGSize(width: 150, height: 24)
             model.hasNotch = false
             model.islandTop = 30
-        } else if screen.safeAreaInsets.top > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
-            model.notchSize = CGSize(width: (f.width - l.width - r.width).rounded(), height: screen.safeAreaInsets.top)
-            model.hasNotch = true
-            model.islandTop = 0
         } else {
-            let menuBar = max(0, f.maxY - screen.visibleFrame.maxY)
-            model.notchSize = CGSize(width: 150, height: max(24, menuBar))
-            model.hasNotch = false
-            model.islandTop = menuBar + 6
+            let style = AppSettings.shared.style
+            let notch = style == .notch || (style == .auto && real != nil)
+            if notch {
+                // Displays without a camera housing get a notch drawn over the middle of the menu bar.
+                model.notchSize = real ?? CGSize(width: 190, height: max(24, menuBar > 0 ? menuBar : 32))
+                model.hasNotch = true
+                model.islandTop = 0
+            } else {
+                model.notchSize = CGSize(width: 150, height: max(24, menuBar))
+                model.hasNotch = false
+                model.islandTop = menuBar + 6
+            }
         }
         let w: CGFloat = 800, h: CGFloat = 480
         panel.setFrame(NSRect(x: f.midX - w / 2, y: f.maxY - h, width: w, height: h), display: true)
@@ -162,9 +189,21 @@ final class NotchController {
         if model.island {
             let h = max(model.islandTop, 14)
             let strip = NSRect(x: f.midX - 150, y: f.maxY - h, width: 300, height: h)
-            return model.showsIndicators ? strip.union(rect(model.size()).insetBy(dx: -6, dy: -4)) : strip
+            let visible = model.showsIndicators || model.showsHandle
+            return visible ? strip.union(rect(model.size()).insetBy(dx: -8, dy: -8)) : strip
         }
         return rect(CGSize(width: model.size().width + 16, height: model.notchSize.height + 4))
+    }
+
+    private func refreshFullscreen(soon: Bool = false) {
+        let apply = { [weak self] in
+            guard let self else { return }
+            let fs = self.frontAppIsFullscreen()
+            if fs != self.model.fullscreen { self.model.fullscreen = fs }
+        }
+        apply()
+        // Fullscreen transitions animate for ~0.7 s; look again once they settle.
+        if soon { DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { MainActor.assumeIsolated(apply) } }
     }
 
     private func frontAppIsFullscreen() -> Bool {
@@ -208,21 +247,57 @@ final class NotchController {
         switch type {
         case .leftMouseDown:
             dragBaseline = NSPasteboard(name: .drag).changeCount
+            dragStart = (p, Date())
             if !inside && !local && model.state != .closed { model.close() }
+        case .leftMouseUp:
+            dragStart = nil
+            if model.dropHint { endDropHint(after: 0.4) }
         case .leftMouseDragged where !model.isDraggingOut:
             let f = screen.frame
-            let zoneWidth = max(size.width, model.notchSize.width + 180, 340)
-            let zone = NSRect(x: f.midX - zoneWidth / 2, y: f.maxY - model.islandTop - model.notchSize.height - 60,
-                              width: zoneWidth, height: model.islandTop + model.notchSize.height + 60)
-            if model.state != .open && zone.contains(p) && NSPasteboard(name: .drag).changeCount != dragBaseline {
+            let dragging = NSPasteboard(name: .drag).changeCount != dragBaseline
+            let zoneWidth = max(size.width, model.notchSize.width + 220, 420)
+            let zoneDepth: CGFloat = model.dropHint ? 140 : 60
+            let zone = NSRect(x: f.midX - zoneWidth / 2, y: f.maxY - model.islandTop - model.notchSize.height - zoneDepth,
+                              width: zoneWidth, height: model.islandTop + model.notchSize.height + zoneDepth)
+            if model.state != .open && zone.contains(p) && dragging {
                 model.open(.shelf)
                 model.engaged = true
                 panel.ignoresMouseEvents = false
+            } else if dragging && model.state == .closed && AppSettings.shared.dropHint && !local,
+                      let start = dragStart, Date().timeIntervalSince(start.1) > 0.25, hypot(p.x - start.0.x, p.y - start.0.y) > 60,
+                      NSPasteboard(name: .drag).canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
+                model.dropHint = true
+                model.state = .peek
+                endDropHint(after: nil)
             }
         default:
             break
         }
         hover(inside: keepZone(size).contains(p), at: p)
+    }
+
+    /// Hides the "drop here" hint once the drag ends (mouse-up doesn't always reach a global monitor mid-drag).
+    private func endDropHint(after delay: Double?) {
+        dropHintCheck?.invalidate()
+        if let delay {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.model.dropHint, self.model.state == .peek else { return }
+                    self.model.close()
+                }
+            }
+            return
+        }
+        dropHintCheck = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] t in
+            MainActor.assumeIsolated {
+                guard let self else { return t.invalidate() }
+                guard self.model.dropHint else { return t.invalidate() }
+                if NSEvent.pressedMouseButtons & 1 == 0 {
+                    t.invalidate()
+                    self.endDropHint(after: 0.4)
+                }
+            }
+        }
     }
 
     private func hover(inside: Bool, at p: NSPoint) {
@@ -241,7 +316,7 @@ final class NotchController {
                     }
                 }
                 hoverWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + (model.island ? 0.22 : 0.09), execute: work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.shared.hoverDelay + (model.island ? 0.07 : 0), execute: work)
             } else if !hot {
                 hoverWork?.cancel()
                 hoverWork = nil

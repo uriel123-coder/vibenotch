@@ -34,15 +34,6 @@ enum Convert {
         }.value
     }
 
-    /// Smaller file: at most 2048 px, JPEG (or PNG when the image has transparency).
-    static func shrink(_ url: URL, out: URL) async -> URL? {
-        await Task.detached(priority: .userInitiated) { () -> URL? in
-            guard let (image, _) = load(url, maxSide: 2048) else { return nil }
-            let type: UTType = hasTransparency(image) ? .png : .jpeg
-            return write(image, type: type, quality: 0.62, to: dest(url, " (comprimida)", ext(type), out))
-        }.value
-    }
-
     /// Same format when possible, re-encoded without EXIF/GPS (orientation is baked in).
     static func stripMetadata(_ url: URL, out: URL) async -> URL? {
         let type = writableType(for: url)
@@ -143,15 +134,6 @@ enum Convert {
         }.value
     }
 
-    static func shrinkPDF(_ url: URL, out: URL) async -> URL? {
-        let target = dest(url, " (comprimido)", "pdf", out)
-        return await Task.detached(priority: .userInitiated) { () -> URL? in
-            guard let doc = PDFDocument(url: url) else { return nil }
-            let ok = doc.write(to: target, withOptions: [.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true])
-            return ok ? target : nil
-        }.value
-    }
-
     static func text(inPDF url: URL) async -> String? {
         await Task.detached(priority: .userInitiated) { () -> String? in
             let s = PDFDocument(url: url)?.string?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -172,10 +154,6 @@ enum Convert {
         if session.status == .completed { return target }
         try? FileManager.default.removeItem(at: target)
         return nil
-    }
-
-    static func compressVideo(_ url: URL, out: URL) async -> URL? {
-        await export(url, preset: AVAssetExportPreset1280x720, as: .mp4, ext: "mp4", suffix: " (comprimido)", out: out)
     }
 
     static func toMP4(_ url: URL, out: URL) async -> URL? {
@@ -279,7 +257,7 @@ enum Convert {
     }
 
     /// An alpha channel alone isn't enough: many screenshots carry one but are fully opaque.
-    private static func hasTransparency(_ image: CGImage) -> Bool {
+    static func hasTransparency(_ image: CGImage) -> Bool {
         guard hasAlpha(image), let ctx = context(image.width, image.height) else { return false }
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         guard let data = ctx.data else { return true }

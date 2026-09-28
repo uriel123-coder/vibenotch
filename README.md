@@ -6,7 +6,7 @@
 
 **El notch de tu Mac, convertido en centro de control para tus agentes de IA, tus archivos y tu día.**
 
-Claude Code · Codex · Cursor · estante tipo Dropover · portapapeles · convertidor de archivos · música, timer y calendario
+Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · portapapeles y notas · convertidor y compresor de archivos · widgets
 
 [![Build](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml/badge.svg)](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/uriel123-coder/vibenotch?label=descargar)](https://github.com/uriel123-coder/vibenotch/releases/latest)
@@ -27,6 +27,8 @@ Claude Code · Codex · Cursor · estante tipo Dropover · portapapeles · conve
 - [Primeros pasos](#primeros-pasos)
 - [Conectar tus agentes](#conectar-tus-agentes)
 - [Con notch o sin notch, una o varias pantallas](#con-notch-o-sin-notch-una-o-varias-pantallas)
+- [Personalizar](#personalizar)
+- [Consumo: RAM y batería](#consumo-ram-y-batería)
 - [Atajos de teclado](#atajos-de-teclado)
 - [Permisos](#permisos)
 - [Privacidad](#privacidad)
@@ -43,38 +45,56 @@ VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). 
 
 ### ✨ Agentes: ve lo que hace tu IA sin cambiar de ventana
 
-- **Claude Code, Codex y Cursor** en un solo lugar: qué proyecto, qué está haciendo ("Editando NotchView.swift", "Ejecutando npm test") y si ya terminó.
-- **Permisos desde el notch**: cuando Claude Code pide permiso para correr un comando, aparece la tarjeta y respondes **Permitir** o **Rechazar** sin ir a la terminal.
-- **Aviso al terminar** con sonido, para que no tengas que vigilar la terminal.
+- **Claude Code, app de Claude, Codex y Cursor** en un solo lugar: qué proyecto, qué está haciendo ("Editando NotchView.swift", "Ejecutando npm test") y si ya terminó.
+- **Responde preguntas desde el notch**: cuando Claude Code te hace preguntas de opción múltiple (o varias a la vez), aparecen ahí mismo. Tocas la opción, escribes "Otra respuesta" o eliges responder en la terminal.
+- **Aprueba planes**: cuando Claude termina de planear, lees el plan y eliges **Aprobar** o **Seguir planeando**.
+- **Permisos desde el notch**: cuando Claude Code pide permiso para correr un comando, respondes **Permitir** o **Rechazar** sin ir a la terminal.
+- **Terminó, y qué hizo**: al acabar ves una palomita, el resumen de lo que respondió y cuánto tardó ("Listo: el formulario ya valida el correo · tardó 3 min"), con su sonido.
+- **App de Claude (escritorio)**: sigue tus sesiones de Claude Code y Cowork dentro de la app. Ves cuándo trabaja, cuándo termina y cuándo te necesita, además de tus límites de uso, sin configurar nada.
 - **Contexto y tokens** de cada sesión (barra de contexto usado y tokens totales).
 - **Límites de tu plan**: ventana de 5 horas y semanal de Claude (Pro/Max) y de Codex (Plus/Pro), con cuándo se reinician.
 
 <p align="center">
+  <img src="docs/screenshots/notch-4b-pregunta.png" width="49%" alt="Claude te pregunta y respondes desde el notch">
   <img src="docs/screenshots/notch-4-permiso.png" width="49%" alt="Permiso de Claude desde el notch">
-  <img src="docs/screenshots/notch-2-vistazo.png" width="49%" alt="Vistazo rápido">
 </p>
 
 ### 📥 Estante: arrastra y suelta, como Dropover
 
-Arrastra cualquier archivo hacia el notch y se queda ahí guardado. Después lo arrastras a donde quieras (Mail, Slack, Finder, un prompt…). Desde el estante también puedes hacer zip, mandarlo por AirDrop, copiar rutas o abrirlo en Convertir.
+Arrastra cualquier archivo hacia el notch y se queda ahí guardado. Después lo arrastras a donde quieras (Mail, Slack, Finder, un prompt…). Desde el estante también puedes **reducir su peso**, juntarlo en un .zip, mandarlo por AirDrop, copiar rutas o abrirlo en Convertir.
 
-### 📋 Portapapeles: historial y snippets guardados
+**Sin notch no tienes que atinarle a nada:** en cuanto empiezas a arrastrar un archivo, aparece arriba al centro una zona verde que dice **"Suéltalo aquí"**.
 
-- Historial de lo último que copiaste (texto, links, colores, imágenes y archivos), con buscador.
-- **Guarda snippets** que usas siempre y cópialos con **⌃⌥1…9**.
+### 📋 Clips: historial, guardados y notas
+
+- **Historial** de lo último que copiaste (texto, links, colores, imágenes y archivos), con buscador.
+- **Guardados**: textos que pegas seguido, con atajo **⌃⌥1…9**.
+- **Notas**: tarjetas de colores que se quedan ahí (tu correo, la clave del Wi-Fi, una dirección, un prompt). Un clic y quedan copiadas; también puedes arrastrarlas a cualquier app. Fija las que más usas para verlas en **Hoy**.
 - Ignora automáticamente contraseñas de 1Password y apps que marcan el contenido como privado.
-- Opcional: pegar directamente al elegir un clip.
+- Opcional: pegar directamente al elegir un clip o una nota.
 
 <p align="center">
+  <img src="docs/screenshots/notch-6b-notas.png" width="49%" alt="Notas para copiar">
   <img src="docs/screenshots/isla-5-estante.png" width="49%" alt="Estante">
-  <img src="docs/screenshots/isla-6-portapapeles.png" width="49%" alt="Portapapeles">
 </p>
 
-### ☀️ Hoy
+### ☀️ Hoy: widgets que tú eliges
 
-Controles de **Spotify / Apple Music**, **temporizador** (Pomodoro), **batería** con tiempo restante y **próximos eventos** de tu calendario, con aviso 5 minutos antes.
+Activa, quita y ordena los que quieras en **Ajustes → Hoy**:
 
-### 🪄 Convertir: 22 herramientas para archivos
+- **Música**: Spotify o Apple Music con controles.
+- **Temporizador** y Pomodoro.
+- **Notas fijadas**: un clic y las copias.
+- **Batería** con tiempo restante (avisa al conectar el cargador y cuando queda poca).
+- **Próximos eventos** de tu calendario, con aviso 5 minutos antes.
+- **Sistema**: CPU, RAM y disco libre, y cuánta memoria usa VibeNotch.
+
+<p align="center">
+  <img src="docs/screenshots/notch-7-hoy.png" width="49%" alt="Hoy">
+  <img src="docs/screenshots/isla-7b-hoy-sistema.png" width="49%" alt="Widget de sistema">
+</p>
+
+### 🪄 Convertir: 23 herramientas para archivos
 
 Suelta archivos y elige qué hacer. Todo se hace en tu Mac, sin subir nada a internet.
 
@@ -82,14 +102,15 @@ Suelta archivos y elige qué hacer. Todo se hace en tu Mac, sin subir nada a int
 | --- | --- |
 | Imagen | A JPG · A PNG · A HEIC · Comprimir · Reducir 50% · **Quitar fondo** · Girar · **Copiar texto (OCR)** · Quitar datos GPS/EXIF |
 | PDF | Unir PDFs e imágenes en un PDF · Comprimir PDF · PDF a imágenes · Copiar texto |
-| Video y audio | Comprimir video (MP4 720p) · A MP4 · **A GIF** · Sacar audio · A M4A |
-| Archivos | Zip · Descomprimir · Copiar rutas · AirDrop |
+| Video y audio | Comprimir video · A MP4 · **A GIF** · Sacar audio · A M4A |
+| Archivos | **Reducir peso** (cualquier archivo) · Hacer .zip · Descomprimir · Copiar rutas · AirDrop |
 
-Te dice cuánto ahorraste ("1.4 MB → 52 KB · 96% menos") y eliges si el resultado se guarda en el estante o junto al original.
+**La compresión es de verdad.** Prueba varias versiones (calidad, tamaño, formato) y se queda con la mejor que pese al menos 15 % menos. Si tu archivo ya estaba optimizado, te lo dice ("Ya estaba optimizado") en vez de darte una copia igual o más pesada. Ejemplos reales: una foto PNG de 1.4 MB queda en 66 KB, y un fondo de pantalla HEIC de 26 MB en 1.5 MB. Los PDF escaneados se aligeran sin tocar los PDF con texto, y los GIF no se tocan para no perder la animación.
+
+Te dice cuánto ahorraste ("1.4 MB → 66 KB · 95% menos") y eliges si el resultado se guarda en el estante o junto al original. Tu original nunca se modifica.
 
 <p align="center">
-  <img src="docs/screenshots/notch-8-convertir.png" width="49%" alt="Convertir">
-  <img src="docs/screenshots/isla-7-hoy.png" width="49%" alt="Hoy">
+  <img src="docs/screenshots/notch-8-convertir.png" width="70%" alt="Convertir">
 </p>
 
 ---
@@ -137,10 +158,11 @@ cd vibenotch
 
 1. Al abrirla aparece un saludo en el notch y un ✨ en la barra de menús.
 2. **Para abrir VibeNotch:** pasa el mouse arriba al centro de la pantalla, haz clic en ✨ o presiona **⌃⌥N**.
-3. **Para ajustes:** clic derecho en ✨ (o el engrane dentro de VibeNotch).
-4. Se abre sola al iniciar sesión. Lo puedes apagar en el menú ✨ → "Abrir al iniciar sesión".
+3. **Para ajustes:** el engrane ⚙️ dentro de VibeNotch, o clic derecho en ✨ → **Ajustes…** (⌘,).
+4. Si usas Claude Code o Cursor: clic derecho en ✨ → **Conectar Claude Code** / **Conectar Cursor**. Codex y la app de Claude se detectan solos.
+5. Se abre sola al iniciar sesión. Lo puedes apagar en Ajustes → General.
 
-> **¿Tiene que estar abierta?** Sí: es una app que corre en segundo plano (no aparece en el Dock). Usa muy poca memoria y CPU.
+> **¿Tiene que estar abierta?** Sí: es una app que corre en segundo plano (no aparece en el Dock). En reposo usa unos 20 MB de RAM y prácticamente 0 % de CPU.
 
 ---
 
@@ -150,9 +172,14 @@ Todo se hace desde el menú ✨ (clic derecho):
 
 | Agente | Cómo se conecta | Qué ves |
 | --- | --- | --- |
-| **Claude Code** | Menú ✨ → **Conectar Claude Code** | Estado, permisos desde el notch, aviso al terminar, contexto, tokens |
-| **Cursor** | Menú ✨ → **Conectar Cursor** | Estado, archivos editados, comandos, aviso al terminar |
-| **Codex** (CLI y app) | **Automático**, no hay que hacer nada | Estado, comandos, tokens, límites del plan |
+| **Claude Code** | Menú ✨ → **Conectar Claude Code** | Estado, preguntas, planes y permisos desde el notch, resumen al terminar, contexto, tokens |
+| **App de Claude** (escritorio) | **Automático** | Sesiones de Code y Cowork: trabajando, terminado, "te necesita" y límites de uso |
+| **Cursor** | Menú ✨ → **Conectar Cursor** | Estado, archivos editados, comandos, resumen al terminar |
+| **Codex** (CLI y app) | **Automático**, no hay que hacer nada | Estado, comandos, tokens, resumen al terminar, límites del plan |
+
+> **Nota sobre la app de Claude:** VibeNotch lee los archivos que la propia app guarda en tu Mac, así que ve las sesiones de **Code** y **Cowork**. Los chats normales no dejan esa información en disco, por eso no aparecen. Se puede apagar en Ajustes → Agentes.
+
+**¿Ya lo tenías conectado de una versión anterior?** Al actualizar, VibeNotch agrega sola los hooks nuevos (preguntas y planes). Solo reinicia tus sesiones de Claude Code.
 
 **¿Qué hace "Conectar"?** Agrega unos *hooks* a `~/.claude/settings.json` o `~/.cursor/hooks.json` que avisan a VibeNotch de lo que pasa. Respeta tu configuración: la primera vez guarda una copia (`*.vibenotch-backup`), no toca tus otros hooks y, si el archivo tiene un error, no lo modifica. Para quitarlo, vuelve a hacer clic en la misma opción.
 
@@ -164,8 +191,11 @@ Si VibeNotch está cerrada, los hooks no hacen nada y tus agentes siguen funcion
 
 ## Con notch o sin notch, una o varias pantallas
 
+VibeNotch **detecta sola** si la pantalla tiene notch y usa la versión que le toca. Si conectas un monitor o cambias de pantalla, se adapta al momento.
+
 - **Mac con notch** (MacBook Pro 14"/16" 2021+, MacBook Air M2+): VibeNotch sale del notch como si fuera parte del Mac. Las pestañas se acomodan a los lados de la cámara para que nada quede tapado.
-- **Mac sin notch, iMac o monitor externo**: aparece como una **isla** flotante debajo de la barra de menús. En reposo se esconde; se muestra sola cuando un agente está trabajando, suena música o corre el temporizador.
+- **Mac sin notch, iMac o monitor externo**: aparece como una **isla** flotante debajo de la barra de menús. En reposo queda una pequeña asa arriba al centro para que sepas dónde está; se muestra completa cuando un agente trabaja, suena música o corre el temporizador. Al arrastrar un archivo aparece la zona **"Suéltalo aquí"**.
+- **¿Prefieres otra?** En Ajustes → General → **Estilo** eliges Automático, Notch (dibuja un notch aunque tu pantalla no tenga) o Isla flotante.
 - **Varias pantallas**: por defecto aparece **en la pantalla donde está tu mouse**. Lo puedes fijar en menú ✨ → **Mostrar en** → "Pantalla principal" o una pantalla específica.
 - **Pantalla completa**: se esconde cuando ves un video o una app en pantalla completa.
 
@@ -176,15 +206,52 @@ Si VibeNotch está cerrada, los hooks no hacen nada y tus agentes siguen funcion
 
 ---
 
+## Personalizar
+
+Abre **Ajustes** con el engrane ⚙️ del notch o con clic derecho en ✨ → **Ajustes…**
+
+| Sección | Qué puedes cambiar |
+| --- | --- |
+| General | Estilo (automático, notch o isla), en qué pantalla aparece, qué tan rápido se abre al pasar el mouse, el asa de la isla, la zona para soltar archivos, abrir al iniciar sesión, sonidos y "menos animaciones" |
+| Pestañas | Qué pestañas ves y en qué orden (por ejemplo, solo Agentes y Clips) |
+| Hoy | Qué widgets aparecen y en qué orden |
+| Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, límites desde el Llavero |
+| Portapapeles | Pausar el historial, cuántos clips guardar (50 a 500), pegar al elegir, mostrar la canción en el notch cerrado |
+
+---
+
+## Consumo: RAM y batería
+
+VibeNotch está hecha para quedarse abierta todo el día sin que lo notes. Medido en una MacBook Air M1 con 8 GB:
+
+| En reposo | |
+| --- | --- |
+| RAM | ~20 MB |
+| CPU | ~0.1 % |
+| Despertares | ~2 por segundo |
+
+Cómo lo logra:
+
+- Las animaciones que se repiten (el spinner de "trabajando", el pulso y el ecualizador) las anima macOS directamente, sin redibujar la app.
+- Detecta la pantalla completa con avisos del sistema en vez de revisar a cada rato.
+- La batería avisa al instante cuando conectas el cargador, sin sondear seguido.
+- El widget de Sistema solo mide mientras está a la vista.
+- La app de Claude se revisa cada 3 s solo mientras está abierta, y cada 90 s si no.
+- Con **Menos animaciones** (o la opción de accesibilidad de macOS) las animaciones decorativas se detienen.
+
+---
+
 ## Atajos de teclado
 
 | Atajo | Acción |
 | --- | --- |
 | **⌃⌥N** | Abrir / cerrar VibeNotch |
 | **⌃⌥V** | Abrir el portapapeles |
-| **⌃⌥1 … ⌃⌥9** | Copiar el snippet guardado 1…9 |
+| **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
+| **⌘↩** | Guardar la nota que estás escribiendo |
+| **⌘,** | Ajustes (con el menú ✨ abierto) |
 | Clic en ✨ | Abrir / cerrar |
-| Clic derecho en ✨ | Ajustes |
+| Clic derecho en ✨ | Menú y ajustes |
 
 (⌃ = Control, ⌥ = Option)
 
@@ -210,7 +277,8 @@ Ver qué canción suena no necesita ningún permiso.
 - **Todo es local.** No hay cuentas, servidores, analíticas ni telemetría.
 - Los agentes hablan con VibeNotch por un servidor que solo escucha en tu Mac (`127.0.0.1`) y está protegido con un token aleatorio.
 - La única conexión a internet es opcional: la consulta de límites de Claude a Anthropic, con tu propia sesión, si activas esa opción.
-- Tus datos están en `~/Library/Application Support/VibeNotch` (historial, snippets, estante).
+- De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
+- Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
 
 ---
 
@@ -242,6 +310,21 @@ xattr -dr com.apple.quarantine /Applications/VibeNotch.app && open /Applications
 - Reinicia la sesión del agente (los hooks se leen al iniciar).
 - En Claude Code, `/hooks` muestra si los hooks de VibeNotch están activos.
 - Codex aparece en cuanto empieza una sesión nueva (lee `~/.codex/sessions`).
+- La app de Claude aparece cuando usas Code o Cowork dentro de ella (Ajustes → Agentes → "App de Claude" encendido).
+</details>
+
+<details>
+<summary><b>Las preguntas de Claude no salen en el notch</b></summary>
+
+- Revisa Ajustes → Agentes → "Responder preguntas y aprobar planes desde el notch".
+- Reinicia la sesión de Claude Code después de actualizar VibeNotch (los hooks nuevos se leen al iniciar).
+- Si no respondes en unos 5 minutos, la pregunta regresa a la terminal: nunca se queda trabada.
+</details>
+
+<details>
+<summary><b>"Comprimir" no achicó mi archivo</b></summary>
+
+Si ves **"Ya estaba optimizado"**, tu archivo ya viene comprimido (por ejemplo un JPG de WhatsApp o un MP4 de redes) y hacerlo más chico lo haría verse peor. Para mandar muchos archivos juntos usa **Hacer .zip**: un zip junta archivos pero casi no reduce fotos ni videos, que ya vienen comprimidos.
 </details>
 
 <details>
@@ -287,12 +370,12 @@ Solo necesitas las **Command Line Tools** (`xcode-select --install`); no hace fa
 Sources/VibeNotch/
 ├── App/          arranque, menú, atajos globales, modo de capturas
 ├── Notch/        ventana, detección de notch / isla, varias pantallas, estado
-├── Agents/       Claude Code y Cursor (hooks + servidor local), Codex (lee sesiones)
+├── Agents/       Claude Code y Cursor (hooks + servidor local), Codex y app de Claude (leen sesiones)
 ├── Shelf/        estante de archivos
-├── Clipboard/    historial y snippets
-├── Tools/        motor de conversión (ImageIO, Vision, PDFKit, AVFoundation)
-├── Extras/       música, calendario, batería, temporizador
-└── Views/        SwiftUI
+├── Clipboard/    historial, guardados y notas
+├── Tools/        conversión y compresión (ImageIO, Vision, PDFKit, AVFoundation)
+├── Extras/       música, calendario, batería, temporizador, sistema
+└── Views/        SwiftUI (notch, pestañas y ventana de ajustes)
 ```
 
 ### Capturas y pruebas
@@ -310,7 +393,7 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.0.1 && git push origin v1.0.1
+git tag v1.1.1 && git push origin v1.1.1
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.
@@ -321,11 +404,13 @@ git tag v1.0.1 && git push origin v1.0.1
 
 **VibeNotch** turns your Mac's notch into a control center. On Macs without a notch it shows up as a floating island. It has five tabs:
 
-- **Agents:** live status for Claude Code, Codex and Cursor. Approve or deny Claude permission requests right from the notch. You also get done alerts, context/token usage and your 5-hour and weekly plan limits.
-- **Shelf:** a Dropover-style shelf. Drop files on the notch and drag them out later; you can also zip them, AirDrop them or copy their paths.
-- **Clipboard:** searchable history plus saved snippets on **⌃⌥1-9**. Passwords are ignored.
-- **Today:** Spotify/Music controls, a timer, battery and upcoming calendar events.
-- **Convert:** 22 local tools. Image formats, compression, background removal, OCR, merging and shrinking PDFs, video to MP4/GIF, audio extraction, zip/unzip.
+- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits.
+- **Shelf:** a Dropover-style shelf. Drop files on the notch and drag them out later; you can also shrink them, zip them, AirDrop them or copy their paths. Without a notch, a "Drop here" zone appears as soon as you start dragging.
+- **Clips:** searchable history, saved snippets on **⌃⌥1-9**, and sticky **notes** you copy with one click. Passwords are ignored.
+- **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar and a system monitor (CPU, RAM, disk).
+- **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.
+
+It detects whether your screen has a notch and switches between notch and island automatically (you can force either in Settings). Idle it uses about 20 MB of RAM and ~0.1% CPU.
 
 **Install** (macOS 14+, Apple Silicon or Intel):
 
@@ -335,6 +420,6 @@ curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scrip
 
 Or download the zip from [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest). The app is ad-hoc signed, so the first time right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/VibeNotch.app`.
 
-Open it with **⌃⌥N**, by hovering the top center of the screen, or by clicking ✨ in the menu bar. Right-click ✨ for settings and to connect Claude Code or Cursor. Codex is picked up automatically. Everything runs locally, with no accounts and no telemetry.
+Open it with **⌃⌥N**, by hovering the top center of the screen, or by clicking ✨ in the menu bar. The gear inside the notch opens Settings (tabs, widgets, style, hover speed…). Right-click ✨ to connect Claude Code or Cursor. Codex and the Claude app are picked up automatically. Everything runs locally, with no accounts and no telemetry.
 
 MIT © 2026 Uriel Nakach
