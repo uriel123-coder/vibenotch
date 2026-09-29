@@ -148,7 +148,17 @@ curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scrip
 
 Descarga la última versión, la pone en **Aplicaciones** y la abre. Si ya la tenías, la actualiza.
 
-**Actualizar:** desde la versión 1.3, VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch con un botón **Actualizar**; también está en el menú ✨ y en Ajustes → Acerca de. Se descarga, se verifica y se reabre sola en unos segundos. La copia anterior se guarda en la carpeta temporal por si algo sale mal.
+### Actualizar
+
+**Si ya tienes VibeNotch instalada**, usa el mismo comando de instalar. Cierra la versión vieja, pone la nueva y la abre; tus ajustes, notas e historial se quedan igual:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
+```
+
+Al final te dice qué versión quedó, por ejemplo `✓ Listo: VibeNotch 1.3.1 instalada en /Applications`.
+
+**Desde la versión 1.3 ya no hace falta la terminal:** VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch con un botón **Actualizar** (también está en el menú ✨ y en Ajustes → Acerca de). Se descarga, se verifica y se reabre sola en unos segundos. La copia anterior se guarda en la carpeta temporal por si algo sale mal.
 
 ### Opción 2: descargar el zip
 
