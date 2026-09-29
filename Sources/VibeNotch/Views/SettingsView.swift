@@ -27,7 +27,8 @@ final class SettingsWindow: ObservableObject {
 
 struct SettingsView: View {
     enum Page: String, CaseIterable, Identifiable {
-        case general = "General", tabs = "Pestañas", today = "Hoy", agents = "Agentes", clipboard = "Portapapeles", about = "Acerca de"
+        case general = "General", tabs = "Pestañas", today = "Hoy", agents = "Agentes", phone = "Celular", clipboard = "Portapapeles",
+             about = "Acerca de"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -35,6 +36,7 @@ struct SettingsView: View {
             case .tabs: "square.grid.2x2.fill"
             case .today: "sun.max.fill"
             case .agents: "sparkles"
+            case .phone: "iphone.gen3"
             case .clipboard: "doc.on.clipboard.fill"
             case .about: "info.circle.fill"
             }
@@ -45,6 +47,7 @@ struct SettingsView: View {
             case .tabs: .blue
             case .today: .orange
             case .agents: .claude
+            case .phone: .teal
             case .clipboard: .green
             case .about: .purple
             }
@@ -76,6 +79,7 @@ struct SettingsView: View {
                 case .tabs: TabsPage()
                 case .today: TodayPage()
                 case .agents: AgentsPage()
+                case .phone: PhonePage()
                 case .clipboard: ClipboardPage()
                 case .about: AboutPage()
                 }
@@ -284,6 +288,85 @@ private struct AgentsPage: View {
     }
 }
 
+private struct PhonePage: View {
+    @ObservedObject private var s = AppSettings.shared
+    @ObservedObject private var phone = PhoneNotifier.shared
+    @State private var copied = false
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Avisarme en el celular", isOn: $s.phoneEnabled)
+            } footer: {
+                Text("Te llega una notificación cuando un agente termina o te necesita, aunque estés lejos de la Mac.")
+            }
+
+            Section("Conectar tu celular (1 minuto)") {
+                VStack(alignment: .leading, spacing: 10) {
+                    step(1, "Instala la app gratuita **ntfy** en tu iPhone o Android. No pide cuenta.")
+                    Link("Descargar ntfy", destination: URL(string: "https://docs.ntfy.sh/subscribe/phone/")!)
+                        .font(.callout)
+                        .padding(.leading, 26)
+                    step(2, "En ntfy toca **+** y escribe este código (o escanea el QR con la cámara):")
+                    HStack(alignment: .center, spacing: 14) {
+                        if let url = phone.subscribeURL, let qr = PhoneNotifier.qr(url.absoluteString) {
+                            Image(nsImage: qr).interpolation(.none).resizable().frame(width: 96, height: 96)
+                                .padding(6).background(RoundedRectangle(cornerRadius: 8).fill(.white))
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(s.phoneTopic)
+                                .font(.system(.body, design: .monospaced).weight(.semibold))
+                                .textSelection(.enabled)
+                            Button(copied ? "Copiado ✓" : "Copiar código") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(s.phoneTopic, forType: .string)
+                                copied = true
+                            }
+                        }
+                    }
+                    .padding(.leading, 26)
+                    step(3, "Prueba que llegue:")
+                    HStack {
+                        Button("Enviar prueba") { phone.test() }.disabled(phone.sending)
+                        if phone.sending { ProgressView().controlSize(.small) }
+                        if let r = phone.testResult { Text(r).foregroundStyle(.secondary) }
+                    }
+                    .padding(.leading, 26)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("Cuándo avisarte") {
+                Toggle("Cuando un agente termina", isOn: $s.phoneDone)
+                Toggle("Cuando te pregunta algo o pide permiso", isOn: $s.phoneAsks)
+                Toggle("Solo si no estás usando la Mac", isOn: $s.phoneOnlyAway)
+                Toggle("Incluir el texto (resumen o pregunta)", isOn: $s.phoneDetails)
+            }
+            .disabled(!s.phoneEnabled)
+
+            Section {
+                TextField("Servidor", text: $s.phoneServer)
+                Button("Crear un código nuevo") {
+                    s.phoneTopic = PhoneNotifier.newTopic()
+                    copied = false
+                }
+            } header: {
+                Text("Avanzado")
+            } footer: {
+                Text("Los avisos pasan por el servidor gratuito de ntfy. El código es aleatorio y funciona como una contraseña: quien lo tenga puede leer tus avisos, así que no lo compartas. Si quieres que nada salga de tu red, pon aquí tu propio servidor ntfy. Sin “Incluir el texto”, solo se envía el nombre del proyecto.")
+            }
+        }
+    }
+
+    private func step(_ n: Int, _ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(n)").font(.caption.bold()).foregroundStyle(.white)
+                .frame(width: 18, height: 18).background(Circle().fill(Color.teal))
+            Text(text)
+        }
+    }
+}
+
 private struct ClipboardPage: View {
     @ObservedObject private var s = AppSettings.shared
     @ObservedObject private var clips = ClipboardStore.shared
@@ -319,6 +402,7 @@ private struct ClipboardPage: View {
 }
 
 private struct AboutPage: View {
+    @ObservedObject private var updater = Updater.shared
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "" }
 
     var body: some View {
@@ -335,12 +419,38 @@ private struct AboutPage: View {
                 .padding(.vertical, 4)
             }
             Section {
-                Link("Ver en GitHub", destination: URL(string: "https://github.com/uriel123-coder/vibenotch")!)
-                Link("Buscar actualizaciones", destination: URL(string: "https://github.com/uriel123-coder/vibenotch/releases/latest")!)
-                Link("Reportar un problema", destination: URL(string: "https://github.com/uriel123-coder/vibenotch/issues")!)
+                HStack {
+                    switch updater.state {
+                    case .available(let v):
+                        Label("Hay una versión nueva: \(v)", systemImage: "arrow.down.circle.fill").foregroundStyle(.green)
+                        Spacer()
+                        Button("Actualizar ahora") { updater.install() }.buttonStyle(.borderedProminent)
+                    case .downloading:
+                        ProgressView().controlSize(.small)
+                        Text("Descargando e instalando…")
+                    case .checking:
+                        ProgressView().controlSize(.small)
+                        Text("Buscando…")
+                    case .upToDate:
+                        Label("Tienes la versión más reciente", systemImage: "checkmark.circle.fill").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Buscar de nuevo") { updater.check(manual: true) }
+                    case .failed(let why):
+                        Label(why, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Spacer()
+                        Button("Reintentar") { updater.check(manual: true) }
+                    case .idle:
+                        Text("Actualizaciones")
+                        Spacer()
+                        Button("Buscar actualizaciones") { updater.check(manual: true) }
+                    }
+                }
             } footer: {
-                Text("Para actualizar corre de nuevo: curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash")
-                    .textSelection(.enabled)
+                Text("VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch. Al actualizar, la copia anterior se guarda en la carpeta temporal por si algo sale mal. macOS puede volver a pedirte algunos permisos después de actualizar.")
+            }
+            Section {
+                Link("Ver en GitHub", destination: URL(string: "https://github.com/uriel123-coder/vibenotch")!)
+                Link("Reportar un problema", destination: URL(string: "https://github.com/uriel123-coder/vibenotch/issues")!)
             }
         }
     }

@@ -60,6 +60,14 @@ final class AppSettings: ObservableObject {
     @Published var doneLinger: Double { didSet { store(doneLinger, forKey: "doneLinger") } }
     @Published var keepAwake: Bool { didSet { store(keepAwake, forKey: "keepAwake") } }
     @Published var keepScreenOn: Bool { didSet { store(keepScreenOn, forKey: "keepScreenOn") } }
+    @Published var phoneEnabled: Bool { didSet { store(phoneEnabled, forKey: "phoneEnabled") } }
+    /// Random ntfy topic; anyone who knows it can read the pushes.
+    @Published var phoneTopic: String { didSet { store(phoneTopic, forKey: "phoneTopic") } }
+    @Published var phoneServer: String { didSet { store(phoneServer, forKey: "phoneServer") } }
+    @Published var phoneOnlyAway: Bool { didSet { store(phoneOnlyAway, forKey: "phoneOnlyAway") } }
+    @Published var phoneDone: Bool { didSet { store(phoneDone, forKey: "phoneDone") } }
+    @Published var phoneAsks: Bool { didSet { store(phoneAsks, forKey: "phoneAsks") } }
+    @Published var phoneDetails: Bool { didSet { store(phoneDetails, forKey: "phoneDetails") } }
 
     static let lingerOptions: [(Double, String)] = [(120, "A los 2 min"), (600, "A los 10 min"), (1800, "A los 30 min"),
                                                     (3600, "A la hora"), (0, "Nunca")]
@@ -80,6 +88,14 @@ final class AppSettings: ObservableObject {
         doneLinger = d.object(forKey: "doneLinger") as? Double ?? 600
         keepAwake = d.object(forKey: "keepAwake") as? Bool ?? true
         keepScreenOn = d.object(forKey: "keepScreenOn") as? Bool ?? false
+        phoneEnabled = d.object(forKey: "phoneEnabled") as? Bool ?? false
+        phoneTopic = d.string(forKey: "phoneTopic") ?? PhoneNotifier.newTopic()
+        phoneServer = d.string(forKey: "phoneServer") ?? "https://ntfy.sh"
+        phoneOnlyAway = d.object(forKey: "phoneOnlyAway") as? Bool ?? true
+        phoneDone = d.object(forKey: "phoneDone") as? Bool ?? true
+        phoneAsks = d.object(forKey: "phoneAsks") as? Bool ?? true
+        phoneDetails = d.object(forKey: "phoneDetails") as? Bool ?? true
+        store(phoneTopic, forKey: "phoneTopic")
         if tabs.isEmpty { tabs = NotchTab.allCases }
         // Tabs added in later versions show up once for people who had already customized theirs.
         let known = Set(d.stringArray(forKey: "knownTabs") ?? tabs.map(\.rawValue))

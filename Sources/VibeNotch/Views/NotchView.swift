@@ -217,6 +217,15 @@ struct PeekView: View {
             }
             .lineLimit(1)
             Spacer(minLength: 0)
+            if let action = a.action {
+                Button {
+                    action.run()
+                    if model.announcement == a { model.announcement = nil }
+                } label: {
+                    Text(action.label)
+                }
+                .buttonStyle(PillStyle(fill: a.tint.opacity(0.3)))
+            }
         }
         .foregroundStyle(.white)
     }

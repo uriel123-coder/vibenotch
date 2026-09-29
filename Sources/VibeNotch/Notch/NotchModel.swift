@@ -36,6 +36,8 @@ struct Announcement: Equatable {
     var title: String
     var subtitle: String
     var style: Style
+    /// Optional button shown on the right, e.g. "Unirse" for a meeting or "Actualizar".
+    var action: (label: String, run: @MainActor () -> Void)?
 
     init(kind: AgentKind, title: String, subtitle: String, style: Style = .done) {
         self.kind = kind

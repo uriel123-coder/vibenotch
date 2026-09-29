@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MusicStore.shared.start()
             ClaudeAppMonitor.shared.start()
             KeepAwake.shared.start()
+            Updater.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -134,6 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if let v = Updater.shared.available {
+            menu.addItem(item("Actualizar a VibeNotch \(v)") { Updater.shared.install() })
+            menu.addItem(.separator())
+        }
         menu.addItem(item("Abrir VibeNotch", key: "⌃⌥N") { [weak self] in self?.controller.toggle() })
         menu.addItem(item("Abrir portapapeles", key: "⌃⌥V") { [weak self] in self?.controller.toggleClipboard() })
         menu.addItem(item("Buscar archivos", key: "⌃⌥F") { [weak self] in self?.controller.toggleSearch() })

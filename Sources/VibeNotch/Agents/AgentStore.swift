@@ -179,10 +179,16 @@ final class AgentStore: ObservableObject {
     func update(_ id: String, kind: AgentKind, project: String?, at date: Date = Date(),
                 _ change: (inout AgentSession) -> Void) {
         var s = sessions[id] ?? AgentSession(id: id, kind: kind, project: project ?? kind.short)
+        let was = sessions[id]?.status
         if let project, !project.isEmpty { s.project = project }
         change(&s)
         s.updated = max(s.updated, date)
         sessions[id] = s
+        if s.status == .waiting && was != .waiting {
+            PhoneNotifier.shared.needsYou(s)
+        } else if s.status != .waiting && was == .waiting {
+            PhoneNotifier.shared.resolved(id)
+        }
     }
 
     func setCwd(_ id: String, _ cwd: String?) {
@@ -249,6 +255,7 @@ final class AgentStore: ObservableObject {
         let heading = preview == nil ? title : "\(title) · \(name)"
         NotchModel.shared.announce(Announcement(kind: kind, title: heading, subtitle: subtitle), for: preview == nil ? 4.5 : 6.5)
         Sound.play(.done)
+        PhoneNotifier.shared.finished(kind: kind, project: name, summary: clean, took: took)
     }
 
     /// Markdown-light first sentence(s) of an answer, good for a one-line preview.
@@ -266,6 +273,7 @@ final class AgentStore: ObservableObject {
         asks.append(ask)
         NotchModel.shared.askArrived()
         Sound.play(.ask)
+        PhoneNotifier.shared.ask(ask)
     }
 
     func resolve(_ ask: PermissionAsk, _ decision: PermissionDecision) {
@@ -294,6 +302,7 @@ final class AgentStore: ObservableObject {
     func prune() {
         tick = Date()
         checkLimits()
+        PhoneNotifier.shared.tick()
         let linger = AppSettings.shared.doneLinger
         for (id, s) in sessions {
             let age = tick.timeIntervalSince(s.updated)

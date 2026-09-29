@@ -265,6 +265,17 @@ struct CalendarCard: View {
                                     Text(e.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
                                     Text(when(e, ctx.date)).font(.system(size: 10)).foregroundStyle(.secondary)
                                 }
+                                Spacer(minLength: 4)
+                                if e.joinable(at: ctx.date) {
+                                    Button { calendar.join(e) } label: {
+                                        Label("Unirse", systemImage: "video.fill").font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                    }
+                                    .buttonStyle(PillStyle(fill: Color.ok.opacity(0.3)))
+                                    .help(e.link?.host ?? "")
+                                } else if e.link != nil {
+                                    Image(systemName: "video.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
+                                        .help("Tiene enlace de videollamada")
+                                }
                             }
                         }
                     }

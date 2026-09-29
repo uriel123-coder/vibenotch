@@ -26,6 +26,7 @@ Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · busc
 - [Instalación (1 minuto)](#instalación-1-minuto)
 - [Primeros pasos](#primeros-pasos)
 - [Conectar tus agentes](#conectar-tus-agentes)
+- [Avisos en el celular](#avisos-en-el-celular)
 - [Con notch o sin notch, una o varias pantallas](#con-notch-o-sin-notch-una-o-varias-pantallas)
 - [Personalizar](#personalizar)
 - [Consumo: RAM y batería](#consumo-ram-y-batería)
@@ -54,6 +55,7 @@ VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). 
 - **Contexto y tokens** de cada sesión (barra de contexto usado y tokens totales).
 - **Límites de tu plan**: ventana de 5 horas y semanal de Claude (Pro/Max) y de Codex (Plus/Pro), con cuándo se reinician.
 - **Cada quien con su nombre**: lo que haces en Cursor sale como **Cursor**, aunque Cursor use por dentro los hooks de Claude Code. Si Cursor te hace una pregunta, el notch te avisa ("Cursor te pregunta") y la sesión queda en espera hasta que respondas en Cursor.
+- **Avisos en tu celular**: cuando un agente termina o te pregunta algo, te llega una notificación al iPhone o Android, aunque estés lejos. Ve [Avisos en el celular](#avisos-en-el-celular).
 - **La Mac no se duerme mientras trabajan**: si Claude, Codex o Cursor están trabajando, tu Mac se queda despierta aunque te alejes; cuando todos terminan, vuelve a dormirse como siempre. Opcionalmente también mantiene la pantalla encendida (Ajustes → Agentes → Mac despierta). Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.
 - **Se limpia sola**: lo que ya terminó desaparece de la lista a los 10 minutos (lo cambias en Ajustes → Agentes: 2 min, 30 min, 1 hora o nunca). También puedes tocar **Quitar terminados** o la ✕ de cada sesión.
 
@@ -103,7 +105,7 @@ Activa, quita y ordena los que quieras en **Ajustes → Hoy**:
 - **Temporizador** y Pomodoro.
 - **Notas fijadas**: un clic y las copias.
 - **Batería** con tiempo restante (avisa al conectar el cargador y cuando queda poca).
-- **Próximos eventos** de tu calendario, con aviso 5 minutos antes.
+- **Próximos eventos** de tu calendario, con aviso 5 minutos antes. Si la reunión tiene enlace de Zoom, Google Meet, Teams, Webex o FaceTime, aparece el botón **Unirse** (en el widget y en el aviso).
 - **Sistema**: CPU, RAM y disco libre, y cuánta memoria usa VibeNotch.
 
 <p align="center">
@@ -144,7 +146,9 @@ Abre la app **Terminal** (⌘ + Espacio, escribe "Terminal", Enter), pega esto y
 curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
 ```
 
-Descarga la última versión, la pone en **Aplicaciones** y la abre. Si ya la tenías, la actualiza. Es el mismo comando para actualizar.
+Descarga la última versión, la pone en **Aplicaciones** y la abre. Si ya la tenías, la actualiza.
+
+**Actualizar:** desde la versión 1.3, VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch con un botón **Actualizar**; también está en el menú ✨ y en Ajustes → Acerca de. Se descarga, se verifica y se reabre sola en unos segundos. La copia anterior se guarda en la carpeta temporal por si algo sale mal.
 
 ### Opción 2: descargar el zip
 
@@ -206,6 +210,27 @@ Si VibeNotch está cerrada, los hooks no hacen nada y tus agentes siguen funcion
 
 ---
 
+## Avisos en el celular
+
+Deja a tu agente trabajando y vete por un café: cuando termine o te pregunte algo, te llega la notificación al celular.
+
+1. Instala la app gratuita **[ntfy](https://docs.ntfy.sh/subscribe/phone/)** en tu iPhone o Android. No pide cuenta.
+2. En VibeNotch abre **Ajustes → Celular** y activa **Avisarme en el celular**.
+3. En ntfy toca **+** y escribe el código que te muestra VibeNotch (o escanea el QR).
+4. Toca **Enviar prueba**.
+
+<p align="center">
+  <img src="docs/screenshots/ajustes-celular.png" width="560" alt="Ajustes → Celular">
+</p>
+
+- Eliges cuándo avisarte: cuando termina, cuando te pregunta o pide permiso, o ambos.
+- Por defecto **solo te avisa si no estás usando la Mac** (sin tocar teclado ni mouse durante 1 minuto y medio, o con la pantalla bloqueada). Si un agente te pregunta algo mientras estás en la Mac y te levantas sin responder, te avisa en cuanto te alejas.
+- Puedes mandar solo el nombre del proyecto, sin el texto del resumen o de la pregunta.
+
+**Privacidad:** los avisos pasan por el servidor gratuito de ntfy. Tu código es aleatorio y funciona como una contraseña: quien lo tenga podría leer tus avisos, así que no lo compartas (en Ajustes puedes crear uno nuevo). Si prefieres que nada salga de tu red, pon la dirección de tu propio servidor ntfy.
+
+---
+
 ## Con notch o sin notch, una o varias pantallas
 
 VibeNotch **detecta sola** si la pantalla tiene notch y usa la versión que le toca. Si conectas un monitor o cambias de pantalla, se adapta al momento.
@@ -232,6 +257,8 @@ Abre **Ajustes** con el engrane ⚙️ del notch o con clic derecho en ✨ → *
 | General | Estilo (automático, notch o isla), en qué pantalla aparece, qué tan rápido se abre al pasar el mouse, el asa de la isla, la zona para soltar archivos, abrir al iniciar sesión, sonidos y "menos animaciones" |
 | Pestañas | Qué pestañas ves y en qué orden (por ejemplo, solo Agentes y Clips) |
 | Hoy | Qué widgets aparecen y en qué orden |
+| Celular | Avisos en tu iPhone o Android con ntfy: cuándo avisarte, solo si no estás en la Mac, con o sin texto, servidor propio |
+| Acerca de | Buscar e instalar actualizaciones con un clic |
 | Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, cuándo quitar de la lista lo que ya terminó, no dormir la Mac (o la pantalla) mientras un agente trabaja, límites desde el Llavero |
 | Portapapeles | Pausar el historial, cuántos clips guardar (50 a 500), pegar al elegir, mostrar la canción en el notch cerrado |
 
@@ -297,7 +324,10 @@ Ver qué canción suena no necesita ningún permiso.
 
 - **Todo es local.** No hay cuentas, servidores, analíticas ni telemetría.
 - Los agentes hablan con VibeNotch por un servidor que solo escucha en tu Mac (`127.0.0.1`) y está protegido con un token aleatorio.
-- La única conexión a internet es opcional: la consulta de límites de Claude a Anthropic, con tu propia sesión, si activas esa opción.
+- Conexiones a internet:
+  - Una vez al día pregunta a GitHub si hay una versión nueva (no manda ningún dato tuyo).
+  - Solo si activas **Avisos en el celular**: manda el aviso a ntfy.
+  - Solo si activas los límites desde el Llavero: consulta tu uso a Anthropic con tu propia sesión.
 - De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
 - Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
 - El índice de Buscar solo guarda nombres y fechas de archivos, vive en memoria y nunca se escribe en disco ni sale de tu Mac. No lee el contenido de tus archivos.
@@ -417,7 +447,7 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.2.2 && git push origin v1.2.2
+git tag v1.3.1 && git push origin v1.3.1
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.
@@ -428,11 +458,11 @@ git tag v1.2.2 && git push origin v1.2.2
 
 **VibeNotch** turns your Mac's notch into a control center. On Macs without a notch it shows up as a floating island. It has six tabs:
 
-- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits. Cursor sessions show up as Cursor even though Cursor runs Claude Code's hooks, finished sessions clear themselves after 10 minutes (configurable), and your Mac stays awake while any agent is working.
+- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits. Cursor sessions show up as Cursor even though Cursor runs Claude Code's hooks, finished sessions clear themselves after 10 minutes (configurable), and your Mac stays awake while any agent is working. Optional **phone notifications** through the free ntfy app (iPhone and Android, no account) tell you when an agent finishes or asks something, by default only when you are away from the Mac.
 - **Shelf:** a Dropover-style shelf. Drop files on the notch and drag them out later; you can also shrink them, zip them, AirDrop them or copy their paths. Without a notch, a "Drop here" zone appears as soon as you start dragging.
 - **Search (⌃⌥F):** find any file by name in milliseconds, or see your recent files. Filter by documents, PDFs, images, videos or folders; press ↩ to open, ⌘↩ to reveal in Finder, or drag the result anywhere. It builds its own in-memory index of your folders, so it works even with Spotlight turned off.
 - **Clips:** searchable history, saved snippets on **⌃⌥1-9**, and sticky **notes** you copy with one click. Passwords are ignored.
-- **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar and a system monitor (CPU, RAM, disk).
+- **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar (with a **Join** button for Zoom, Meet, Teams, Webex and FaceTime links) and a system monitor (CPU, RAM, disk).
 - **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.
 
 It detects whether your screen has a notch and switches between notch and island automatically (you can force either in Settings). Idle it uses about 20 MB of RAM and ~0.1% CPU.
@@ -443,7 +473,7 @@ It detects whether your screen has a notch and switches between notch and island
 curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
 ```
 
-Or download the zip from [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest). The app is ad-hoc signed, so the first time right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/VibeNotch.app`.
+From 1.3 on, the app checks for updates once a day and updates itself with one click. Or download the zip from [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest). The app is ad-hoc signed, so the first time right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/VibeNotch.app`.
 
 Open it with **⌃⌥N**, by hovering the top center of the screen, or by clicking ✨ in the menu bar. The gear inside the notch opens Settings (tabs, widgets, style, hover speed…). Right-click ✨ to connect Claude Code or Cursor. Codex and the Claude app are picked up automatically. Everything runs locally, with no accounts and no telemetry.
 

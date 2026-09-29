@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import PDFKit
+import SwiftUI
 
 /// Dev aid: `VIBENOTCH_SNAPSHOT=/dir` renders every notch state to PNGs and quits (no screen-recording permission needed).
 @MainActor
@@ -84,6 +85,12 @@ enum Snapshot {
             m.close()
             m.announce(Announcement(kind: .codex, title: "Codex terminó", subtitle: "api-server · Listo, pasaron las 48 pruebas"))
             await shot("\(prefix)-9-aviso", panel, dir, height: 170)
+            m.close()
+            var meeting = Announcement(symbol: "video.fill", tint: .blue, title: "Daily con el equipo", subtitle: "Empieza en 4 min")
+            meeting.action = ("Unirse", {})
+            m.announce(meeting)
+            await shot("\(prefix)-9b-reunion", panel, dir, height: 170)
+            if !m.hasNotch { await settingsShot("ajustes-celular", page: .phone, dir) }
             NSApp.terminate(nil)
         }
     }
@@ -154,8 +161,9 @@ enum Snapshot {
         MusicStore.shared.demo(.init(title: "Midnight City", artist: "M83", album: "Hurry Up, We're Dreaming",
                                      playing: true, player: .spotify, artwork: nil))
         CalendarStore.shared.demo([
-            CalEvent(id: "1", title: "Daily con el equipo", start: now.addingTimeInterval(25 * 60),
-                     end: now.addingTimeInterval(40 * 60), allDay: false, color: .blue),
+            CalEvent(id: "1", title: "Daily con el equipo", start: now.addingTimeInterval(4 * 60),
+                     end: now.addingTimeInterval(20 * 60), allDay: false, color: .blue,
+                     link: URL(string: "https://meet.google.com/abc-defg-hij")),
             CalEvent(id: "2", title: "Revisión de diseño", start: now.addingTimeInterval(3 * 3600),
                      end: now.addingTimeInterval(4 * 3600), allDay: false, color: .purple),
         ])
@@ -294,6 +302,24 @@ enum Snapshot {
         image.draw(in: NSRect(origin: .zero, size: crop))
         NSGraphicsContext.restoreGraphicsState()
         try? out.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(name).png"))
+    }
+
+    /// Renders a Settings page in an off-screen window. Uses a made-up ntfy code so a real one never lands in the README.
+    private static func settingsShot(_ name: String, page: SettingsView.Page, _ dir: URL) async {
+        AppSettings.shared.phoneTopic = "vibenotch-k7m2xq9pa4ht3w"
+        AppSettings.shared.phoneEnabled = true
+        SettingsWindow.shared.page = page
+        let w = NSWindow(contentRect: NSRect(x: -5000, y: 0, width: 720, height: 720),
+                         styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.titlebarAppearsTransparent = true
+        w.contentView = NSHostingView(rootView: SettingsView())
+        w.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(1.5))
+        guard let view = w.contentView, let rep = bitmap(view.bounds.size) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(name).png"))
+        w.orderOut(nil)
     }
 
     private static func bitmap(_ size: NSSize) -> NSBitmapImageRep? {
