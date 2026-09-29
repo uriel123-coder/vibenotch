@@ -429,6 +429,32 @@ private struct ExtrasPage: View {
             }
 
             Section {
+                Toggle("Detectar códigos en los avisos", isOn: $s.codesEnabled)
+                Toggle("Pegarlo solo en el campo donde estás", isOn: $s.codesAutoPaste)
+                    .disabled(!s.codesEnabled)
+            } header: {
+                Text("Códigos de verificación")
+            } footer: {
+                Text("Cuando llega un aviso de Mail, Mensajes (SMS del iPhone), Gmail, tu banco u otra app con un código de verificación, aparece en el notch ya copiado con el botón Pegar. No se guarda en el historial de Clips. Usa el mismo permiso de Accesibilidad y solo funciona si esa app muestra la vista previa en sus avisos.")
+            }
+
+            Section {
+                Picker("Idioma", selection: $s.dictationLanguage) {
+                    ForEach(Dictation.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                LabeledContent("Dictar", value: "⌃⌥D")
+                LabeledContent("Dónde se procesa") {
+                    Text(Dictation.runsOnDevice() ? "En tu Mac, sin internet" : "En los servidores de Apple (este idioma no está en tu Mac)")
+                        .foregroundStyle(.secondary)
+                }
+                .id(s.dictationLanguage)
+            } header: {
+                Text("Notas de voz")
+            } footer: {
+                Text("Presiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
+            }
+
+            Section {
                 LabeledContent("Velocidad") {
                     Slider(value: $s.prompterSpeed, in: 8...160, step: 2) { EmptyView() }
                         .frame(width: 200)

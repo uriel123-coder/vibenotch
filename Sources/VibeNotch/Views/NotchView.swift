@@ -9,6 +9,7 @@ struct NotchRootView: View {
     @ObservedObject private var music = MusicStore.shared
     @ObservedObject private var prompter = Prompter.shared
     @ObservedObject private var calls = WhatsAppCalls.shared
+    @ObservedObject private var dictation = Dictation.shared
     @State private var dropHover = false
 
     var body: some View {
@@ -22,6 +23,8 @@ struct NotchRootView: View {
             Group {
                 if prompter.active {
                     PrompterView()
+                } else if dictation.active {
+                    DictationView()
                 } else {
                     switch model.state {
                     case .closed: ClosedBar()
@@ -42,7 +45,7 @@ struct NotchRootView: View {
                 .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
         )
         .contentShape(shape)
-        .onTapGesture { if model.state != .open && !prompter.active { model.open() } }
+        .onTapGesture { if model.state != .open && !prompter.active && !dictation.active { model.open() } }
         .onDrop(of: ShelfStore.dropTypes, isTargeted: $dropHover) { providers in
             if model.state == .open && model.tab == .tools { return ToolsStore.shared.accept(providers) }
             model.tab = .shelf
@@ -60,6 +63,7 @@ struct NotchRootView: View {
         .animation(.notch, value: size)
         .animation(.notch, value: hidden)
         .animation(.notch, value: prompter.active)
+        .animation(.notch, value: dictation.active)
         .background(TranslatorHost())
         .environment(\.colorScheme, .dark)
     }

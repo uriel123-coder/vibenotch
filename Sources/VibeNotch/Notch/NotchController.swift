@@ -114,11 +114,15 @@ final class NotchController {
         if Self.trace {
             model.$state.sink { print("TRACE estado → \($0)"); fflush(stdout) }.store(in: &cancellables)
             model.$tab.sink { print("TRACE pestaña → \($0)"); fflush(stdout) }.store(in: &cancellables)
+            Dictation.shared.$phase.sink { print("TRACE dictado → \($0)"); fflush(stdout) }.store(in: &cancellables)
             Prompter.shared.$active.combineLatest(Prompter.shared.$running).sink { a, r in
                 print("TRACE teleprompter activo=\(a) avanzando=\(r)"); fflush(stdout)
             }.store(in: &cancellables)
         }
         model.$state.sink { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
+        }.store(in: &cancellables)
+        Dictation.shared.$phase.dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
         }.store(in: &cancellables)
         Prompter.shared.$active.dropFirst().sink { [weak self] on in
@@ -323,7 +327,7 @@ final class NotchController {
             dragStart = (p, Date())
             // The panel only stops ignoring the mouse after it moves, so a click on the notch usually lands on the
             // menu bar underneath and only reaches us through the global monitor. Treat it as a click on the notch.
-            if !local && !Prompter.shared.active && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
+            if !local && !Prompter.shared.active && !Dictation.shared.active && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
                 hoverWork?.cancel()
                 hoverWork = nil
                 model.open()
@@ -392,7 +396,7 @@ final class NotchController {
     }
 
     private func hover(inside: Bool, at p: NSPoint) {
-        if Prompter.shared.active { return }
+        if Prompter.shared.active || Dictation.shared.active { return }
         switch model.state {
         case .closed:
             let hot = hiddenByFullscreen ? fullscreenZone().contains(p) : wakeZone().contains(p)

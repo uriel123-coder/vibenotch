@@ -148,6 +148,31 @@ El texto pasa justo **debajo de la cámara**, así que al grabar un video, dar u
   <img src="docs/screenshots/isla-10-teleprompter.png" width="49%" alt="Teleprompter en modo isla">
 </p>
 
+### 🎙️ Notas de voz a texto
+
+Presiona **⌃⌥D** (o el micrófono en Clips › Notas) y habla. Ves tus palabras en el notch mientras hablas; toca **Listo** (o ⌃⌥D otra vez) y se guarda como **nota** y queda **copiada** para pegarla donde quieras.
+
+- En español, inglés y más idiomas (Ajustes → Llamadas y más → Notas de voz).
+- Se procesa **en tu Mac, sin internet**, cuando macOS tiene el idioma (español de México, sí). Si no, usa el reconocimiento de Apple y te lo dice en Ajustes.
+- El micrófono solo se usa mientras ves el punto rojo.
+
+<p align="center">
+  <img src="docs/screenshots/notch-11-nota-de-voz.png" width="70%" alt="Nota de voz en el notch">
+</p>
+
+### 🔐 Códigos de verificación al instante
+
+Cuando te llega un código por **correo, SMS** (Mensajes del iPhone), Gmail, tu banco o cualquier app, aparece en el notch **ya copiado** con el botón **Pegar**: le das clic y se escribe en el campo donde estás. Si quieres, en Ajustes activas que **se pegue solo**.
+
+- Funciona leyendo el aviso de macOS, así que la app tiene que mostrar la vista previa en sus notificaciones.
+- Entiende formatos como `482913`, `482 913`, `G-482913`, `AB12CD` y no confunde horas, fechas, precios o números de pedido.
+- El código **no se guarda** en el historial de Clips. Nada sale de tu Mac.
+- Usa el permiso de **Accesibilidad** (Ajustes → Llamadas y más → Dar permiso).
+
+<p align="center">
+  <img src="docs/screenshots/isla-9f-codigo.png" width="70%" alt="Código de verificación en el notch">
+</p>
+
 ### 📞 Llamadas de WhatsApp en el notch
 
 Cuando te llaman por WhatsApp en la Mac, el notch te muestra **quién llama** con **Contestar** y **Rechazar**. Ya en la llamada ves el tiempo en el notch cerrado y, al pasar el mouse, **Silenciar** y **Colgar**.
@@ -334,6 +359,7 @@ Cómo lo logra:
 | **⌃⌥F** | Buscar archivos |
 | **⌃⌥P** | Teleprompter con lo que copiaste (otra vez para cerrarlo) |
 | **⌃⌥T** | Traducir lo que copiaste |
+| **⌃⌥D** | Empezar / terminar una nota de voz |
 | **Espacio / ↑ ↓ / esc** | En el teleprompter: pausar / velocidad / cerrar |
 | **↩ / ⌘↩** | En Buscar: abrir el archivo / mostrarlo en Finder |
 | **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
@@ -354,7 +380,8 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | --- | --- | --- |
 | Calendario | Mostrar tus próximos eventos y avisarte antes | Al tocar "Conectar calendario" en Hoy |
 | Automatización (Spotify / Música) | Pausar y cambiar de canción | Al tocar un control de música |
-| Accesibilidad | Pegar automáticamente al elegir un clip, y ver y contestar llamadas de WhatsApp | Si activas "Pegar al elegir un clip" o tocas "Dar permiso" en Llamadas y más |
+| Accesibilidad | Pegar automáticamente al elegir un clip, ver y contestar llamadas de WhatsApp y detectar códigos de verificación | Si activas "Pegar al elegir un clip" o tocas "Dar permiso" en Llamadas y más |
+| Micrófono y Reconocimiento de voz | Notas de voz a texto | La primera vez que dictas |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
 | Archivos (Escritorio, Documentos, Descargas, iCloud Drive) | Buscar archivos por nombre | La primera vez que abres Buscar |
 
@@ -370,6 +397,7 @@ Ver qué canción suena no necesita ningún permiso.
   - Una vez al día pregunta a GitHub si hay una versión nueva (no manda ningún dato tuyo).
   - Solo si activas **Avisos en el celular**: manda el aviso a ntfy.
   - Solo si activas los límites desde el Llavero: consulta tu uso a Anthropic con tu propia sesión.
+- Las notas de voz se procesan en tu Mac cuando macOS tiene el idioma; el audio no se guarda. Los códigos de verificación solo se leen del aviso para mostrártelos y no se guardan.
 - Traducir y corregir usan el traductor y el corrector de macOS, en tu Mac. De WhatsApp solo lee los botones y el nombre de quien llama, para mostrarlos en el notch; no lee tus chats ni guarda nada.
 - De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
 - Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
@@ -494,6 +522,8 @@ VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_SELFTEST=1 ./build/VibeNotch.app/Content
 VIBENOTCH_SEARCHTEST=factura ./build/VibeNotch.app/Contents/MacOS/VibeNotch                        # mide el índice y la búsqueda
 VIBENOTCH_UPDATETEST=1 /tmp/copia/VibeNotch.app/Contents/MacOS/VibeNotch                           # prueba el actualizador en una copia
 VIBENOTCH_TEXTTEST="nesesito la presentasion" ./build/VibeNotch.app/Contents/MacOS/VibeNotch         # prueba corregir y traducir
+VIBENOTCH_CODETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # prueba el detector de códigos con ejemplos
+open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```
 
@@ -522,6 +552,8 @@ git tag v1.3.2 && git push origin v1.3.2
 - **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar (with a **Join** button for Zoom, Meet, Teams, Webex and FaceTime links) and a system monitor (CPU, RAM, disk).
 - **Teleprompter (⌃⌥P):** your script scrolls right under the camera so you read while looking at the lens. Space pauses, ↑/↓ change speed.
 - **WhatsApp calls:** see who's calling and answer, decline, mute or hang up from the notch (needs the WhatsApp Mac app and Accessibility permission).
+- **Voice notes (⌃⌥D):** talk and watch the words appear in the notch; they're saved as a note and copied. On-device when macOS has the language.
+- **Verification codes:** when a 2FA code arrives by email, SMS (Messages), Gmail or your bank, it pops up in the notch already copied, with a **Paste** button (or pastes itself if you want). Not saved in the clipboard history.
 - **Translate and fix spelling** of any clip with one click, or **⌃⌥T** for what you just copied, using macOS's on-device translator and spell checker.
 - **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.
 

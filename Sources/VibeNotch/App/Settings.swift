@@ -75,6 +75,11 @@ final class AppSettings: ObservableObject {
     @Published var whatsappCalls: Bool { didSet { store(whatsappCalls, forKey: "whatsappCalls") } }
     /// "auto" flips between Spanish and English; otherwise a language code like "fr".
     @Published var translateTo: String { didSet { store(translateTo, forKey: "translateTo") } }
+    /// "auto" uses the Mac's language; otherwise a locale like "en-US".
+    @Published var dictationLanguage: String { didSet { store(dictationLanguage, forKey: "dictationLanguage") } }
+    @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
+    /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
+    @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
 
     static let lingerOptions: [(Double, String)] = [(120, "A los 2 min"), (600, "A los 10 min"), (1800, "A los 30 min"),
                                                     (3600, "A la hora"), (0, "Nunca")]
@@ -107,6 +112,9 @@ final class AppSettings: ObservableObject {
         prompterCountdown = d.object(forKey: "prompterCountdown") as? Bool ?? true
         whatsappCalls = d.object(forKey: "whatsappCalls") as? Bool ?? true
         translateTo = d.string(forKey: "translateTo") ?? "auto"
+        dictationLanguage = d.string(forKey: "dictationLanguage") ?? "auto"
+        codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
+        codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
         store(phoneTopic, forKey: "phoneTopic")
         if tabs.isEmpty { tabs = NotchTab.allCases }
         // Tabs added in later versions show up once for people who had already customized theirs.

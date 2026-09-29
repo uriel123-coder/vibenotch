@@ -101,6 +101,14 @@ enum Snapshot {
             await shot("\(prefix)-9e-en-llamada", panel, dir, height: 170)
             WhatsAppCalls.shared.demo(nil)
             m.close()
+            var code = Announcement(symbol: "lock.shield.fill", tint: .blue, title: "Código 482 913", subtitle: "Mensajes · copiado, pégalo con ⌘V")
+            code.action = ("Pegar", {})
+            m.announce(code)
+            await shot("\(prefix)-9f-codigo", panel, dir, height: 170)
+            m.close()
+            Dictation.shared.demo()
+            await shot("\(prefix)-11-nota-de-voz", panel, dir, height: 170)
+            Dictation.shared.cancel()
             AppSettings.shared.prompterCountdown = false
             Prompter.shared.start("""
             Hola, soy Uriel y hoy les quiero enseñar VibeNotch.

@@ -43,6 +43,7 @@ struct ClipboardView: View {
                 segmented
 
                 if section == .notes {
+                    IconButton(symbol: "mic.fill", help: "Dictar una nota de voz (⌃⌥D)") { Dictation.shared.start() }
                     IconButton(symbol: editingNote == nil ? "plus" : "xmark", help: "Nueva nota") {
                         withAnimation(.snappy) { editingNote = editingNote == nil ? Note(text: "") : nil }
                     }

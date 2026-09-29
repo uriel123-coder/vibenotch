@@ -29,6 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             TextTools.selfTest(q)
             return
         }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_CODETEST"] != nil {
+            CodeWatcher.selfTest()
+            exit(0)
+        }
+        if let path = ProcessInfo.processInfo.environment["VIBENOTCH_DICTATIONTEST"] {
+            Dictation.selfTest(path)
+            return
+        }
         if WhatsAppCalls.trace {
             WhatsAppCalls.shared.start()
             return
@@ -59,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             KeepAwake.shared.start()
             Updater.shared.start()
             WhatsAppCalls.shared.start()
+            CodeWatcher.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -83,6 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated {
                 if Prompter.shared.active { Prompter.shared.stop() } else { Prompter.shared.startFromClipboard() }
             }
+        })
+        hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_D), modifiers: mods, id: 6) {
+            MainActor.assumeIsolated { Dictation.shared.toggle() }
         })
         hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods, id: 5) {
             MainActor.assumeIsolated { TextTools.shared.translate(NSPasteboard.general.string(forType: .string) ?? "") }
@@ -165,6 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Buscar archivos", key: "⌃⌥F") { [weak self] in self?.controller.toggleSearch() })
         menu.addItem(item(Prompter.shared.active ? "Cerrar teleprompter" : "Teleprompter con lo copiado", key: "⌃⌥P") {
             if Prompter.shared.active { Prompter.shared.stop() } else { Prompter.shared.startFromClipboard() }
+        })
+        menu.addItem(item(Dictation.shared.active ? "Terminar nota de voz" : "Dictar nota de voz", key: "⌃⌥D") {
+            Dictation.shared.toggle()
         })
         menu.addItem(item("Traducir lo copiado", key: "⌃⌥T") {
             TextTools.shared.translate(NSPasteboard.general.string(forType: .string) ?? "")
