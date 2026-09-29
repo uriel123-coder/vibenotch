@@ -80,6 +80,8 @@ final class AppSettings: ObservableObject {
     @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
     /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
     @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
+    /// Also read new emails in Apple's Mail app (needs the Automation permission, asked when connecting).
+    @Published var mailCodes: Bool { didSet { store(mailCodes, forKey: "mailCodes") } }
 
     static let lingerOptions: [(Double, String)] = [(120, "A los 2 min"), (600, "A los 10 min"), (1800, "A los 30 min"),
                                                     (3600, "A la hora"), (0, "Nunca")]
@@ -115,6 +117,7 @@ final class AppSettings: ObservableObject {
         dictationLanguage = d.string(forKey: "dictationLanguage") ?? "auto"
         codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
         codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
+        mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false
         store(phoneTopic, forKey: "phoneTopic")
         if tabs.isEmpty { tabs = NotchTab.allCases }
         // Tabs added in later versions show up once for people who had already customized theirs.

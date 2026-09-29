@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             TextTools.selfTest(q)
             return
         }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_MAILTEST"] != nil {
+            MailCodes.selfTest()
+            exit(0)
+        }
         if ProcessInfo.processInfo.environment["VIBENOTCH_CODETEST"] != nil {
             CodeWatcher.selfTest()
             exit(0)
@@ -68,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Updater.shared.start()
             WhatsAppCalls.shared.start()
             CodeWatcher.shared.start()
+            MailCodes.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

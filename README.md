@@ -164,7 +164,9 @@ Presiona **⌃⌥D** (o el micrófono en Clips › Notas) y habla. Ves tus palab
 
 Cuando te llega un código por **correo, SMS** (Mensajes del iPhone), Gmail, tu banco o cualquier app, aparece en el notch **ya copiado** con el botón **Pegar**: le das clic y se escribe en el campo donde estás. Si quieres, en Ajustes activas que **se pegue solo**.
 
+- Te dice **de dónde viene**: "Mensajes · BBVA", "Correo de Google · Gmail personal", etc., para que sepas si es el código que esperabas.
 - Funciona leyendo el aviso de macOS, así que la app tiene que mostrar la vista previa en sus notificaciones.
+- **Conectar tus correos** (opcional): en Ajustes → Llamadas y más → **Conectar Mail**, VibeNotch lee directamente los correos nuevos de la app Mail. Funciona con todas las cuentas que tengas ahí (Gmail, iCloud, Outlook, Yahoo…; se agregan en Ajustes del Sistema → Cuentas de Internet), encuentra el código aunque venga más abajo en el correo o tengas las vistas previas ocultas, y te dice quién lo mandó y a qué cuenta llegó. Necesita que Mail esté abierto (puede estar minimizado) y que aceptes el permiso de Automatización.
 - Entiende formatos como `482913`, `482 913`, `G-482913`, `AB12CD` y no confunde horas, fechas, precios o números de pedido.
 - El código **no se guarda** en el historial de Clips. Nada sale de tu Mac.
 - Usa el permiso de **Accesibilidad** (Ajustes → Llamadas y más → Dar permiso).
@@ -380,6 +382,7 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | --- | --- | --- |
 | Calendario | Mostrar tus próximos eventos y avisarte antes | Al tocar "Conectar calendario" en Hoy |
 | Automatización (Spotify / Música) | Pausar y cambiar de canción | Al tocar un control de música |
+| Automatización (Mail) | Leer los correos nuevos para encontrar códigos y saber quién los mandó | Si tocas "Conectar Mail" en Llamadas y más |
 | Accesibilidad | Pegar automáticamente al elegir un clip, ver y contestar llamadas de WhatsApp y detectar códigos de verificación | Si activas "Pegar al elegir un clip" o tocas "Dar permiso" en Llamadas y más |
 | Micrófono y Reconocimiento de voz | Notas de voz a texto | La primera vez que dictas |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
@@ -397,7 +400,7 @@ Ver qué canción suena no necesita ningún permiso.
   - Una vez al día pregunta a GitHub si hay una versión nueva (no manda ningún dato tuyo).
   - Solo si activas **Avisos en el celular**: manda el aviso a ntfy.
   - Solo si activas los límites desde el Llavero: consulta tu uso a Anthropic con tu propia sesión.
-- Las notas de voz se procesan en tu Mac cuando macOS tiene el idioma; el audio no se guarda. Los códigos de verificación solo se leen del aviso para mostrártelos y no se guardan.
+- Las notas de voz se procesan en tu Mac cuando macOS tiene el idioma; el audio no se guarda. Los códigos de verificación solo se leen del aviso para mostrártelos y no se guardan. Si conectas Mail, VibeNotch solo revisa los correos que llegaron en los últimos minutos, en tu Mac, y no guarda ni envía su contenido.
 - Traducir y corregir usan el traductor y el corrector de macOS, en tu Mac. De WhatsApp solo lee los botones y el nombre de quien llama, para mostrarlos en el notch; no lee tus chats ni guarda nada.
 - De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
 - Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
@@ -523,6 +526,7 @@ VIBENOTCH_SEARCHTEST=factura ./build/VibeNotch.app/Contents/MacOS/VibeNotch     
 VIBENOTCH_UPDATETEST=1 /tmp/copia/VibeNotch.app/Contents/MacOS/VibeNotch                           # prueba el actualizador en una copia
 VIBENOTCH_TEXTTEST="nesesito la presentasion" ./build/VibeNotch.app/Contents/MacOS/VibeNotch         # prueba corregir y traducir
 VIBENOTCH_CODETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # prueba el detector de códigos con ejemplos
+VIBENOTCH_MAILTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # compila el lector de Mail y prueba correos de ejemplo
 open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```
@@ -553,7 +557,7 @@ git tag v1.3.2 && git push origin v1.3.2
 - **Teleprompter (⌃⌥P):** your script scrolls right under the camera so you read while looking at the lens. Space pauses, ↑/↓ change speed.
 - **WhatsApp calls:** see who's calling and answer, decline, mute or hang up from the notch (needs the WhatsApp Mac app and Accessibility permission).
 - **Voice notes (⌃⌥D):** talk and watch the words appear in the notch; they're saved as a note and copied. On-device when macOS has the language.
-- **Verification codes:** when a 2FA code arrives by email, SMS (Messages), Gmail or your bank, it pops up in the notch already copied, with a **Paste** button (or pastes itself if you want). Not saved in the clipboard history.
+- **Verification codes:** when a 2FA code arrives by email, SMS (Messages), Gmail or your bank, it pops up in the notch already copied, with a **Paste** button (or pastes itself if you want), and tells you who sent it. Optionally connect Apple Mail to read new emails from all your accounts directly (Gmail, iCloud, Outlook…). Not saved in the clipboard history.
 - **Translate and fix spelling** of any clip with one click, or **⌃⌥T** for what you just copied, using macOS's on-device translator and spell checker.
 - **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.
 

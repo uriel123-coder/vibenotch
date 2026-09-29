@@ -127,7 +127,7 @@ private struct GeneralPage: View {
             } header: {
                 Text("Apariencia")
             } footer: {
-                Text("Automático usa el notch si tu Mac lo tiene y una isla flotante debajo de la barra de menús si no.")
+                FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante debajo de la barra de menús si no.")
             }
 
             Section("Cómo se abre") {
@@ -185,7 +185,7 @@ private struct TabsPage: View {
             } header: {
                 Text("Pestañas visibles")
             } footer: {
-                Text("Elige qué pestañas ves y en qué orden. Arrastrar archivos al notch siempre abre el estante.")
+                FooterText("Elige qué pestañas ves y en qué orden. Arrastrar archivos al notch siempre abre el estante.")
             }
         }
     }
@@ -228,7 +228,7 @@ private struct TodayPage: View {
             } header: {
                 Text("Widgets de la pestaña Hoy")
             } footer: {
-                Text("Se acomodan en dos columnas en el orden que elijas.")
+                FooterText("Se acomodan en dos columnas en el orden que elijas.")
             }
         }
     }
@@ -262,7 +262,7 @@ private struct AgentsPage: View {
             } header: {
                 Text("Conectados")
             } footer: {
-                Text("Conectar agrega hooks a ~/.claude/settings.json o ~/.cursor/hooks.json sin tocar lo demás (guarda una copia). Si VibeNotch está cerrada, tus agentes siguen normal.")
+                FooterText("Conectar agrega hooks a ~/.claude/settings.json o ~/.cursor/hooks.json sin tocar lo demás (guarda una copia). Si VibeNotch está cerrada, tus agentes siguen normal.")
             }
 
             Section("Qué hace VibeNotch") {
@@ -285,7 +285,7 @@ private struct AgentsPage: View {
             } header: {
                 Text("Mac despierta")
             } footer: {
-                Text("Solo mientras Claude, Codex o Cursor están trabajando; al terminar, la Mac vuelve a dormirse como siempre. Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.")
+                FooterText("Solo mientras Claude, Codex o Cursor están trabajando; al terminar, la Mac vuelve a dormirse como siempre. Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.")
             }
         }
     }
@@ -301,7 +301,7 @@ private struct PhonePage: View {
             Section {
                 Toggle("Avisarme en el celular", isOn: $s.phoneEnabled)
             } footer: {
-                Text("Te llega una notificación cuando un agente termina o te necesita, aunque estés lejos de la Mac.")
+                FooterText("Te llega una notificación cuando un agente termina o te necesita, aunque estés lejos de la Mac.")
             }
 
             Section("Conectar tu celular (1 minuto)") {
@@ -356,7 +356,7 @@ private struct PhonePage: View {
             } header: {
                 Text("Avanzado")
             } footer: {
-                Text("Los avisos pasan por el servidor gratuito de ntfy. El código es aleatorio y funciona como una contraseña: quien lo tenga puede leer tus avisos, así que no lo compartas. Si quieres que nada salga de tu red, pon aquí tu propio servidor ntfy. Sin “Incluir el texto”, solo se envía el nombre del proyecto.")
+                FooterText("Los avisos pasan por el servidor gratuito de ntfy. El código es aleatorio y funciona como una contraseña: quien lo tenga puede leer tus avisos, así que no lo compartas. Si quieres que nada salga de tu red, pon aquí tu propio servidor ntfy. Sin “Incluir el texto”, solo se envía el nombre del proyecto.")
             }
         }
     }
@@ -406,6 +406,7 @@ private struct ClipboardPage: View {
 
 private struct ExtrasPage: View {
     @ObservedObject private var s = AppSettings.shared
+    @ObservedObject private var mail = MailCodes.shared
     @State private var trusted = AXIsProcessTrusted()
     private let recheck = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -425,17 +426,48 @@ private struct ExtrasPage: View {
             } header: {
                 Text("Llamadas de WhatsApp")
             } footer: {
-                Text("Cuando te llaman por WhatsApp en la Mac, el notch muestra quién es con Contestar y Rechazar; durante la llamada ves el tiempo, Silenciar y Colgar. Necesita la app de WhatsApp para Mac abierta y el permiso de Accesibilidad para presionar sus botones. Nada sale de tu Mac.")
+                FooterText("Cuando te llaman por WhatsApp en la Mac, el notch muestra quién es con Contestar y Rechazar; durante la llamada ves el tiempo, Silenciar y Colgar. Necesita la app de WhatsApp para Mac abierta y el permiso de Accesibilidad para presionar sus botones. Nada sale de tu Mac.")
             }
 
             Section {
                 Toggle("Detectar códigos en los avisos", isOn: $s.codesEnabled)
                 Toggle("Pegarlo solo en el campo donde estás", isOn: $s.codesAutoPaste)
                     .disabled(!s.codesEnabled)
+                LabeledContent {
+                    switch mail.status {
+                    case .off:
+                        Button("Conectar Mail") { mail.connect() }
+                    case .connecting:
+                        ProgressView().controlSize(.small)
+                    case .connected(let accounts):
+                        HStack {
+                            Label(accounts.isEmpty ? "Conectado" : accounts.joined(separator: ", "), systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green).lineLimit(1)
+                            Button("Desconectar") { mail.disconnect() }
+                        }
+                    case .mailClosed:
+                        HStack {
+                            Text("Mail está cerrado").foregroundStyle(.secondary)
+                            Button("Abrir Mail") { mail.connect() }
+                        }
+                    case .denied:
+                        Button("Dar permiso") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
+                        }
+                    case .failed(let why):
+                        HStack {
+                            Text(why).foregroundStyle(.secondary).lineLimit(1)
+                            Button("Reintentar") { mail.connect() }
+                        }
+                    }
+                } label: {
+                    Label("Leer tus correos (app Mail)", systemImage: "envelope.fill")
+                }
+                .disabled(!s.codesEnabled)
             } header: {
                 Text("Códigos de verificación")
             } footer: {
-                Text("Cuando llega un aviso de Mail, Mensajes (SMS del iPhone), Gmail, tu banco u otra app con un código de verificación, aparece en el notch ya copiado con el botón Pegar. No se guarda en el historial de Clips. Usa el mismo permiso de Accesibilidad y solo funciona si esa app muestra la vista previa en sus avisos.")
+                FooterText("Cuando llega un código por Mensajes (SMS del iPhone), Gmail, tu banco u otra app, aparece en el notch ya copiado con el botón Pegar y te dice de quién viene. No se guarda en el historial de Clips. Los avisos se leen con el permiso de Accesibilidad y solo si la app muestra la vista previa.\n\nConecta Mail para leer tus correos nuevos directamente: funciona con las cuentas que tengas en la app Mail (Gmail, iCloud, Outlook, Yahoo…; agrégalas en Ajustes del Sistema › Cuentas de Internet). Encuentra el código aunque venga más abajo en el correo o tengas las vistas previas ocultas, y te dice quién lo mandó y a qué cuenta. Solo lee los correos de los últimos minutos, mientras Mail esté abierto, y nada sale de tu Mac.")
             }
 
             Section {
@@ -451,7 +483,7 @@ private struct ExtrasPage: View {
             } header: {
                 Text("Notas de voz")
             } footer: {
-                Text("Presiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
+                FooterText("Presiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
             }
 
             Section {
@@ -468,7 +500,7 @@ private struct ExtrasPage: View {
             } header: {
                 Text("Teleprompter")
             } footer: {
-                Text("El texto pasa justo debajo de la cámara para que leas mirando a la lente. Ábrelo desde una nota o un clip (botón ▶︎) o copia tu guion y presiona ⌃⌥P. Espacio pausa, ↑ ↓ cambian la velocidad, esc cierra; también puedes hacer clic en el texto o moverlo con el trackpad.")
+                FooterText("El texto pasa justo debajo de la cámara para que leas mirando a la lente. Ábrelo desde una nota o un clip (botón ▶︎) o copia tu guion y presiona ⌃⌥P. Espacio pausa, ↑ ↓ cambian la velocidad, esc cierra; también puedes hacer clic en el texto o moverlo con el trackpad.")
             }
 
             Section {
@@ -479,7 +511,7 @@ private struct ExtrasPage: View {
             } header: {
                 Text("Traducir y corregir")
             } footer: {
-                Text("En la pestaña Clips pasa el mouse sobre un texto: 💬 traduce y ᵃᵇᶜ corrige la ortografía. El resultado se copia listo para pegar. Usa el traductor y el corrector de macOS, sin internet; la primera vez macOS puede pedirte descargar el idioma (macOS 15 o más nuevo).")
+                FooterText("En la pestaña Clips pasa el mouse sobre un texto: 💬 traduce y ᵃᵇᶜ corrige la ortografía. El resultado se copia listo para pegar. Usa el traductor y el corrector de macOS, sin internet; la primera vez macOS puede pedirte descargar el idioma (macOS 15 o más nuevo).")
             }
         }
         .onReceive(recheck) { _ in trusted = AXIsProcessTrusted() }
@@ -531,12 +563,23 @@ private struct AboutPage: View {
                     }
                 }
             } footer: {
-                Text("VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch. Al actualizar, la copia anterior se guarda en la carpeta temporal por si algo sale mal. macOS puede volver a pedirte algunos permisos después de actualizar.")
+                FooterText("VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch. Al actualizar, la copia anterior se guarda en la carpeta temporal por si algo sale mal. macOS puede volver a pedirte algunos permisos después de actualizar.")
             }
             Section {
                 Link("Ver en GitHub", destination: URL(string: "https://github.com/uriel123-coder/vibenotch")!)
                 Link("Reportar un problema", destination: URL(string: "https://github.com/uriel123-coder/vibenotch/issues")!)
             }
         }
+    }
+}
+
+private struct FooterText: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

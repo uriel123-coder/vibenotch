@@ -120,7 +120,10 @@ enum Snapshot {
             Prompter.shared.toggle()
             await shot("\(prefix)-10-teleprompter", panel, dir, height: 270)
             Prompter.shared.stop()
-            if !m.hasNotch { await settingsShot("ajustes-celular", page: .phone, dir) }
+            if !m.hasNotch {
+                await settingsShot("ajustes-celular", page: .phone, dir)
+                await settingsShot("ajustes-extras", page: .extras, dir)
+            }
             NSApp.terminate(nil)
         }
     }

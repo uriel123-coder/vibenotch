@@ -17,6 +17,8 @@ final class CodeWatcher {
     struct Banner: Sendable {
         let id: String
         let app: String
+        /// Who it's from: the sender in Mail, the contact or number in Messages.
+        let title: String
         let text: String
     }
 
@@ -49,14 +51,16 @@ final class CodeWatcher {
             seen.append(b.id)
             if seen.count > 40 { seen.removeFirst() }
             guard b.app != "VibeNotch", let code = Self.extract(b.text) else { continue }
-            if let (last, at) = lastCode, last == code, Date().timeIntervalSince(at) < 120 { continue }
-            lastCode = (code, Date())
-            if Self.trace { print("TRACE código \(code) de \(b.app)"); fflush(stdout) }
-            offer(code, from: b.app)
+            let title = b.title.trimmingCharacters(in: .whitespaces)
+            offer(code, from: title.isEmpty || title.count > 40 ? b.app : "\(b.app) · \(title)")
         }
     }
 
+    /// Shows a code once even if it arrives twice (notification and Mail).
     func offer(_ code: String, from app: String) {
+        if let (last, at) = lastCode, last == code, Date().timeIntervalSince(at) < 120 { return }
+        lastCode = (code, Date())
+        if Self.trace { print("TRACE código \(code) de \(app)"); fflush(stdout) }
         Self.copy(code)
         let pasteNow = AppSettings.shared.codesAutoPaste && AXIsProcessTrusted()
         if pasteNow { Paster.paste() }
@@ -106,10 +110,11 @@ final class CodeWatcher {
             if string(e, kAXSubroleAttribute) == "AXNotificationCenterBanner" {
                 let summary = string(e, kAXDescriptionAttribute)
                 let parts = children(e).map { (string($0, kAXIdentifierAttribute), string($0, kAXValueAttribute)) }
+                let title = parts.first { $0.0 == "title" }?.1 ?? ""
                 let body = parts.filter { $0.0 == "title" || $0.0 == "subtitle" || $0.0 == "body" }.map(\.1).joined(separator: " ")
                 let app = summary.components(separatedBy: ", ").first ?? ""
                 let id = string(e, kAXIdentifierAttribute)
-                out.append(Banner(id: id.isEmpty ? summary : id, app: app, text: body.isEmpty ? summary : body))
+                out.append(Banner(id: id.isEmpty ? summary : id, app: app, title: title, text: body.isEmpty ? summary : body))
                 continue
             }
             if depth < 12 { stack.append(contentsOf: children(e).map { ($0, depth + 1) }) }
