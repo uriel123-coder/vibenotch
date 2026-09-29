@@ -572,6 +572,8 @@ VIBENOTCH_UPDATETEST=1 /tmp/copia/VibeNotch.app/Contents/MacOS/VibeNotch        
 VIBENOTCH_TEXTTEST="nesesito la presentasion" ./build/VibeNotch.app/Contents/MacOS/VibeNotch         # prueba corregir y traducir
 VIBENOTCH_CODETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # prueba el detector de códigos con ejemplos
 VIBENOTCH_MAILTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # compila el lector de Mail y prueba correos de ejemplo
+VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
+VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
 open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```

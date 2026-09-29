@@ -240,11 +240,7 @@ struct ClipRow: View {
     @ViewBuilder private var preview: some View {
         switch item.kind {
         case .image:
-            if let url = item.imageURL, let img = NSImage(contentsOf: url) {
-                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 34, height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            }
+            if let url = item.imageURL { ImageThumb(url: url, size: 34) }
         case .files:
             if let first = item.paths?.first { FileThumb(url: URL(fileURLWithPath: first), size: 30).frame(width: 34) }
         case .text:

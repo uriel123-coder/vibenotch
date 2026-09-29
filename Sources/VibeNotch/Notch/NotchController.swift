@@ -119,8 +119,9 @@ final class NotchController {
                 print("TRACE teleprompter activo=\(a) avanzando=\(r)"); fflush(stdout)
             }.store(in: &cancellables)
         }
-        model.$state.sink { [weak self] _ in
+        model.$state.sink { [weak self] state in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
+            self?.keepResponsive(state != .closed)
         }.store(in: &cancellables)
         Dictation.shared.$phase.dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
@@ -301,6 +302,19 @@ final class NotchController {
         let r = rect(size).insetBy(dx: -2, dy: -2)
         guard model.island else { return r }
         return r.union(NSRect(x: r.minX, y: r.maxY, width: r.width, height: screen.frame.maxY - r.maxY))
+    }
+
+    private var responsiveActivity: NSObjectProtocol?
+
+    /// App Nap throttles an agent app's timers and animations; only opt out while the notch is showing something.
+    private func keepResponsive(_ on: Bool) {
+        if on, responsiveActivity == nil {
+            responsiveActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                                       reason: "Notch abierto")
+        } else if !on, let activity = responsiveActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            responsiveActivity = nil
+        }
     }
 
     private func syncMouseAcceptance() {

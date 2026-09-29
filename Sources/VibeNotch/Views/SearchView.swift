@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SearchView: View {
     @ObservedObject private var search = FileSearch.shared
@@ -194,15 +195,20 @@ struct SearchRow: View {
     }
 }
 
-/// Finder icons by path: no file content is read, so it's instant and needs no folder permission.
+/// Finder icons: no file content is read, so it needs no folder permission.
+/// Plain files share one icon per extension because a per-path lookup stats the file on the main thread.
 @MainActor
 enum FileIcons {
     private static let cache = NSCache<NSString, NSImage>()
+    private static let ownIcon: Set<String> = ["app", "bundle", "framework", "prefpane", "workflow", "photoslibrary"]
 
     static func icon(for url: URL) -> NSImage {
-        let key = url.path as NSString
+        let ext = url.pathExtension.lowercased()
+        let byType = !ext.isEmpty && !ownIcon.contains(ext)
+        let key = (byType ? "." + ext : url.path) as NSString
         if let hit = cache.object(forKey: key) { return hit }
-        let image = NSWorkspace.shared.icon(forFile: url.path)
+        let image = byType ? NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)
+                           : NSWorkspace.shared.icon(forFile: url.path)
         image.size = NSSize(width: 32, height: 32)
         cache.setObject(image, forKey: key)
         return image

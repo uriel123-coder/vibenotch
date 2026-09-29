@@ -340,6 +340,7 @@ struct OpenView: View {
                 HStack(spacing: 2) {
                     ForEach(settings.tabs, id: \.self) { tab in tabButton(tab) }
                 }
+                .animation(.snappy, value: model.tab)
                 .fixedSize()
                 .compositingGroup()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -356,6 +357,8 @@ struct OpenView: View {
             .frame(height: model.island ? 28 : model.notchSize.height - 4)
             .padding(.horizontal, 6)
 
+            // Swapped without a transition: animating a freshly built tab costs about as much as building it,
+            // and inside this VStack the outgoing and incoming tabs squeezed each other.
             Group {
                 switch model.tab {
                 case .agents: AgentsView()
@@ -366,15 +369,12 @@ struct OpenView: View {
                 case .tools: ToolsView()
                 }
             }
-            .id(model.tab)
-            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 6)), removal: .opacity))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 12)
         .padding(.top, model.island ? 8 : 2)
         .foregroundStyle(.white)
-        .animation(.snappy, value: model.tab)
     }
 
     private func tabButton(_ tab: NotchTab) -> some View {

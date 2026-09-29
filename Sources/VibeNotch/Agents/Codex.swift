@@ -193,6 +193,33 @@ final class CodexMonitor {
     }
 }
 
+/// Launch Services and icon lookups hit the disk; views ask for them on every redraw.
+@MainActor
+enum AppLookup {
+    private static var urls: [String: URL?] = [:]
+    private static var icons: [String: NSImage] = [:]
+    private static var checkedAt = Date.distantPast
+
+    static func url(_ bundleID: String) -> URL? {
+        if Date().timeIntervalSince(checkedAt) > 60 {
+            urls.removeAll()
+            checkedAt = Date()
+        }
+        if let hit = urls[bundleID] { return hit }
+        let found = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        urls[bundleID] = found
+        return found
+    }
+
+    static func icon(_ bundleID: String) -> NSImage? {
+        if let hit = icons[bundleID] { return hit }
+        guard let url = url(bundleID) else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        icons[bundleID] = image
+        return image
+    }
+}
+
 struct ChatApp: Identifiable {
     let id: String
     let name: String
@@ -206,13 +233,13 @@ struct ChatApp: Identifiable {
         ChatApp(id: "com.google.GeminiMacOS", name: "Gemini"),
     ]
 
-    static var installed: [ChatApp] { known.filter { $0.url != nil } }
+    @MainActor static var installed: [ChatApp] { known.filter { $0.url != nil } }
 
-    var url: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) }
+    @MainActor var url: URL? { AppLookup.url(id) }
     var isRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty }
-    var icon: NSImage? { url.map { NSWorkspace.shared.icon(forFile: $0.path) } }
+    @MainActor var icon: NSImage? { AppLookup.icon(id) }
 
-    func open() {
+    @MainActor func open() {
         if let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first {
             app.activate()
         } else if let url {

@@ -41,24 +41,41 @@ final class SystemMonitor: ObservableObject {
         lastTicks = nil
     }
 
+    private static let queue = DispatchQueue(label: "vibenotch.system-monitor", qos: .utility)
+
+    /// The disk query alone can take tens of milliseconds, so everything is read off the main thread.
     private func sample() {
-        var s = stats
-        if let ticks = Self.cpuTicks() {
-            if let last = lastTicks, ticks.total > last.total {
-                s.cpu = Double(ticks.busy - last.busy) / Double(ticks.total - last.total)
+        let previous = stats, last = lastTicks
+        Self.queue.async {
+            let (s, ticks) = Self.measure(previous, last)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let monitor = SystemMonitor.shared
+                    guard monitor.timer != nil else { return }
+                    if let ticks { monitor.lastTicks = ticks }
+                    if s != monitor.stats { monitor.stats = s }
+                }
             }
-            lastTicks = ticks
         }
-        s.memoryUsed = Self.memoryUsed() ?? s.memoryUsed
-        s.ownMemory = Self.footprint() ?? s.ownMemory
+    }
+
+    private nonisolated static func measure(_ previous: SystemStats, _ last: (busy: UInt64, total: UInt64)?)
+        -> (SystemStats, (busy: UInt64, total: UInt64)?) {
+        var s = previous
+        let ticks = cpuTicks()
+        if let ticks, let last, ticks.total > last.total {
+            s.cpu = Double(ticks.busy - last.busy) / Double(ticks.total - last.total)
+        }
+        s.memoryUsed = memoryUsed() ?? s.memoryUsed
+        s.ownMemory = footprint() ?? s.ownMemory
         if let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]) {
             s.diskFree = v.volumeAvailableCapacityForImportantUsage ?? s.diskFree
             s.diskTotal = Int64(v.volumeTotalCapacity ?? 0)
         }
-        if s != stats { stats = s }
+        return (s, ticks)
     }
 
-    private static func cpuTicks() -> (busy: UInt64, total: UInt64)? {
+    private nonisolated static func cpuTicks() -> (busy: UInt64, total: UInt64)? {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &info) {
@@ -71,7 +88,7 @@ final class SystemMonitor: ObservableObject {
     }
 
     /// Same notion as Activity Monitor's "Memory Used": app memory + wired + compressed.
-    private static func memoryUsed() -> UInt64? {
+    private nonisolated static func memoryUsed() -> UInt64? {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &stats) {
@@ -83,7 +100,7 @@ final class SystemMonitor: ObservableObject {
         return (app + UInt64(stats.wire_count) + UInt64(stats.compressor_page_count)) * page
     }
 
-    private static func footprint() -> UInt64? {
+    private nonisolated static func footprint() -> UInt64? {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.stride / MemoryLayout<natural_t>.stride)
         let kr = withUnsafeMutablePointer(to: &info) {

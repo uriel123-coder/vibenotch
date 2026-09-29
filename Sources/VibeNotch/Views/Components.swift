@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import QuickLookThumbnailing
 import SwiftUI
 
@@ -33,11 +34,11 @@ struct NotchShape: Shape {
     }
 }
 
+/// No blur: the identity state stays applied to the whole notch, and even a 0-radius blur re-filters it every frame.
 struct BlurFade: ViewModifier {
     let active: Bool
     func body(content: Content) -> some View {
         content
-            .blur(radius: active ? 8 : 0)
             .opacity(active ? 0 : 1)
             .scaleEffect(active ? 0.94 : 1, anchor: .top)
     }
@@ -326,6 +327,48 @@ enum Thumbnails {
         guard let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: req) else { return nil }
         cache.setObject(rep.nsImage, forKey: url as NSURL)
         return rep.nsImage
+    }
+}
+
+/// Decoded off the main thread: clipboard screenshots can be several MB and rows redraw on every tab switch.
+enum ImageThumbs {
+    private static let cache = NSCache<NSURL, NSImage>()
+
+    static func cached(_ url: URL) -> NSImage? { cache.object(forKey: url as NSURL) }
+
+    static func load(_ url: URL, pixels: Int) async -> NSImage? {
+        if let hit = cached(url) { return hit }
+        let cg = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixels,
+            ]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }.value
+        guard let cg else { return nil }
+        let image = NSImage(cgImage: cg, size: .zero)
+        cache.setObject(image, forKey: url as NSURL)
+        return image
+    }
+}
+
+struct ImageThumb: View {
+    var url: URL
+    var size: CGFloat
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.white.opacity(0.06))
+            if let shown = image ?? ImageThumbs.cached(url) {
+                Image(nsImage: shown).resizable().aspectRatio(contentMode: .fill)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .task(id: url) { image = await ImageThumbs.load(url, pixels: Int(size * 2)) }
     }
 }
 

@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CodeWatcher.shared.start()
             MailCodes.shared.start()
         }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_TABTEST"] != nil { TabTest.run() }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "VibeNotch")
