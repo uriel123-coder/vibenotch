@@ -178,7 +178,7 @@ cd vibenotch
 ## Primeros pasos
 
 1. Al abrirla aparece un saludo en el notch y un ✨ en la barra de menús.
-2. **Para abrir VibeNotch:** pasa el mouse arriba al centro de la pantalla, haz clic en ✨ o presiona **⌃⌥N**.
+2. **Para abrir VibeNotch:** lleva el mouse al notch (o arriba al centro si tu Mac no tiene) para ver un vistazo, y **haz clic** para abrirlo completo. También con ✨ en la barra de menús o **⌃⌥N**.
 3. **Para ajustes:** el engrane ⚙️ dentro de VibeNotch, o clic derecho en ✨ → **Ajustes…** (⌘,).
 4. Si usas Claude Code o Cursor: clic derecho en ✨ → **Conectar Claude Code** / **Conectar Cursor**. Codex y la app de Claude se detectan solos.
 5. Se abre sola al iniciar sesión. Lo puedes apagar en Ajustes → General.
@@ -337,6 +337,17 @@ Ver qué canción suena no necesita ningún permiso.
 ## Solución de problemas
 
 <details>
+<summary><b>Al tocar el notch no pasa nada (solo abre desde ✨)</b></summary>
+
+Pasaba en versiones anteriores a la 1.3.1 en Macs con notch: el clic se iba a la barra de menús y llevar el mouse hasta el borde de arriba no se detectaba. Actualiza con este comando (cierra la versión vieja, instala la nueva y la abre):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
+```
+
+</details>
+
+<details>
 <summary><b>No veo nada en el notch / en la pantalla</b></summary>
 
 - Revisa que haya un ✨ en la barra de menús. Si no, abre VibeNotch desde Aplicaciones.
@@ -448,7 +459,7 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.3.1 && git push origin v1.3.1
+git tag v1.3.2 && git push origin v1.3.2
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.

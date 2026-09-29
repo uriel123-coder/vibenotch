@@ -259,7 +259,10 @@ struct PeekView: View {
                 MusicControls(size: 11)
             } else {
                 Image(systemName: "sparkles").foregroundStyle(.white.opacity(0.6))
-                Text("Todo tranquilo").font(.system(size: 12, weight: .semibold, design: .rounded))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Todo tranquilo").font(.system(size: 12, weight: .semibold, design: .rounded))
+                    Text("Haz clic para abrir").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                }
             }
             if music.track == nil || agents.headline != nil || timer.isActive {
                 Spacer(minLength: 4)

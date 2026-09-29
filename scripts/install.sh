@@ -37,5 +37,8 @@ $SUDO ditto "$tmp/VibeNotch.app" "$DEST/VibeNotch.app"
 $SUDO xattr -dr com.apple.quarantine "$DEST/VibeNotch.app" 2>/dev/null || true
 
 open "$DEST/VibeNotch.app"
-bold "✓ Listo. Busca ✨ en la barra de menús o pasa el mouse arriba al centro de la pantalla."
-echo "  Atajo: ⌃⌥N abre VibeNotch · ⌃⌥V abre el portapapeles"
+version=$(defaults read "$DEST/VibeNotch.app/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "?")
+bold "✓ Listo: VibeNotch $version instalada en $DEST."
+echo "  Pasa el mouse por el notch (o arriba al centro si tu Mac no tiene) y haz clic para abrirlo."
+echo "  También: ✨ en la barra de menús · ⌃⌥N abre · ⌃⌥V portapapeles · ⌃⌥F buscar archivos"
+echo "  Desde la 1.3 se actualiza sola: te avisa en el notch cuando hay versión nueva."

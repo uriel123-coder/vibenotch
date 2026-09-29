@@ -63,10 +63,10 @@ final class NotchController {
         let snapshot = ProcessInfo.processInfo.environment["VIBENOTCH_SNAPSHOT"] != nil
         let mask: NSEvent.EventTypeMask = snapshot ? [] : [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
         if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] e in
-            MainActor.assumeIsolated { self?.mouse(e.type, local: false) }
+            MainActor.assumeIsolated { self?.mouse(e.type, at: Self.location(e), local: false) }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] e in
-            MainActor.assumeIsolated { self?.mouse(e.type, local: true) }
+            MainActor.assumeIsolated { self?.mouse(e.type, at: Self.location(e), local: true) }
             return e
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
@@ -97,6 +97,7 @@ final class NotchController {
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.layout() } }
         }.store(in: &cancellables)
         guard !snapshot else { return }
+        if Self.trace { model.$state.sink { print("TRACE estado → \($0)"); fflush(stdout) }.store(in: &cancellables) }
         model.$state.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
         }.store(in: &cancellables)
@@ -184,15 +185,29 @@ final class NotchController {
     }
 
     /// Zone that wakes the collapsed notch/island: the notch itself, or the center of the menu bar on Macs without one.
+    /// It reaches a few points past the top edge: pushing the pointer up leaves it at exactly `maxY`, which a
+    /// plain `NSRect.contains` treats as outside.
     private func wakeZone() -> NSRect {
         let f = screen.frame
         if model.island {
             let h = max(model.islandTop, 14)
-            let strip = NSRect(x: f.midX - 150, y: f.maxY - h, width: 300, height: h)
+            let strip = NSRect(x: f.midX - 150, y: f.maxY - h, width: 300, height: h + 4)
             let visible = model.showsIndicators || model.showsHandle
             return visible ? strip.union(rect(model.size()).insetBy(dx: -8, dy: -8)) : strip
         }
-        return rect(CGSize(width: model.size().width + 16, height: model.notchSize.height + 4))
+        let w = model.size().width + 40, h = model.notchSize.height + 6
+        return NSRect(x: f.midX - w / 2, y: f.maxY - h, width: w, height: h + 4)
+    }
+
+    /// Where a click opens the collapsed notch. On the island only the visible pill counts, since the middle of the
+    /// menu bar can hold another app's menus.
+    private func clickZone() -> NSRect? {
+        guard model.state == .closed, !(model.fullscreen && !model.showsIndicators) else { return nil }
+        if model.island {
+            guard model.showsIndicators || model.showsHandle else { return nil }
+            return rect(model.size()).insetBy(dx: -8, dy: -8)
+        }
+        return wakeZone()
     }
 
     private func refreshFullscreen(soon: Bool = false) {
@@ -236,8 +251,14 @@ final class NotchController {
         panel.ignoresMouseEvents = !rect(model.size()).insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
     }
 
-    private func mouse(_ type: NSEvent.EventType, local: Bool) {
-        let p = NSEvent.mouseLocation
+    /// Where the event happened in screen coordinates; `NSEvent.mouseLocation` may already have moved on.
+    private static func location(_ e: NSEvent) -> NSPoint {
+        guard let window = e.window else { return e.locationInWindow }
+        return window.convertPoint(toScreen: e.locationInWindow)
+    }
+
+    private func mouse(_ type: NSEvent.EventType, at p: NSPoint, local: Bool) {
+        if Self.trace { print("TRACE \(type == .mouseMoved ? "move" : type == .leftMouseDown ? "down" : type == .leftMouseUp ? "up" : "drag") local=\(local) p=\(p) wake=\(wakeZone()) fs=\(model.fullscreen) state=\(model.state) ignores=\(panel.ignoresMouseEvents)"); fflush(stdout) }
         if type == .mouseMoved || type == .leftMouseDragged { follow(p) }
         let size = model.size()
         let inside = rect(size).insetBy(dx: -2, dy: -2).contains(p)
@@ -248,7 +269,17 @@ final class NotchController {
         case .leftMouseDown:
             dragBaseline = NSPasteboard(name: .drag).changeCount
             dragStart = (p, Date())
-            if !inside && !local && model.state != .closed { model.close() }
+            // The panel only stops ignoring the mouse after it moves, so a click on the notch usually lands on the
+            // menu bar underneath and only reaches us through the global monitor. Treat it as a click on the notch.
+            if !local && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
+                hoverWork?.cancel()
+                hoverWork = nil
+                model.open()
+                model.engaged = true
+                panel.ignoresMouseEvents = false
+            } else if !inside && !local && model.state != .closed {
+                model.close()
+            }
         case .leftMouseUp:
             dragStart = nil
             if model.dropHint { endDropHint(after: 0.4) }
@@ -277,6 +308,8 @@ final class NotchController {
     }
 
     /// Hides the "drop here" hint once the drag ends (mouse-up doesn't always reach a global monitor mid-drag).
+    static let trace = ProcessInfo.processInfo.environment["VIBENOTCH_TRACE"] != nil
+
     private func endDropHint(after delay: Double?) {
         dropHintCheck?.invalidate()
         if let delay {
