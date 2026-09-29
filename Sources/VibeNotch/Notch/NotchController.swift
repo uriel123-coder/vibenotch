@@ -8,10 +8,11 @@ final class NotchPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         isMovable = false
         isFloatingPanel = true
+        // Must come after isFloatingPanel, which resets the level to .floating (below the menu bar).
+        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         ignoresMouseEvents = true
@@ -97,7 +98,10 @@ final class NotchController {
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.layout() } }
         }.store(in: &cancellables)
         guard !snapshot else { return }
-        if Self.trace { model.$state.sink { print("TRACE estado → \($0)"); fflush(stdout) }.store(in: &cancellables) }
+        if Self.trace {
+            model.$state.sink { print("TRACE estado → \($0)"); fflush(stdout) }.store(in: &cancellables)
+            model.$tab.sink { print("TRACE pestaña → \($0)"); fflush(stdout) }.store(in: &cancellables)
+        }
         model.$state.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
         }.store(in: &cancellables)
@@ -156,6 +160,7 @@ final class NotchController {
         if env["VIBENOTCH_FAKE_NOTCH"] != nil {
             model.notchSize = CGSize(width: 185, height: 32)
             model.hasNotch = true
+            model.detectedNotch = true
             model.islandTop = 0
         } else if env["VIBENOTCH_SNAPSHOT"] != nil {
             model.notchSize = CGSize(width: 150, height: 24)
@@ -202,7 +207,8 @@ final class NotchController {
     /// Where a click opens the collapsed notch. On the island only the visible pill counts, since the middle of the
     /// menu bar can hold another app's menus.
     private func clickZone() -> NSRect? {
-        guard model.state == .closed, !(model.fullscreen && !model.showsIndicators) else { return nil }
+        guard model.state == .closed else { return nil }
+        if hiddenByFullscreen { return fullscreenZone() }
         if model.island {
             guard model.showsIndicators || model.showsHandle else { return nil }
             return rect(model.size()).insetBy(dx: -8, dy: -8)
@@ -210,11 +216,24 @@ final class NotchController {
         return wakeZone()
     }
 
+    private var hiddenByFullscreen: Bool { model.fullscreen && !model.showsIndicators }
+
+    /// Over a fullscreen app only the very top edge in the middle wakes VibeNotch, so moving around the
+    /// app's own toolbar doesn't pop it open.
+    private func fullscreenZone() -> NSRect {
+        let f = screen.frame
+        return NSRect(x: f.midX - 130, y: f.maxY - 3, width: 260, height: 7)
+    }
+
     private func refreshFullscreen(soon: Bool = false) {
         let apply = { [weak self] in
             guard let self else { return }
-            let fs = self.frontAppIsFullscreen()
-            if fs != self.model.fullscreen { self.model.fullscreen = fs }
+            // Fullscreen apps stay below a real camera housing, so the notch never covers them and keeps working.
+            let fs = !(self.model.hasNotch && self.model.detectedNotch) && self.frontAppIsFullscreen()
+            if fs != self.model.fullscreen {
+                if Self.trace { print("TRACE pantalla completa → \(fs) (\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "-"))"); fflush(stdout) }
+                self.model.fullscreen = fs
+            }
         }
         apply()
         // Fullscreen transitions animate for ~0.7 s; look again once they settle.
@@ -230,6 +249,15 @@ final class NotchController {
         guard hasMenuBar else { return false }
         let f = screen.frame
         let cgFrame = CGRect(x: f.minX, y: NSScreen.screens[0].frame.maxY - f.maxY, width: f.width, height: f.height)
+        // Some apps (Claude, Electron overlays) keep a screen-sized window without being fullscreen; a menu bar
+        // resting at the top of this display means we're not in a fullscreen space.
+        let menuBarShown = windows.contains { w in
+            guard (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.mainMenuWindow)),
+                  let dict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return false }
+            return bounds.minY == cgFrame.minY && bounds.minX <= cgFrame.midX && bounds.maxX >= cgFrame.midX
+        }
+        if menuBarShown { return false }
         return windows.contains { w in
             guard (w[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
                   (w[kCGWindowLayer as String] as? Int) == 0,
@@ -258,7 +286,7 @@ final class NotchController {
     }
 
     private func mouse(_ type: NSEvent.EventType, at p: NSPoint, local: Bool) {
-        if Self.trace { print("TRACE \(type == .mouseMoved ? "move" : type == .leftMouseDown ? "down" : type == .leftMouseUp ? "up" : "drag") local=\(local) p=\(p) wake=\(wakeZone()) fs=\(model.fullscreen) state=\(model.state) ignores=\(panel.ignoresMouseEvents)"); fflush(stdout) }
+        if Self.trace { print("TRACE \(type == .mouseMoved ? "move" : type == .leftMouseDown ? "down" : type == .leftMouseUp ? "up" : "drag") local=\(local) p=\(p) wake=\(wakeZone()) fs=\(model.fullscreen) state=\(model.state) ignores=\(panel.ignoresMouseEvents) active=\(NSApp.isActive) key=\(panel.isKeyWindow) under=\(Self.describeWindow(NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0), panel: panel.windowNumber))"); fflush(stdout) }
         if type == .mouseMoved || type == .leftMouseDragged { follow(p) }
         let size = model.size()
         let inside = rect(size).insetBy(dx: -2, dy: -2).contains(p)
@@ -310,6 +338,12 @@ final class NotchController {
     /// Hides the "drop here" hint once the drag ends (mouse-up doesn't always reach a global monitor mid-drag).
     static let trace = ProcessInfo.processInfo.environment["VIBENOTCH_TRACE"] != nil
 
+    private static func describeWindow(_ number: Int, panel: Int) -> String {
+        if number == panel { return "panel" }
+        let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]])?.first
+        return "\(info?[kCGWindowOwnerName as String] ?? "?")/\(info?[kCGWindowName as String] ?? "")/capa \(info?[kCGWindowLayer as String] ?? "?")"
+    }
+
     private func endDropHint(after delay: Double?) {
         dropHintCheck?.invalidate()
         if let delay {
@@ -336,7 +370,7 @@ final class NotchController {
     private func hover(inside: Bool, at p: NSPoint) {
         switch model.state {
         case .closed:
-            let hot = !(model.fullscreen && !model.showsIndicators) && wakeZone().contains(p)
+            let hot = hiddenByFullscreen ? fullscreenZone().contains(p) : wakeZone().contains(p)
             if hot, hoverWork == nil {
                 let work = DispatchWorkItem { [weak self] in
                     MainActor.assumeIsolated {
@@ -349,7 +383,8 @@ final class NotchController {
                     }
                 }
                 hoverWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.shared.hoverDelay + (model.island ? 0.07 : 0), execute: work)
+                let extra = hiddenByFullscreen ? 0.35 : model.island ? 0.07 : 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.shared.hoverDelay + extra, execute: work)
             } else if !hot {
                 hoverWork?.cancel()
                 hoverWork = nil

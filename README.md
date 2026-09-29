@@ -24,6 +24,7 @@ Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · busc
 
 - [¿Qué hace?](#qué-hace)
 - [Instalación (1 minuto)](#instalación-1-minuto)
+- [Actualizar](#actualizar)
 - [Primeros pasos](#primeros-pasos)
 - [Conectar tus agentes](#conectar-tus-agentes)
 - [Avisos en el celular](#avisos-en-el-celular)
@@ -347,9 +348,9 @@ Ver qué canción suena no necesita ningún permiso.
 ## Solución de problemas
 
 <details>
-<summary><b>Al tocar el notch no pasa nada (solo abre desde ✨)</b></summary>
+<summary><b>El notch se abre pero no puedo picar las pestañas ni el engrane / solo sale en el escritorio</b></summary>
 
-Pasaba en versiones anteriores a la 1.3.1 en Macs con notch: el clic se iba a la barra de menús y llevar el mouse hasta el borde de arriba no se detectaba. Actualiza con este comando (cierra la versión vieja, instala la nueva y la abre):
+Pasaba en versiones anteriores a la 1.3.2: el panel quedaba por debajo de la barra de menús, así que los botones de arriba (pestañas y ⚙︎) no recibían el clic, y algunas apps con ventanas del tamaño de la pantalla (como la app de Claude) se confundían con pantalla completa y escondían el notch. Antes de la 1.3.1 además el clic en el notch se iba a la barra de menús. Actualiza con este comando (cierra la versión vieja, instala la nueva y la abre):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
