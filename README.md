@@ -6,7 +6,7 @@
 
 **El notch de tu Mac, convertido en centro de control para tus agentes de IA, tus archivos y tu día.**
 
-Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · portapapeles y notas · convertidor y compresor de archivos · widgets
+Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · buscador de archivos · portapapeles y notas · convertidor y compresor de archivos · widgets
 
 [![Build](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml/badge.svg)](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/uriel123-coder/vibenotch?label=descargar)](https://github.com/uriel123-coder/vibenotch/releases/latest)
@@ -41,7 +41,7 @@ Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · port
 
 ## ¿Qué hace?
 
-VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Tiene 5 pestañas:
+VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Tiene 6 pestañas:
 
 ### ✨ Agentes: ve lo que hace tu IA sin cambiar de ventana
 
@@ -53,6 +53,8 @@ VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). 
 - **App de Claude (escritorio)**: sigue tus sesiones de Claude Code y Cowork dentro de la app. Ves cuándo trabaja, cuándo termina y cuándo te necesita, además de tus límites de uso, sin configurar nada.
 - **Contexto y tokens** de cada sesión (barra de contexto usado y tokens totales).
 - **Límites de tu plan**: ventana de 5 horas y semanal de Claude (Pro/Max) y de Codex (Plus/Pro), con cuándo se reinician.
+- **Cada quien con su nombre**: lo que haces en Cursor sale como **Cursor**, aunque Cursor use por dentro los hooks de Claude Code. Si Cursor te hace una pregunta, el notch te avisa ("Cursor te pregunta") y la sesión queda en espera hasta que respondas en Cursor.
+- **Se limpia sola**: lo que ya terminó desaparece de la lista a los 10 minutos (lo cambias en Ajustes → Agentes: 2 min, 30 min, 1 hora o nunca). También puedes tocar **Quitar terminados** o la ✕ de cada sesión.
 
 <p align="center">
   <img src="docs/screenshots/notch-4b-pregunta.png" width="49%" alt="Claude te pregunta y respondes desde el notch">
@@ -64,6 +66,20 @@ VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). 
 Arrastra cualquier archivo hacia el notch y se queda ahí guardado. Después lo arrastras a donde quieras (Mail, Slack, Finder, un prompt…). Desde el estante también puedes **reducir su peso**, juntarlo en un .zip, mandarlo por AirDrop, copiar rutas o abrirlo en Convertir.
 
 **Sin notch no tienes que atinarle a nada:** en cuanto empiezas a arrastrar un archivo, aparece arriba al centro una zona verde que dice **"Suéltalo aquí"**.
+
+### 🔍 Buscar: encuentra cualquier archivo por su nombre
+
+Presiona **⌃⌥F** (o toca la lupa) y escribe parte del nombre: "factura", "contrato mayo", "logo". Los resultados salen mientras escribes.
+
+- **Sin escribir nada** ves tus archivos más recientes (modificados o descargados hace poco).
+- **Filtra** por Documentos, PDF, Imágenes, Videos o Carpetas.
+- **Úsalo al momento**: ↩ lo abre, ⌘↩ lo muestra en Finder, o **arrástralo** directo a Mail, Slack, un prompt o el estante.
+- **Rápido de verdad**: VibeNotch hace su propio índice de tus carpetas (Escritorio, Descargas, Documentos, iCloud Drive y las demás carpetas de tu usuario) en un par de segundos y en segundo plano. Después cada búsqueda tarda milisegundos, aunque Spotlight esté apagado. Se salta cosas que nadie busca a mano, como `node_modules`, carpetas `build` o miles de archivos de datos.
+
+<p align="center">
+  <img src="docs/screenshots/notch-6c-buscar.png" width="49%" alt="Buscar archivos">
+  <img src="docs/screenshots/isla-6c-buscar.png" width="49%" alt="Buscar archivos en modo isla">
+</p>
 
 ### 📋 Clips: historial, guardados y notas
 
@@ -215,7 +231,7 @@ Abre **Ajustes** con el engrane ⚙️ del notch o con clic derecho en ✨ → *
 | General | Estilo (automático, notch o isla), en qué pantalla aparece, qué tan rápido se abre al pasar el mouse, el asa de la isla, la zona para soltar archivos, abrir al iniciar sesión, sonidos y "menos animaciones" |
 | Pestañas | Qué pestañas ves y en qué orden (por ejemplo, solo Agentes y Clips) |
 | Hoy | Qué widgets aparecen y en qué orden |
-| Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, límites desde el Llavero |
+| Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, cuándo quitar de la lista lo que ya terminó, límites desde el Llavero |
 | Portapapeles | Pausar el historial, cuántos clips guardar (50 a 500), pegar al elegir, mostrar la canción en el notch cerrado |
 
 ---
@@ -236,6 +252,7 @@ Cómo lo logra:
 - Detecta la pantalla completa con avisos del sistema en vez de revisar a cada rato.
 - La batería avisa al instante cuando conectas el cargador, sin sondear seguido.
 - El widget de Sistema solo mide mientras está a la vista.
+- Buscar arma su índice solo cuando abres la pestaña (un par de segundos) y lo refresca, como mucho, cada 10 minutos.
 - La app de Claude se revisa cada 3 s solo mientras está abierta, y cada 90 s si no.
 - Con **Menos animaciones** (o la opción de accesibilidad de macOS) las animaciones decorativas se detienen.
 
@@ -247,6 +264,8 @@ Cómo lo logra:
 | --- | --- |
 | **⌃⌥N** | Abrir / cerrar VibeNotch |
 | **⌃⌥V** | Abrir el portapapeles |
+| **⌃⌥F** | Buscar archivos |
+| **↩ / ⌘↩** | En Buscar: abrir el archivo / mostrarlo en Finder |
 | **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
 | **⌘↩** | Guardar la nota que estás escribiendo |
 | **⌘,** | Ajustes (con el menú ✨ abierto) |
@@ -267,6 +286,7 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | Automatización (Spotify / Música) | Pausar y cambiar de canción | Al tocar un control de música |
 | Accesibilidad | Pegar automáticamente al elegir un clip | Solo si activas "Pegar al elegir un clip" |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
+| Archivos (Escritorio, Documentos, Descargas, iCloud Drive) | Buscar archivos por nombre | La primera vez que abres Buscar |
 
 Ver qué canción suena no necesita ningún permiso.
 
@@ -279,6 +299,7 @@ Ver qué canción suena no necesita ningún permiso.
 - La única conexión a internet es opcional: la consulta de límites de Claude a Anthropic, con tu propia sesión, si activas esa opción.
 - De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
 - Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
+- El índice de Buscar solo guarda nombres y fechas de archivos, vive en memoria y nunca se escribe en disco ni sale de tu Mac. No lee el contenido de tus archivos.
 
 ---
 
@@ -372,6 +393,7 @@ Sources/VibeNotch/
 ├── Notch/        ventana, detección de notch / isla, varias pantallas, estado
 ├── Agents/       Claude Code y Cursor (hooks + servidor local), Codex y app de Claude (leen sesiones)
 ├── Shelf/        estante de archivos
+├── Search/       índice en memoria y búsqueda de archivos por nombre
 ├── Clipboard/    historial, guardados y notas
 ├── Tools/        conversión y compresión (ImageIO, Vision, PDFKit, AVFoundation)
 ├── Extras/       música, calendario, batería, temporizador, sistema
@@ -384,6 +406,7 @@ Sources/VibeNotch/
 VIBENOTCH_SNAPSHOT=/tmp/shots ./build/VibeNotch.app/Contents/MacOS/VibeNotch                       # modo isla
 VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_FAKE_NOTCH=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch  # simula notch
 VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_SELFTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch    # + prueba los conversores
+VIBENOTCH_SEARCHTEST=factura ./build/VibeNotch.app/Contents/MacOS/VibeNotch                        # mide el índice y la búsqueda
 ```
 
 Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni la copia de VibeNotch que tengas abierta.
@@ -393,7 +416,7 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.1.1 && git push origin v1.1.1
+git tag v1.2.1 && git push origin v1.2.1
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.
@@ -402,10 +425,11 @@ git tag v1.1.1 && git push origin v1.1.1
 
 ## English
 
-**VibeNotch** turns your Mac's notch into a control center. On Macs without a notch it shows up as a floating island. It has five tabs:
+**VibeNotch** turns your Mac's notch into a control center. On Macs without a notch it shows up as a floating island. It has six tabs:
 
-- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits.
+- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits. Cursor sessions show up as Cursor even though Cursor runs Claude Code's hooks, and finished sessions clear themselves after 10 minutes (configurable).
 - **Shelf:** a Dropover-style shelf. Drop files on the notch and drag them out later; you can also shrink them, zip them, AirDrop them or copy their paths. Without a notch, a "Drop here" zone appears as soon as you start dragging.
+- **Search (⌃⌥F):** find any file by name in milliseconds, or see your recent files. Filter by documents, PDFs, images, videos or folders; press ↩ to open, ⌘↩ to reveal in Finder, or drag the result anywhere. It builds its own in-memory index of your folders, so it works even with Spotlight turned off.
 - **Clips:** searchable history, saved snippets on **⌃⌥1-9**, and sticky **notes** you copy with one click. Passwords are ignored.
 - **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar and a system monitor (CPU, RAM, disk).
 - **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.

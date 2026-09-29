@@ -359,6 +359,17 @@ final class NotchController {
         model.focusSearch += 1
     }
 
+    func toggleSearch() {
+        if model.state == .open && model.tab == .search {
+            model.close()
+            return
+        }
+        follow(NSEvent.mouseLocation)
+        model.open(.search)
+        panel.makeKey()
+        model.focusSearch += 1
+    }
+
     private func restoreFocus() {
         guard panel.isKeyWindow else { return }
         panel.orderOut(nil)

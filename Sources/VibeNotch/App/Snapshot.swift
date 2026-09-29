@@ -25,6 +25,17 @@ enum Snapshot {
             m.clipSection = .notes
             await shot("\(prefix)-6b-notas", panel, dir, height: 420)
             m.clipSection = .history
+            let docs = Paths.home.appendingPathComponent("Documents")
+            let now = Date()
+            FileSearch.shared.demo(query: "factura", hits: [
+                FileHit(url: docs.appendingPathComponent("Facturas/Factura septiembre.pdf"), date: now.addingTimeInterval(-600)),
+                FileHit(url: docs.appendingPathComponent("Facturas/Factura agosto.pdf"), date: now.addingTimeInterval(-86_400 * 3)),
+                FileHit(url: Paths.home.appendingPathComponent("Downloads/factura-luz-2026.pdf"), date: now.addingTimeInterval(-86_400 * 6)),
+                FileHit(url: docs.appendingPathComponent("Trabajo/Clientes/Plantilla factura.docx"), date: now.addingTimeInterval(-86_400 * 12)),
+                FileHit(url: Paths.home.appendingPathComponent("Desktop/facturas 2026.xlsx"), date: now.addingTimeInterval(-86_400 * 20)),
+            ])
+            m.open(.search)
+            await shot("\(prefix)-6c-buscar", panel, dir, height: 420)
             TimerStore.shared.start(minutes: 25, label: "Pomodoro")
             m.open(.today)
             await shot("\(prefix)-7-hoy", panel, dir, height: 420)

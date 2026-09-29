@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let snapshotDir = ProcessInfo.processInfo.environment["VIBENOTCH_SNAPSHOT"]
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .filter { $0 != .current }
+        if let q = ProcessInfo.processInfo.environment["VIBENOTCH_SEARCHTEST"] {
+            FileSearch.selfTest(q)
+            return
+        }
         if snapshotDir == nil && !others.isEmpty {
             NSApp.terminate(nil)
             return
@@ -56,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: mods, id: 1) { [weak self] in
             self?.controller.toggleClipboard()
+        })
+        hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_F), modifiers: mods, id: 3) { [weak self] in
+            self?.controller.toggleSearch()
         })
         let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
         for (i, key) in digits.enumerated() {
@@ -128,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         menu.addItem(item("Abrir VibeNotch", key: "⌃⌥N") { [weak self] in self?.controller.toggle() })
         menu.addItem(item("Abrir portapapeles", key: "⌃⌥V") { [weak self] in self?.controller.toggleClipboard() })
+        menu.addItem(item("Buscar archivos", key: "⌃⌥F") { [weak self] in self?.controller.toggleSearch() })
         menu.addItem(item("Ajustes…", key: ",") { SettingsWindow.shared.show() })
         menu.addItem(.separator())
 

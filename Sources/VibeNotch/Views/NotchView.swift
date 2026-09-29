@@ -316,6 +316,7 @@ struct OpenView: View {
                 case .agents: AgentsView()
                 case .shelf: ShelfView()
                 case .clipboard: ClipboardView()
+                case .search: SearchView()
                 case .today: TodayView()
                 case .tools: ToolsView()
                 }
@@ -333,7 +334,10 @@ struct OpenView: View {
 
     private func tabButton(_ tab: NotchTab) -> some View {
         let selected = model.tab == tab
-        return Button { model.tab = tab } label: {
+        return Button {
+            model.tab = tab
+            if tab == .search { model.focusSearch += 1 }
+        } label: {
             HStack(spacing: 5) {
                 Image(systemName: tab.symbol).font(.system(size: 11, weight: .semibold))
                     .symbolRenderingMode(.monochrome)

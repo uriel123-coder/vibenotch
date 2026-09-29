@@ -3,7 +3,8 @@ import Foundation
 @MainActor
 enum HookRouter {
     static func handle(_ req: HookRequest, _ reply: HookReply) {
-        log("\(req.src) \(req.evt) \(req.body.str("session_id") ?? req.body.str("conversation_id") ?? "")")
+        let origin = req.body["cursor_version"] != nil && req.src == "claude" ? "cursor(claude-hooks)" : req.src
+        log("\(origin) \(req.evt) \(req.body.str("tool_name") ?? "-") \(req.body.str("conversation_id") ?? req.body.str("session_id") ?? "")")
         switch req.src {
         case "claude": Claude.handle(req.evt, req.body, reply)
         case "cursor":
@@ -34,14 +35,17 @@ enum HookRouter {
     }
 
     static func describe(tool: String, input: [String: Any]) -> (short: String, detail: String) {
-        let file = input.str("file_path").map { URL(fileURLWithPath: $0).lastPathComponent }
+        // Claude Code says file_path; Cursor says path or target_file.
+        let path = input.str("file_path") ?? input.str("path") ?? input.str("target_file") ?? ""
+        let file = path.isEmpty ? nil : URL(fileURLWithPath: path).lastPathComponent
         switch tool {
-        case "Bash":
+        case "Bash", "Shell":
             let cmd = input.str("command") ?? ""
             return ("Terminal · \(cmd.prefix(60))", cmd)
-        case "Edit", "MultiEdit": return ("Editando · \(file ?? "")", input.str("file_path") ?? "")
-        case "Write": return ("Escribiendo · \(file ?? "")", input.str("file_path") ?? "")
-        case "Read": return ("Leyendo · \(file ?? "")", input.str("file_path") ?? "")
+        case "Edit", "MultiEdit", "StrReplace", "EditNotebook": return ("Editando · \(file ?? "")", path)
+        case "Write": return ("Escribiendo · \(file ?? "")", path)
+        case "Read": return ("Leyendo · \(file ?? "")", path)
+        case "Delete": return ("Borrando · \(file ?? "")", path)
         case "Grep", "Glob": return ("Buscando · \(input.str("pattern") ?? "")", input.str("pattern") ?? "")
         case "WebFetch": return ("Web · \(input.str("url") ?? "")", input.str("url") ?? "")
         case "WebSearch": return ("Buscando en web · \(input.str("query") ?? "")", input.str("query") ?? "")
@@ -56,6 +60,12 @@ enum HookRouter {
 @MainActor
 enum Claude {
     static func handle(_ evt: String, _ b: [String: Any], _ reply: HookReply) {
+        // Cursor also runs the hooks in ~/.claude/settings.json; those events belong to Cursor, not Claude Code.
+        if b["cursor_version"] != nil {
+            CursorHooks.handleClaudeCompat(evt, b)
+            reply.send("")
+            return
+        }
         let sid = b.str("session_id") ?? "default"
         let id = "claude:" + sid
         let project = HookRouter.project(b.str("cwd") ?? b.obj("workspace")?.str("current_dir"))
@@ -281,6 +291,52 @@ enum CursorHooks {
             store.finished(id, kind: .cursor, project: project,
                            title: status == "completed" ? "Cursor terminó" : "Cursor se detuvo",
                            summary: status == "completed" ? store.sessions[id]?.summary : nil)
+        default:
+            break
+        }
+    }
+
+    /// Claude Code–format hooks that Cursor runs from ~/.claude/settings.json. They carry every tool call,
+    /// including Cursor's own questions, so they enrich the Cursor row instead of creating a fake Claude one.
+    static func handleClaudeCompat(_ evt: String, _ b: [String: Any]) {
+        let id = "cursor:" + (b.str("conversation_id") ?? b.str("session_id") ?? "default")
+        let root = (b["workspace_roots"] as? [String])?.first ?? b.str("cwd")
+        let project = HookRouter.project(root)
+        let store = AgentStore.shared
+        defer { store.setCwd(id, root) }
+        let tool = b.str("tool_name") ?? ""
+        let input = b.obj("tool_input") ?? [:]
+        let asking = tool.localizedCaseInsensitiveContains("question") || input["questions"] != nil
+
+        switch evt {
+        case "PreToolUse" where asking:
+            let questions = (input["questions"] as? [[String: Any]] ?? []).compactMap { $0.str("question") ?? $0.str("prompt") }
+            let first = questions.first ?? input.str("question") ?? input.str("title") ?? "Tiene una pregunta para ti"
+            store.update(id, kind: .cursor, project: project) {
+                $0.status = .waiting
+                $0.activity = "Te pregunta · \(first)"
+            }
+            let more = questions.count > 1 ? " (+\(questions.count - 1))" : ""
+            NotchModel.shared.announce(Announcement(kind: .cursor, title: "Cursor te pregunta · \(project ?? "Cursor")",
+                                                    subtitle: first + more, style: .attention), for: 8)
+            Sound.play(.ask)
+        case "PreToolUse":
+            let d = HookRouter.describe(tool: tool, input: input)
+            store.update(id, kind: .cursor, project: project) {
+                if $0.turnStarted == nil { $0.turnStarted = Date() }
+                $0.status = .working
+                $0.activity = d.short
+            }
+        case "PostToolUse":
+            store.update(id, kind: .cursor, project: project) {
+                $0.status = .working
+                if asking { $0.activity = "Respondiste la pregunta" }
+            }
+        // Cursor's own hooks already report prompts and endings; only fill in when they aren't connected.
+        case "UserPromptSubmit" where !HookInstaller.cursorInstalled:
+            store.started(id, kind: .cursor, project: project)
+        case "Stop" where !HookInstaller.cursorInstalled:
+            store.finished(id, kind: .cursor, project: project, title: "Cursor terminó", summary: b.str("last_assistant_message"))
         default:
             break
         }

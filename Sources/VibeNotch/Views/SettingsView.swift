@@ -150,6 +150,7 @@ private struct GeneralPage: View {
             Section("Atajos") {
                 LabeledContent("Abrir o cerrar", value: "⌃⌥N")
                 LabeledContent("Portapapeles", value: "⌃⌥V")
+                LabeledContent("Buscar archivos", value: "⌃⌥F")
                 LabeledContent("Copiar guardado 1…9", value: "⌃⌥1 … ⌃⌥9")
                 LabeledContent("Cerrar", value: "esc")
             }
@@ -260,6 +261,9 @@ private struct AgentsPage: View {
             Section("Qué hace VibeNotch") {
                 Toggle("Responder preguntas y aprobar planes desde el notch", isOn: $s.answerQuestions)
                 Toggle("Mostrar el resumen de la respuesta al terminar", isOn: $s.showSummaries)
+                Picker("Quitar los terminados de la lista", selection: $s.doneLinger) {
+                    ForEach(AppSettings.lingerOptions, id: \.0) { Text($0.1).tag($0.0) }
+                }
                 Toggle("Límites de Claude desde tu cuenta (Llavero)", isOn: $keychain)
                     .onChange(of: keychain) { _, v in
                         Prefs.claudeKeychain = v

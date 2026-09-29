@@ -294,10 +294,22 @@ final class AgentStore: ObservableObject {
     func prune() {
         tick = Date()
         checkLimits()
+        let linger = AppSettings.shared.doneLinger
         for (id, s) in sessions {
             let age = tick.timeIntervalSince(s.updated)
             if s.status == .working && age > 900 { sessions[id]?.status = .idle }
-            if s.status != .waiting && age > 3 * 3600 { sessions[id] = nil }
+            let expired = switch s.status {
+            case .done: linger > 0 && age > linger
+            case .idle: age > max(linger, 1800)
+            case .working: false
+            case .waiting: age > 3 * 3600
+            }
+            if expired || age > 12 * 3600 { sessions[id] = nil }
         }
+    }
+
+    /// Clears finished and idle rows right away (the "Limpiar" button).
+    func clearFinished() {
+        for (id, s) in sessions where s.status == .done || s.status == .idle { sessions[id] = nil }
     }
 }

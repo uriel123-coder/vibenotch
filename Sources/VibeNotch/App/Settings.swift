@@ -56,6 +56,12 @@ final class AppSettings: ObservableObject {
     @Published var showSummaries: Bool { didSet { store(showSummaries, forKey: "showSummaries") } }
     @Published var historySize: Int { didSet { store(historySize, forKey: "historySize") } }
     @Published var reduceMotion: Bool { didSet { store(reduceMotion, forKey: "reduceMotion") } }
+    /// Seconds a finished session stays listed; 0 keeps it until the app quits.
+    @Published var doneLinger: Double { didSet { store(doneLinger, forKey: "doneLinger") } }
+
+    static let lingerOptions: [(Double, String)] = [(120, "A los 2 min"), (600, "A los 10 min"), (1800, "A los 30 min"),
+                                                    (3600, "A la hora"), (0, "Nunca")]
+    var doneLingerLabel: String { Self.lingerOptions.first { $0.0 == doneLinger }?.1 ?? "A los 10 min" }
 
     private init() {
         tabs = (d.stringArray(forKey: "tabs") ?? []).compactMap(NotchTab.init(rawValue:))
@@ -69,7 +75,15 @@ final class AppSettings: ObservableObject {
         showSummaries = d.object(forKey: "showSummaries") as? Bool ?? true
         historySize = d.object(forKey: "historySize") as? Int ?? 200
         reduceMotion = d.object(forKey: "reduceMotion") as? Bool ?? false
+        doneLinger = d.object(forKey: "doneLinger") as? Double ?? 600
         if tabs.isEmpty { tabs = NotchTab.allCases }
+        // Tabs added in later versions show up once for people who had already customized theirs.
+        let known = Set(d.stringArray(forKey: "knownTabs") ?? tabs.map(\.rawValue))
+        let added = NotchTab.allCases.filter { !known.contains($0.rawValue) && !tabs.contains($0) }
+        if !added.isEmpty {
+            tabs = NotchTab.allCases.filter { tabs.contains($0) || added.contains($0) }
+        }
+        store(NotchTab.allCases.map(\.rawValue), forKey: "knownTabs")
         if widgets.isEmpty && d.stringArray(forKey: "todayWidgets") == nil { widgets = [.music, .timer, .notes, .battery, .calendar, .system] }
     }
 

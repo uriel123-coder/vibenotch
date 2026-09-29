@@ -15,6 +15,18 @@ struct AgentsView: View {
                     VStack(spacing: 2) {
                         ForEach(agents.ordered) { SessionRow(session: $0) }
                     }
+                    .animation(.snappy, value: agents.ordered.map(\.id))
+                    if agents.ordered.contains(where: { $0.status == .done || $0.status == .idle }) {
+                        HStack {
+                            Spacer()
+                            Button { withAnimation(.snappy) { agents.clearFinished() } } label: {
+                                Label("Quitar terminados", systemImage: "checkmark.circle")
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(PillStyle(fill: .white.opacity(0.07), foreground: .white.opacity(0.6)))
+                            .help(AppSettings.shared.doneLinger > 0 ? "Se quitan solos \(AppSettings.shared.doneLingerLabel.lowercased()); aquí los quitas ya" : "Quita los que ya terminaron")
+                        }
+                    }
                 }
 
                 LimitsSection()
@@ -335,18 +347,25 @@ struct SessionRow: View {
                 }
             }
             Group {
-                if hover, let cwd = session.cwd {
+                if hover {
                     HStack(spacing: 0) {
-                        IconButton(symbol: "cursorarrow.rays", help: "Abrir proyecto en Cursor") { ProjectOpener.cursor(cwd) }
-                        IconButton(symbol: "terminal", help: "Abrir en Terminal") { ProjectOpener.terminal(cwd) }
-                        IconButton(symbol: "folder", help: "Mostrar en Finder") { ProjectOpener.finder(cwd) }
+                        if let cwd = session.cwd {
+                            IconButton(symbol: "cursorarrow.rays", help: "Abrir proyecto en Cursor") { ProjectOpener.cursor(cwd) }
+                            IconButton(symbol: "terminal", help: "Abrir en Terminal") { ProjectOpener.terminal(cwd) }
+                            IconButton(symbol: "folder", help: "Mostrar en Finder") { ProjectOpener.finder(cwd) }
+                        }
+                        if session.status != .waiting {
+                            IconButton(symbol: "xmark", help: "Quitar de la lista") {
+                                withAnimation(.snappy) { AgentStore.shared.remove(session.id) }
+                            }
+                        }
                     }
                     .transition(.opacity)
                 } else {
                     Text(Fmt.ago(session.updated)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
                 }
             }
-            .frame(width: 72, alignment: .trailing)
+            .frame(width: 96, alignment: .trailing)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
