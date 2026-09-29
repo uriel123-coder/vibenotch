@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let snapshotDir = ProcessInfo.processInfo.environment["VIBENOTCH_SNAPSHOT"]
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             .filter { $0 != .current }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_UPDATETEST"] != nil {
+            Updater.shared.selfTest()
+            return
+        }
         if let q = ProcessInfo.processInfo.environment["VIBENOTCH_SEARCHTEST"] {
             FileSearch.selfTest(q)
             return

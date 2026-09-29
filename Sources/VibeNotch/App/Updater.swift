@@ -64,6 +64,24 @@ final class Updater: ObservableObject {
         }
     }
 
+    /// `VIBENOTCH_UPDATETEST=1` checks, installs whatever is newer and logs each step (run it on a copy outside /Applications).
+    func selfTest() {
+        print("Versión actual: \(current) · \(Bundle.main.bundleURL.path)")
+        check(manual: true)
+        Task { @MainActor in
+            var last: State?
+            while true {
+                if state != last { print("Estado: \(state)"); fflush(stdout); last = state }
+                switch state {
+                case .available: install()
+                case .upToDate, .failed: exit(0)
+                default: break
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+
     static func isNewer(_ a: String, than b: String) -> Bool {
         let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
         for i in 0..<max(x.count, y.count) {

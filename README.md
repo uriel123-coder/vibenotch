@@ -438,6 +438,7 @@ VIBENOTCH_SNAPSHOT=/tmp/shots ./build/VibeNotch.app/Contents/MacOS/VibeNotch    
 VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_FAKE_NOTCH=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch  # simula notch
 VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_SELFTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch    # + prueba los conversores
 VIBENOTCH_SEARCHTEST=factura ./build/VibeNotch.app/Contents/MacOS/VibeNotch                        # mide el índice y la búsqueda
+VIBENOTCH_UPDATETEST=1 /tmp/copia/VibeNotch.app/Contents/MacOS/VibeNotch                           # prueba el actualizador en una copia
 ```
 
 Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni la copia de VibeNotch que tengas abierta.
