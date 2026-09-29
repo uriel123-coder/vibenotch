@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MailCodes.selfTest()
             exit(0)
         }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_CURSORQTEST"] != nil {
+            CursorQuestions.selfTest()
+            exit(0)
+        }
         if ProcessInfo.processInfo.environment["VIBENOTCH_CODETEST"] != nil {
             CodeWatcher.selfTest()
             exit(0)
@@ -73,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             WhatsAppCalls.shared.start()
             CodeWatcher.shared.start()
             MailCodes.shared.start()
+            CursorQuestions.shared.start()
         }
         if ProcessInfo.processInfo.environment["VIBENOTCH_TABTEST"] != nil { TabTest.run() }
 
