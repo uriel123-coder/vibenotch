@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AgentsView: View {
     @ObservedObject private var agents = AgentStore.shared
+    @ObservedObject private var awake = KeepAwake.shared
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -16,16 +17,27 @@ struct AgentsView: View {
                         ForEach(agents.ordered) { SessionRow(session: $0) }
                     }
                     .animation(.snappy, value: agents.ordered.map(\.id))
-                    if agents.ordered.contains(where: { $0.status == .done || $0.status == .idle }) {
+                    let finished = agents.ordered.contains { $0.status == .done || $0.status == .idle }
+                    if finished || awake.active {
                         HStack {
-                            Spacer()
-                            Button { withAnimation(.snappy) { agents.clearFinished() } } label: {
-                                Label("Quitar terminados", systemImage: "checkmark.circle")
-                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            if awake.active {
+                                Label("La Mac no se dormirá mientras trabajan", systemImage: "cup.and.saucer.fill")
+                                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.45))
+                                    .help("Lo cambias en Ajustes → Agentes → Mac despierta")
+                                    .transition(.opacity)
                             }
-                            .buttonStyle(PillStyle(fill: .white.opacity(0.07), foreground: .white.opacity(0.6)))
-                            .help(AppSettings.shared.doneLinger > 0 ? "Se quitan solos \(AppSettings.shared.doneLingerLabel.lowercased()); aquí los quitas ya" : "Quita los que ya terminaron")
+                            Spacer()
+                            if finished {
+                                Button { withAnimation(.snappy) { agents.clearFinished() } } label: {
+                                    Label("Quitar terminados", systemImage: "checkmark.circle")
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(PillStyle(fill: .white.opacity(0.07), foreground: .white.opacity(0.6)))
+                                .help(AppSettings.shared.doneLinger > 0 ? "Se quitan solos \(AppSettings.shared.doneLingerLabel.lowercased()); aquí los quitas ya" : "Quita los que ya terminaron")
+                            }
                         }
+                        .padding(.leading, 6)
                     }
                 }
 

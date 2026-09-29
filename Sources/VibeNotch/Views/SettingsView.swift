@@ -270,6 +270,16 @@ private struct AgentsPage: View {
                         ClaudeUsage.shared.fetchPlanLimits()
                     }
             }
+
+            Section {
+                Toggle("No dejar que la Mac se duerma mientras un agente trabaja", isOn: $s.keepAwake)
+                Toggle("Mantener también la pantalla encendida", isOn: $s.keepScreenOn)
+                    .disabled(!s.keepAwake)
+            } header: {
+                Text("Mac despierta")
+            } footer: {
+                Text("Solo mientras Claude, Codex o Cursor están trabajando; al terminar, la Mac vuelve a dormirse como siempre. Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.")
+            }
         }
     }
 }

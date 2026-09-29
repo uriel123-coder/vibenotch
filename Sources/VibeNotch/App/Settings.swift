@@ -58,6 +58,8 @@ final class AppSettings: ObservableObject {
     @Published var reduceMotion: Bool { didSet { store(reduceMotion, forKey: "reduceMotion") } }
     /// Seconds a finished session stays listed; 0 keeps it until the app quits.
     @Published var doneLinger: Double { didSet { store(doneLinger, forKey: "doneLinger") } }
+    @Published var keepAwake: Bool { didSet { store(keepAwake, forKey: "keepAwake") } }
+    @Published var keepScreenOn: Bool { didSet { store(keepScreenOn, forKey: "keepScreenOn") } }
 
     static let lingerOptions: [(Double, String)] = [(120, "A los 2 min"), (600, "A los 10 min"), (1800, "A los 30 min"),
                                                     (3600, "A la hora"), (0, "Nunca")]
@@ -76,6 +78,8 @@ final class AppSettings: ObservableObject {
         historySize = d.object(forKey: "historySize") as? Int ?? 200
         reduceMotion = d.object(forKey: "reduceMotion") as? Bool ?? false
         doneLinger = d.object(forKey: "doneLinger") as? Double ?? 600
+        keepAwake = d.object(forKey: "keepAwake") as? Bool ?? true
+        keepScreenOn = d.object(forKey: "keepScreenOn") as? Bool ?? false
         if tabs.isEmpty { tabs = NotchTab.allCases }
         // Tabs added in later versions show up once for people who had already customized theirs.
         let known = Set(d.stringArray(forKey: "knownTabs") ?? tabs.map(\.rawValue))

@@ -17,6 +17,7 @@ enum Snapshot {
             m.state = .peek
             await shot("\(prefix)-2-vistazo", panel, dir, height: 170)
             m.open(.agents)
+            KeepAwake.shared.demo()
             await shot("\(prefix)-3-agentes", panel, dir, height: 420)
             m.open(.shelf)
             await shot("\(prefix)-5-estante", panel, dir, height: 420)

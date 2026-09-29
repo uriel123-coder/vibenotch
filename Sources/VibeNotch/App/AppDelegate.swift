@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CalendarStore.shared.start()
             MusicStore.shared.start()
             ClaudeAppMonitor.shared.start()
+            KeepAwake.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

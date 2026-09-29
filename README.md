@@ -54,6 +54,7 @@ VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). 
 - **Contexto y tokens** de cada sesión (barra de contexto usado y tokens totales).
 - **Límites de tu plan**: ventana de 5 horas y semanal de Claude (Pro/Max) y de Codex (Plus/Pro), con cuándo se reinician.
 - **Cada quien con su nombre**: lo que haces en Cursor sale como **Cursor**, aunque Cursor use por dentro los hooks de Claude Code. Si Cursor te hace una pregunta, el notch te avisa ("Cursor te pregunta") y la sesión queda en espera hasta que respondas en Cursor.
+- **La Mac no se duerme mientras trabajan**: si Claude, Codex o Cursor están trabajando, tu Mac se queda despierta aunque te alejes; cuando todos terminan, vuelve a dormirse como siempre. Opcionalmente también mantiene la pantalla encendida (Ajustes → Agentes → Mac despierta). Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.
 - **Se limpia sola**: lo que ya terminó desaparece de la lista a los 10 minutos (lo cambias en Ajustes → Agentes: 2 min, 30 min, 1 hora o nunca). También puedes tocar **Quitar terminados** o la ✕ de cada sesión.
 
 <p align="center">
@@ -231,7 +232,7 @@ Abre **Ajustes** con el engrane ⚙️ del notch o con clic derecho en ✨ → *
 | General | Estilo (automático, notch o isla), en qué pantalla aparece, qué tan rápido se abre al pasar el mouse, el asa de la isla, la zona para soltar archivos, abrir al iniciar sesión, sonidos y "menos animaciones" |
 | Pestañas | Qué pestañas ves y en qué orden (por ejemplo, solo Agentes y Clips) |
 | Hoy | Qué widgets aparecen y en qué orden |
-| Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, cuándo quitar de la lista lo que ya terminó, límites desde el Llavero |
+| Agentes | Conectar o desconectar Claude Code y Cursor, seguir la app de Claude, responder preguntas desde el notch, mostrar resúmenes, cuándo quitar de la lista lo que ya terminó, no dormir la Mac (o la pantalla) mientras un agente trabaja, límites desde el Llavero |
 | Portapapeles | Pausar el historial, cuántos clips guardar (50 a 500), pegar al elegir, mostrar la canción en el notch cerrado |
 
 ---
@@ -416,7 +417,7 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.2.1 && git push origin v1.2.1
+git tag v1.2.2 && git push origin v1.2.2
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.
@@ -427,7 +428,7 @@ git tag v1.2.1 && git push origin v1.2.1
 
 **VibeNotch** turns your Mac's notch into a control center. On Macs without a notch it shows up as a floating island. It has six tabs:
 
-- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits. Cursor sessions show up as Cursor even though Cursor runs Claude Code's hooks, and finished sessions clear themselves after 10 minutes (configurable).
+- **Agents:** live status for Claude Code, the Claude desktop app (Code and Cowork sessions), Codex and Cursor. Answer Claude's multiple-choice questions, approve plans and allow or deny permissions right from the notch. When a task ends you see a checkmark, a summary of the reply and how long it took. You also get context/token usage and your 5-hour and weekly plan limits. Cursor sessions show up as Cursor even though Cursor runs Claude Code's hooks, finished sessions clear themselves after 10 minutes (configurable), and your Mac stays awake while any agent is working.
 - **Shelf:** a Dropover-style shelf. Drop files on the notch and drag them out later; you can also shrink them, zip them, AirDrop them or copy their paths. Without a notch, a "Drop here" zone appears as soon as you start dragging.
 - **Search (⌃⌥F):** find any file by name in milliseconds, or see your recent files. Filter by documents, PDFs, images, videos or folders; press ↩ to open, ⌘↩ to reveal in Finder, or drag the result anywhere. It builds its own in-memory index of your folders, so it works even with Spotlight turned off.
 - **Clips:** searchable history, saved snippets on **⌃⌥1-9**, and sticky **notes** you copy with one click. Passwords are ignored.
