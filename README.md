@@ -8,6 +8,8 @@
 
 Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · buscador de archivos · portapapeles y notas · convertidor y compresor de archivos · widgets
 
+Creado por **[Uriel Nakach](https://github.com/uriel123-coder)**
+
 [![Build](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml/badge.svg)](https://github.com/uriel123-coder/vibenotch/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/uriel123-coder/vibenotch?label=descargar)](https://github.com/uriel123-coder/vibenotch/releases/latest)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
@@ -17,6 +19,14 @@ Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · busc
 <img src="docs/screenshots/notch-3-agentes.png" width="760" alt="VibeNotch con agentes trabajando">
 
 </div>
+
+**Instalar o actualizar** (pega esto en Terminal):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
+```
+
+Si ya la tienes, el mismo comando la actualiza sin perder tus ajustes ni tus notas. Más detalles en [Instalación](#instalación-1-minuto) y [Actualizar](#actualizar).
 
 ---
 
@@ -37,6 +47,7 @@ Claude Code · app de Claude · Codex · Cursor · estante tipo Dropover · busc
 - [Solución de problemas](#solución-de-problemas)
 - [Desinstalar](#desinstalar)
 - [Compilar desde el código](#compilar-desde-el-código)
+- [Créditos](#créditos)
 - [English](#english)
 
 ---
@@ -202,19 +213,7 @@ Abre la app **Terminal** (⌘ + Espacio, escribe "Terminal", Enter), pega esto y
 curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
 ```
 
-Descarga la última versión, la pone en **Aplicaciones** y la abre. Si ya la tenías, la actualiza.
-
-### Actualizar
-
-**Si ya tienes VibeNotch instalada**, usa el mismo comando de instalar. Cierra la versión vieja, pone la nueva y la abre; tus ajustes, notas e historial se quedan igual:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
-```
-
-Al final te dice qué versión quedó, por ejemplo `✓ Listo: VibeNotch 1.3.1 instalada en /Applications`.
-
-**Desde la versión 1.3 ya no hace falta la terminal:** VibeNotch revisa una vez al día si hay versión nueva y te avisa en el notch con un botón **Actualizar** (también está en el menú ✨ y en Ajustes → Acerca de). Se descarga, se verifica y se reabre sola en unos segundos. La copia anterior se guarda en la carpeta temporal por si algo sale mal.
+Descarga la última versión, la pone en **Aplicaciones** y la abre. Si ya la tenías, la actualiza (ve [Actualizar](#actualizar)).
 
 ### Opción 2: descargar el zip
 
@@ -238,6 +237,52 @@ git clone https://github.com/uriel123-coder/vibenotch.git
 cd vibenotch
 ./build.sh install
 ```
+
+---
+
+## Actualizar
+
+Tus ajustes, notas, clips guardados y agentes conectados **se quedan igual** al actualizar.
+
+### Desde la app (versión 1.3 o más nueva)
+
+VibeNotch revisa una vez al día si hay versión nueva. Cuando la hay:
+
+- te avisa en el notch con un botón **Actualizar**, y
+- aparece **Actualizar a VibeNotch 1.x** en el menú **✨** de la barra de menús.
+
+Para revisar en ese momento, ve a **Ajustes → Acerca de → Buscar actualizaciones**.
+
+Se descarga, se verifica y se reabre sola en unos segundos. La copia anterior se guarda en la carpeta temporal por si algo sale mal.
+
+### Con un comando (cualquier versión)
+
+Si tu versión es anterior a la 1.3, o el botón no aparece, abre **Terminal**, pega esto y presiona Enter. Es el mismo comando de instalar:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
+```
+
+Cierra la versión vieja, pone la nueva en **Aplicaciones** y la abre. Al final te dice qué versión quedó, por ejemplo:
+
+```
+✓ Listo: VibeNotch 1.6.0 instalada en /Applications
+```
+
+### ¿Qué versión tengo?
+
+Mírala en **Ajustes → Acerca de**, o corre esto en Terminal:
+
+```bash
+defaults read /Applications/VibeNotch.app/Contents/Info CFBundleShortVersionString
+```
+
+La más nueva siempre está en [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest).
+
+### Después de actualizar
+
+- macOS puede volver a pedirte algunos permisos (Accesibilidad, Mail, micrófono). Si algo deja de funcionar, ve a **Ajustes del Sistema → Privacidad y seguridad → Accesibilidad**, quita VibeNotch con "–" y vuelve a agregarla.
+- Si usas Claude Code, reinicia tus sesiones para que tomen los hooks nuevos.
 
 ---
 
@@ -512,7 +557,7 @@ Sources/VibeNotch/
 ├── Search/       índice en memoria y búsqueda de archivos por nombre
 ├── Clipboard/    historial, guardados y notas
 ├── Tools/        conversión y compresión (ImageIO, Vision, PDFKit, AVFoundation)
-├── Extras/       música, calendario, batería, temporizador, sistema
+├── Extras/       música, calendario, batería, temporizador, sistema, teleprompter, notas de voz, llamadas de WhatsApp, códigos y Mail
 └── Views/        SwiftUI (notch, pestañas y ventana de ajustes)
 ```
 
@@ -538,10 +583,16 @@ Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni l
 Sube `CFBundleShortVersionString` en `Resources/Info.plist` y crea un tag: GitHub Actions compila la app universal y la publica en Releases.
 
 ```bash
-git tag v1.3.2 && git push origin v1.3.2
+git tag v1.6.0 && git push origin v1.6.0
 ```
 
 ¿Ideas o errores? Abre un [issue](https://github.com/uriel123-coder/vibenotch/issues). Los PRs son bienvenidos.
+
+---
+
+## Créditos
+
+VibeNotch fue creada por **[Uriel Nakach](https://github.com/uriel123-coder)**. Es gratis y de código abierto bajo la [licencia MIT](LICENSE): puedes usarla, modificarla y compartirla, manteniendo el aviso de autor.
 
 ---
 
@@ -563,14 +614,14 @@ git tag v1.3.2 && git push origin v1.3.2
 
 It detects whether your screen has a notch and switches between notch and island automatically (you can force either in Settings). Idle it uses about 20 MB of RAM and ~0.1% CPU.
 
-**Install** (macOS 14+, Apple Silicon or Intel):
+**Install or update** (macOS 14+, Apple Silicon or Intel). The same command updates an existing install and keeps your settings and notes:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/uriel123-coder/vibenotch/main/scripts/install.sh | bash
 ```
 
-From 1.3 on, the app checks for updates once a day and updates itself with one click. Or download the zip from [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest). The app is ad-hoc signed, so the first time right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/VibeNotch.app`.
+From 1.3 on, the app checks for updates once a day and updates itself with one click (Settings → About → Check for updates). Or download the zip from [Releases](https://github.com/uriel123-coder/vibenotch/releases/latest). The app is ad-hoc signed, so the first time right-click → Open, or run `xattr -dr com.apple.quarantine /Applications/VibeNotch.app`.
 
 Open it with **⌃⌥N**, by hovering the top center of the screen, or by clicking ✨ in the menu bar. The gear inside the notch opens Settings (tabs, widgets, style, hover speed…). Right-click ✨ to connect Claude Code or Cursor. Codex and the Claude app are picked up automatically. Everything runs locally, with no accounts and no telemetry.
 
-MIT © 2026 Uriel Nakach
+Created by **[Uriel Nakach](https://github.com/uriel123-coder)**. MIT © 2026 Uriel Nakach.
