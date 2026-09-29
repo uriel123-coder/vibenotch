@@ -88,6 +88,7 @@ final class NotchModel: ObservableObject {
     var island: Bool { !hasNotch }
 
     var radii: (top: CGFloat, bottom: CGFloat) {
+        if Prompter.shared.active { return island ? (0, 24) : (14, 26) }
         if island {
             switch state {
             case .closed: return (0, 15)
@@ -105,10 +106,13 @@ final class NotchModel: ObservableObject {
     /// Something worth showing while collapsed (agents, timer, music).
     var hasLiveActivity: Bool {
         AgentStore.shared.hasActivity || TimerStore.shared.isActive || (Prefs.showMusic && MusicStore.shared.isPlaying)
+            || WhatsAppCalls.shared.call != nil
     }
 
+    var ringing: Bool { WhatsAppCalls.shared.call?.phase == .ringing }
+
     var showsIndicators: Bool {
-        if fullscreen { return !AgentStore.shared.asks.isEmpty }
+        if fullscreen { return !AgentStore.shared.asks.isEmpty || ringing }
         return hasLiveActivity || (!island && !ShelfStore.shared.items.isEmpty)
     }
 
@@ -136,6 +140,9 @@ final class NotchModel: ObservableObject {
     func size() -> CGSize {
         let n = notchSize
         let ask = AgentStore.shared.asks.first
+        if Prompter.shared.active {
+            return island ? CGSize(width: 600, height: 200) : CGSize(width: max(n.width + 400, 620), height: n.height + 190)
+        }
         switch state {
         case .closed:
             if island {
@@ -149,6 +156,9 @@ final class NotchModel: ObservableObject {
                 let wide: CGFloat = { if case .permission = ask.style { return 470 }; return 540 }()
                 return island ? CGSize(width: wide, height: askHeight(ask) + 8)
                               : CGSize(width: max(n.width + 300, wide), height: n.height + askHeight(ask))
+            }
+            if WhatsAppCalls.shared.call != nil && announcement == nil {
+                return island ? CGSize(width: 470, height: 60) : CGSize(width: max(n.width + 280, 470), height: n.height + 52)
             }
             if island { return CGSize(width: 420, height: 58) }
             return CGSize(width: max(n.width + 220, 420), height: n.height + 50)
@@ -184,8 +194,16 @@ final class NotchModel: ObservableObject {
             let m = NotchModel.shared
             guard m.announcement == a else { return }
             m.announcement = nil
-            if m.state == .peek && !m.engaged && AgentStore.shared.asks.isEmpty { m.close() }
+            if m.state == .peek && !m.engaged && AgentStore.shared.asks.isEmpty && !m.ringing { m.close() }
         }
+    }
+
+    func callArrived() {
+        if state == .closed { state = .peek }
+    }
+
+    func callEnded() {
+        if AgentStore.shared.asks.isEmpty && state == .peek && !engaged && announcement == nil { close() }
     }
 
     func askArrived() {
@@ -194,6 +212,6 @@ final class NotchModel: ObservableObject {
     }
 
     func askResolved() {
-        if AgentStore.shared.asks.isEmpty && state == .peek && !engaged { close() }
+        if AgentStore.shared.asks.isEmpty && state == .peek && !engaged && !ringing { close() }
     }
 }

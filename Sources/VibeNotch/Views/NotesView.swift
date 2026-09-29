@@ -68,6 +68,7 @@ struct NoteCard: View {
                         IconButton(symbol: note.pinned ? "pin.slash" : "pin", help: note.pinned ? "Desfijar" : "Fijar en Hoy", size: 10) {
                             withAnimation(.snappy) { store.togglePin(note) }
                         }
+                        IconButton(symbol: "play.rectangle", help: "Leer en el teleprompter", size: 10) { Prompter.shared.start(note.text) }
                         IconButton(symbol: "pencil", help: "Editar", size: 10, action: edit)
                         IconButton(symbol: "trash", help: "Borrar", size: 10) { withAnimation(.snappy) { store.delete(note) } }
                     }
@@ -95,6 +96,9 @@ struct NoteCard: View {
         .contextMenu {
             Button("Copiar") { store.copy(note) }
             Button("Editar") { edit() }
+            Button("Leer en el teleprompter") { Prompter.shared.start(note.text) }
+            Button("Traducir y copiar") { TextTools.shared.translate(note.text) }
+            Button("Corregir ortografía y copiar") { TextTools.shared.correct(note.text) }
             Button(note.pinned ? "Desfijar de Hoy" : "Fijar en Hoy") { store.togglePin(note) }
             Divider()
             Button("Borrar") { store.delete(note) }

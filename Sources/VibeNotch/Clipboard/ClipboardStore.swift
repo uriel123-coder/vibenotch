@@ -153,6 +153,13 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
+    /// Text made by VibeNotch (translation, correction): goes on top of the history, ready to paste.
+    func addResult(_ text: String, from label: String) {
+        let clip = ClipItem(kind: .text, text: text, app: label)
+        insert(clip)
+        copy(clip)
+    }
+
     func togglePause() {
         Prefs.clipboardPaused.toggle()
         objectWillChange.send()

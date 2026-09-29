@@ -25,6 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             FileSearch.selfTest(q)
             return
         }
+        if let q = ProcessInfo.processInfo.environment["VIBENOTCH_TEXTTEST"] {
+            TextTools.selfTest(q)
+            return
+        }
+        if WhatsAppCalls.trace {
+            WhatsAppCalls.shared.start()
+            return
+        }
         if snapshotDir == nil && !others.isEmpty {
             NSApp.terminate(nil)
             return
@@ -50,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ClaudeAppMonitor.shared.start()
             KeepAwake.shared.start()
             Updater.shared.start()
+            WhatsAppCalls.shared.start()
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -69,6 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_F), modifiers: mods, id: 3) { [weak self] in
             self?.controller.toggleSearch()
+        })
+        hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_P), modifiers: mods, id: 4) {
+            MainActor.assumeIsolated {
+                if Prompter.shared.active { Prompter.shared.stop() } else { Prompter.shared.startFromClipboard() }
+            }
+        })
+        hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods, id: 5) {
+            MainActor.assumeIsolated { TextTools.shared.translate(NSPasteboard.general.string(forType: .string) ?? "") }
         })
         let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
         for (i, key) in digits.enumerated() {
@@ -146,6 +163,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Abrir VibeNotch", key: "⌃⌥N") { [weak self] in self?.controller.toggle() })
         menu.addItem(item("Abrir portapapeles", key: "⌃⌥V") { [weak self] in self?.controller.toggleClipboard() })
         menu.addItem(item("Buscar archivos", key: "⌃⌥F") { [weak self] in self?.controller.toggleSearch() })
+        menu.addItem(item(Prompter.shared.active ? "Cerrar teleprompter" : "Teleprompter con lo copiado", key: "⌃⌥P") {
+            if Prompter.shared.active { Prompter.shared.stop() } else { Prompter.shared.startFromClipboard() }
+        })
+        menu.addItem(item("Traducir lo copiado", key: "⌃⌥T") {
+            TextTools.shared.translate(NSPasteboard.general.string(forType: .string) ?? "")
+        })
         menu.addItem(item("Ajustes…", key: ",") { SettingsWindow.shared.show() })
         menu.addItem(.separator())
 

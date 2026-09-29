@@ -90,6 +90,28 @@ enum Snapshot {
             meeting.action = ("Unirse", {})
             m.announce(meeting)
             await shot("\(prefix)-9b-reunion", panel, dir, height: 170)
+            m.close()
+            WhatsAppCalls.shared.demo(.ringing)
+            m.callArrived()
+            await shot("\(prefix)-9c-llamada", panel, dir, height: 170)
+            WhatsAppCalls.shared.demo(.active)
+            m.close()
+            await shot("\(prefix)-9d-en-llamada-cerrado", panel, dir, height: 110)
+            m.state = .peek
+            await shot("\(prefix)-9e-en-llamada", panel, dir, height: 170)
+            WhatsAppCalls.shared.demo(nil)
+            m.close()
+            AppSettings.shared.prompterCountdown = false
+            Prompter.shared.start("""
+            Hola, soy Uriel y hoy les quiero enseñar VibeNotch.
+            Es una app gratis que vive en el notch de tu Mac.
+            Te avisa cuando tus agentes terminan, guarda tus archivos a la mano y ahora también es tu teleprompter.
+            Así puedes leer tu guion mirando directo a la cámara.
+            """)
+            try? await Task.sleep(for: .seconds(1.2))
+            Prompter.shared.toggle()
+            await shot("\(prefix)-10-teleprompter", panel, dir, height: 270)
+            Prompter.shared.stop()
             if !m.hasNotch { await settingsShot("ajustes-celular", page: .phone, dir) }
             NSApp.terminate(nil)
         }

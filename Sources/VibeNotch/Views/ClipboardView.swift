@@ -190,6 +190,10 @@ struct ClipRow: View {
                     }
                     if let link = item.link {
                         IconButton(symbol: "safari", help: "Abrir enlace") { NSWorkspace.shared.open(link) }
+                    } else if let text = item.text, item.kind == .text {
+                        IconButton(symbol: "character.bubble", help: "Traducir y copiar") { TextTools.shared.translate(text) }
+                        IconButton(symbol: "textformat.abc.dottedunderline", help: "Corregir ortografía y copiar") { TextTools.shared.correct(text) }
+                        IconButton(symbol: "play.rectangle", help: "Leer en el teleprompter") { Prompter.shared.start(text) }
                     }
                     IconButton(symbol: clips.isSaved(item) ? "bookmark.fill" : "bookmark", help: "Guardar") {
                         withAnimation(.snappy) { clips.toggleSaved(item) }
@@ -219,6 +223,11 @@ struct ClipRow: View {
             Button("Copiar") { clips.copy(item) }
             if item.kind == .image { Button("Copiar texto de la imagen") { clips.recognizeText(item) } }
             if let link = item.link { Button("Abrir enlace") { NSWorkspace.shared.open(link) } }
+            if let text = item.text, item.kind == .text, item.link == nil {
+                Button("Traducir y copiar") { TextTools.shared.translate(text) }
+                Button("Corregir ortografía y copiar") { TextTools.shared.correct(text) }
+                Button("Leer en el teleprompter") { Prompter.shared.start(text) }
+            }
             Button(clips.isSaved(item) ? "Quitar de guardados" : "Guardar") { clips.toggleSaved(item) }
             Divider()
             Button("Borrar") { inSaved ? clips.deleteSaved(item) : clips.delete(item) }

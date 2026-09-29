@@ -7,6 +7,8 @@ struct NotchRootView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
+    @ObservedObject private var prompter = Prompter.shared
+    @ObservedObject private var calls = WhatsAppCalls.shared
     @State private var dropHover = false
 
     var body: some View {
@@ -18,10 +20,14 @@ struct NotchRootView: View {
         ZStack(alignment: .top) {
             shape.fill(.black)
             Group {
-                switch model.state {
-                case .closed: ClosedBar()
-                case .peek: PeekView()
-                case .open: OpenView()
+                if prompter.active {
+                    PrompterView()
+                } else {
+                    switch model.state {
+                    case .closed: ClosedBar()
+                    case .peek: PeekView()
+                    case .open: OpenView()
+                    }
                 }
             }
             .transition(.blurFade)
@@ -36,7 +42,7 @@ struct NotchRootView: View {
                 .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
         )
         .contentShape(shape)
-        .onTapGesture { if model.state != .open { model.open() } }
+        .onTapGesture { if model.state != .open && !prompter.active { model.open() } }
         .onDrop(of: ShelfStore.dropTypes, isTargeted: $dropHover) { providers in
             if model.state == .open && model.tab == .tools { return ToolsStore.shared.accept(providers) }
             model.tab = .shelf
@@ -53,6 +59,8 @@ struct NotchRootView: View {
         .animation(.notch, value: model.state)
         .animation(.notch, value: size)
         .animation(.notch, value: hidden)
+        .animation(.notch, value: prompter.active)
+        .background(TranslatorHost())
         .environment(\.colorScheme, .dark)
     }
 }
@@ -64,11 +72,17 @@ struct LiveIndicators {
     let shelf = ShelfStore.shared
     let timer = TimerStore.shared
     let music = MusicStore.shared
+    let calls = WhatsAppCalls.shared
 
     var playing: MusicStore.Track? { Prefs.showMusic && music.isPlaying ? music.track : nil }
 
     @MainActor @ViewBuilder var left: some View {
-        if let s = agents.headline {
+        if let call = calls.call {
+            Image(systemName: call.video ? "video.fill" : "phone.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color.ok)
+                .symbolEffect(.pulse, isActive: call.phase == .ringing)
+        } else if let s = agents.headline {
             StatusGlyph(kind: s.kind, status: s.status, size: 17)
         } else if timer.isActive {
             TimerRing(size: 15)
@@ -83,6 +97,16 @@ struct LiveIndicators {
         let working = agents.ordered.filter { $0.status == .working }.count
         if !agents.asks.isEmpty {
             PulseDot(color: .warn, size: 7)
+        } else if let call = calls.call {
+            if call.phase == .ringing {
+                PulseDot(color: .ok, size: 7)
+            } else {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    Text(CallCard.elapsed(call.since, ctx.date))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(Color.ok)
+                }
+            }
         } else if working > 1 {
             Text("\(working)").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.8))
         } else if timer.isActive {
@@ -106,6 +130,7 @@ struct LiveIndicators {
 
     @MainActor var label: String {
         if let a = agents.asks.first { return "\(a.kind.short) pide permiso" }
+        if let c = calls.call { return c.phase == .ringing ? "\(c.name) te llama" : "\(c.name) · WhatsApp" }
         if let s = agents.headline { return "\(s.kind.short) · \(s.activity ?? s.status.label)" }
         if timer.isActive { return timer.label }
         if let t = playing { return t.artist.isEmpty ? t.title : "\(t.title) · \(t.artist)" }
@@ -119,6 +144,7 @@ struct ClosedBar: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
+    @ObservedObject private var calls = WhatsAppCalls.shared
 
     var body: some View {
         let live = LiveIndicators()
@@ -154,6 +180,7 @@ struct ClosedBar: View {
 struct PeekView: View {
     @ObservedObject private var model = NotchModel.shared
     @ObservedObject private var agents = AgentStore.shared
+    @ObservedObject private var calls = WhatsAppCalls.shared
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
@@ -165,6 +192,8 @@ struct PeekView: View {
                 dropHint
             } else if let ask = agents.asks.first {
                 AskCard(ask: ask, compact: true)
+            } else if let call = calls.call, model.announcement == nil {
+                CallCard(call: call)
             } else if let a = model.announcement {
                 announcement(a)
             } else {

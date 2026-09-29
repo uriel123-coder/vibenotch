@@ -90,6 +90,7 @@ Presiona **⌃⌥F** (o toca la lupa) y escribe parte del nombre: "factura", "co
 - **Historial** de lo último que copiaste (texto, links, colores, imágenes y archivos), con buscador.
 - **Guardados**: textos que pegas seguido, con atajo **⌃⌥1…9**.
 - **Notas**: tarjetas de colores que se quedan ahí (tu correo, la clave del Wi-Fi, una dirección, un prompt). Un clic y quedan copiadas; también puedes arrastrarlas a cualquier app. Fija las que más usas para verlas en **Hoy**.
+- **Traducir y corregir con un clic**: pasa el mouse sobre un texto y toca 💬 para traducirlo (español ⇄ inglés, o al idioma que elijas) o ᵃᵇᶜ para corregir la ortografía ("nesesito la presentasion" → "necesito la presentación"). El resultado queda copiado, listo para pegar. También con **⌃⌥T** traduces lo que acabas de copiar. Usa el traductor y el corrector de macOS: no sale nada a internet (traducir necesita macOS 15 o más nuevo).
 - Ignora automáticamente contraseñas de 1Password y apps que marcan el contenido como privado.
 - Opcional: pegar directamente al elegir un clip o una nota.
 
@@ -131,6 +132,33 @@ Te dice cuánto ahorraste ("1.4 MB → 66 KB · 95% menos") y eliges si el resul
 
 <p align="center">
   <img src="docs/screenshots/notch-8-convertir.png" width="70%" alt="Convertir">
+</p>
+
+### 🎬 Teleprompter: lee tu guion mirando a la cámara
+
+El texto pasa justo **debajo de la cámara**, así que al grabar un video, dar una clase o presentar en Zoom lees sin que se note que estás leyendo.
+
+- **Copia tu guion y presiona ⌃⌥P**, o toca ▶︎ en una nota o en un clip.
+- Cuenta regresiva 3, 2, 1 y empieza a avanzar solo.
+- **Espacio** o clic en el texto pausa; **↑ ↓** cambian la velocidad; con el trackpad lo mueves a mano; **esc** lo cierra.
+- Cambia el tamaño de letra y la velocidad desde los botones o en Ajustes → Llamadas y más.
+
+<p align="center">
+  <img src="docs/screenshots/notch-10-teleprompter.png" width="49%" alt="Teleprompter debajo del notch">
+  <img src="docs/screenshots/isla-10-teleprompter.png" width="49%" alt="Teleprompter en modo isla">
+</p>
+
+### 📞 Llamadas de WhatsApp en el notch
+
+Cuando te llaman por WhatsApp en la Mac, el notch te muestra **quién llama** con **Contestar** y **Rechazar**. Ya en la llamada ves el tiempo en el notch cerrado y, al pasar el mouse, **Silenciar** y **Colgar**.
+
+- Necesita la **app de WhatsApp para Mac** abierta y el permiso de **Accesibilidad** (Ajustes → Llamadas y más → Dar permiso), que es lo que deja a VibeNotch presionar los botones de WhatsApp por ti.
+- WhatsApp no tiene una forma oficial para esto, así que VibeNotch lee los botones de su ventana (y el aviso de macOS). Si WhatsApp cambia su diseño puede dejar de detectarla; en ese caso contesta como siempre y [avísanos](https://github.com/uriel123-coder/vibenotch/issues).
+- Las llamadas normales del iPhone y FaceTime no se pueden contestar desde otra app: macOS no lo permite.
+
+<p align="center">
+  <img src="docs/screenshots/notch-9c-llamada.png" width="49%" alt="Llamada de WhatsApp entrante">
+  <img src="docs/screenshots/isla-9e-en-llamada.png" width="49%" alt="En llamada de WhatsApp">
 </p>
 
 ---
@@ -304,6 +332,9 @@ Cómo lo logra:
 | **⌃⌥N** | Abrir / cerrar VibeNotch |
 | **⌃⌥V** | Abrir el portapapeles |
 | **⌃⌥F** | Buscar archivos |
+| **⌃⌥P** | Teleprompter con lo que copiaste (otra vez para cerrarlo) |
+| **⌃⌥T** | Traducir lo que copiaste |
+| **Espacio / ↑ ↓ / esc** | En el teleprompter: pausar / velocidad / cerrar |
 | **↩ / ⌘↩** | En Buscar: abrir el archivo / mostrarlo en Finder |
 | **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
 | **⌘↩** | Guardar la nota que estás escribiendo |
@@ -323,7 +354,7 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | --- | --- | --- |
 | Calendario | Mostrar tus próximos eventos y avisarte antes | Al tocar "Conectar calendario" en Hoy |
 | Automatización (Spotify / Música) | Pausar y cambiar de canción | Al tocar un control de música |
-| Accesibilidad | Pegar automáticamente al elegir un clip | Solo si activas "Pegar al elegir un clip" |
+| Accesibilidad | Pegar automáticamente al elegir un clip, y ver y contestar llamadas de WhatsApp | Si activas "Pegar al elegir un clip" o tocas "Dar permiso" en Llamadas y más |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
 | Archivos (Escritorio, Documentos, Descargas, iCloud Drive) | Buscar archivos por nombre | La primera vez que abres Buscar |
 
@@ -339,6 +370,7 @@ Ver qué canción suena no necesita ningún permiso.
   - Una vez al día pregunta a GitHub si hay una versión nueva (no manda ningún dato tuyo).
   - Solo si activas **Avisos en el celular**: manda el aviso a ntfy.
   - Solo si activas los límites desde el Llavero: consulta tu uso a Anthropic con tu propia sesión.
+- Traducir y corregir usan el traductor y el corrector de macOS, en tu Mac. De WhatsApp solo lee los botones y el nombre de quien llama, para mostrarlos en el notch; no lee tus chats ni guarda nada.
 - De la app de Claude solo lee, en tu Mac, el estado de las sesiones y los porcentajes de uso. Nunca lee tus conversaciones ni envía nada.
 - Tus datos están en `~/Library/Application Support/VibeNotch` (historial, guardados, notas, estante).
 - El índice de Buscar solo guarda nombres y fechas de archivos, vive en memoria y nunca se escribe en disco ni sale de tu Mac. No lee el contenido de tus archivos.
@@ -461,6 +493,8 @@ VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_FAKE_NOTCH=1 ./build/VibeNotch.app/Conte
 VIBENOTCH_SNAPSHOT=/tmp/shots VIBENOTCH_SELFTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch    # + prueba los conversores
 VIBENOTCH_SEARCHTEST=factura ./build/VibeNotch.app/Contents/MacOS/VibeNotch                        # mide el índice y la búsqueda
 VIBENOTCH_UPDATETEST=1 /tmp/copia/VibeNotch.app/Contents/MacOS/VibeNotch                           # prueba el actualizador en una copia
+VIBENOTCH_TEXTTEST="nesesito la presentasion" ./build/VibeNotch.app/Contents/MacOS/VibeNotch         # prueba corregir y traducir
+VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```
 
 Genera todas las pantallas con datos de ejemplo, sin tocar tus datos reales ni la copia de VibeNotch que tengas abierta.
@@ -486,6 +520,9 @@ git tag v1.3.2 && git push origin v1.3.2
 - **Search (⌃⌥F):** find any file by name in milliseconds, or see your recent files. Filter by documents, PDFs, images, videos or folders; press ↩ to open, ⌘↩ to reveal in Finder, or drag the result anywhere. It builds its own in-memory index of your folders, so it works even with Spotlight turned off.
 - **Clips:** searchable history, saved snippets on **⌃⌥1-9**, and sticky **notes** you copy with one click. Passwords are ignored.
 - **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar (with a **Join** button for Zoom, Meet, Teams, Webex and FaceTime links) and a system monitor (CPU, RAM, disk).
+- **Teleprompter (⌃⌥P):** your script scrolls right under the camera so you read while looking at the lens. Space pauses, ↑/↓ change speed.
+- **WhatsApp calls:** see who's calling and answer, decline, mute or hang up from the notch (needs the WhatsApp Mac app and Accessibility permission).
+- **Translate and fix spelling** of any clip with one click, or **⌃⌥T** for what you just copied, using macOS's on-device translator and spell checker.
 - **Convert:** 23 local tools. Image formats, real compression (it tries several encodings and keeps the smallest good one, or tells you the file was already optimized), background removal, OCR, merging PDFs, video to MP4/GIF, audio extraction, zip/unzip.
 
 It detects whether your screen has a notch and switches between notch and island automatically (you can force either in Settings). Idle it uses about 20 MB of RAM and ~0.1% CPU.

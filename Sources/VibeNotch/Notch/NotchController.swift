@@ -71,6 +71,19 @@ final class NotchController {
             return e
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            let prompterKey: Bool = MainActor.assumeIsolated {
+                let p = Prompter.shared
+                guard p.active else { return false }
+                switch e.keyCode {
+                case 53: p.stop()
+                case 49: p.toggle()
+                case 126: p.faster(6)
+                case 125: p.faster(-6)
+                default: return false
+                }
+                return true
+            }
+            if prompterKey { return nil }
             if e.keyCode == 53 {
                 MainActor.assumeIsolated { self?.model.close() }
                 return nil
@@ -101,9 +114,20 @@ final class NotchController {
         if Self.trace {
             model.$state.sink { print("TRACE estado → \($0)"); fflush(stdout) }.store(in: &cancellables)
             model.$tab.sink { print("TRACE pestaña → \($0)"); fflush(stdout) }.store(in: &cancellables)
+            Prompter.shared.$active.combineLatest(Prompter.shared.$running).sink { a, r in
+                print("TRACE teleprompter activo=\(a) avanzando=\(r)"); fflush(stdout)
+            }.store(in: &cancellables)
         }
         model.$state.sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
+        }.store(in: &cancellables)
+        Prompter.shared.$active.dropFirst().sink { [weak self] on in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.syncMouseAcceptance()
+                    if !on { self?.restoreFocus() }
+                }
+            }
         }.store(in: &cancellables)
     }
 
@@ -299,7 +323,7 @@ final class NotchController {
             dragStart = (p, Date())
             // The panel only stops ignoring the mouse after it moves, so a click on the notch usually lands on the
             // menu bar underneath and only reaches us through the global monitor. Treat it as a click on the notch.
-            if !local && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
+            if !local && !Prompter.shared.active && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
                 hoverWork?.cancel()
                 hoverWork = nil
                 model.open()
@@ -368,6 +392,7 @@ final class NotchController {
     }
 
     private func hover(inside: Bool, at p: NSPoint) {
+        if Prompter.shared.active { return }
         switch model.state {
         case .closed:
             let hot = hiddenByFullscreen ? fullscreenZone().contains(p) : wakeZone().contains(p)

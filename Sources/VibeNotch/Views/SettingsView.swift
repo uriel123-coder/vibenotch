@@ -28,7 +28,7 @@ final class SettingsWindow: ObservableObject {
 struct SettingsView: View {
     enum Page: String, CaseIterable, Identifiable {
         case general = "General", tabs = "Pestañas", today = "Hoy", agents = "Agentes", phone = "Celular", clipboard = "Portapapeles",
-             about = "Acerca de"
+             extras = "Llamadas y más", about = "Acerca de"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -38,6 +38,7 @@ struct SettingsView: View {
             case .agents: "sparkles"
             case .phone: "iphone.gen3"
             case .clipboard: "doc.on.clipboard.fill"
+            case .extras: "phone.fill"
             case .about: "info.circle.fill"
             }
         }
@@ -49,6 +50,7 @@ struct SettingsView: View {
             case .agents: .claude
             case .phone: .teal
             case .clipboard: .green
+            case .extras: .mint
             case .about: .purple
             }
         }
@@ -81,6 +83,7 @@ struct SettingsView: View {
                 case .agents: AgentsPage()
                 case .phone: PhonePage()
                 case .clipboard: ClipboardPage()
+                case .extras: ExtrasPage()
                 case .about: AboutPage()
                 }
             }
@@ -398,6 +401,62 @@ private struct ClipboardPage: View {
                 }
             }
         }
+    }
+}
+
+private struct ExtrasPage: View {
+    @ObservedObject private var s = AppSettings.shared
+    @State private var trusted = AXIsProcessTrusted()
+    private let recheck = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Mostrar llamadas de WhatsApp en el notch", isOn: $s.whatsappCalls)
+                LabeledContent("Permiso de Accesibilidad") {
+                    if trusted {
+                        Label("Listo", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Button("Dar permiso") {
+                            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Llamadas de WhatsApp")
+            } footer: {
+                Text("Cuando te llaman por WhatsApp en la Mac, el notch muestra quién es con Contestar y Rechazar; durante la llamada ves el tiempo, Silenciar y Colgar. Necesita la app de WhatsApp para Mac abierta y el permiso de Accesibilidad para presionar sus botones. Nada sale de tu Mac.")
+            }
+
+            Section {
+                LabeledContent("Velocidad") {
+                    Slider(value: $s.prompterSpeed, in: 8...160, step: 2) { EmptyView() }
+                        .frame(width: 200)
+                }
+                LabeledContent("Tamaño de letra") {
+                    Slider(value: $s.prompterFont, in: 14...44, step: 1) { EmptyView() }
+                        .frame(width: 200)
+                }
+                Toggle("Cuenta regresiva 3, 2, 1 al empezar", isOn: $s.prompterCountdown)
+                LabeledContent("Abrir con lo copiado", value: "⌃⌥P")
+            } header: {
+                Text("Teleprompter")
+            } footer: {
+                Text("El texto pasa justo debajo de la cámara para que leas mirando a la lente. Ábrelo desde una nota o un clip (botón ▶︎) o copia tu guion y presiona ⌃⌥P. Espacio pausa, ↑ ↓ cambian la velocidad, esc cierra; también puedes hacer clic en el texto o moverlo con el trackpad.")
+            }
+
+            Section {
+                Picker("Traducir a", selection: $s.translateTo) {
+                    ForEach(TextTools.languages, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                LabeledContent("Traducir lo copiado", value: "⌃⌥T")
+            } header: {
+                Text("Traducir y corregir")
+            } footer: {
+                Text("En la pestaña Clips pasa el mouse sobre un texto: 💬 traduce y ᵃᵇᶜ corrige la ortografía. El resultado se copia listo para pegar. Usa el traductor y el corrector de macOS, sin internet; la primera vez macOS puede pedirte descargar el idioma (macOS 15 o más nuevo).")
+            }
+        }
+        .onReceive(recheck) { _ in trusted = AXIsProcessTrusted() }
     }
 }
 
