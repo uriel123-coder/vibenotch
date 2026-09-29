@@ -134,6 +134,20 @@ final class ClaudeAppMonitor {
         }
     }
 
+    /// Remote (SSH) Code sessions keep their transcript on the server and run no local hooks; the app's own
+    /// macOS notification is the only sign here that one is asking something.
+    func notified(title: String, text: String) {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty || !title.isEmpty else { return }
+        let heading = title.isEmpty || title == "Claude" ? "Claude te necesita" : "Claude · \(title)"
+        var a = Announcement(kind: .claude, title: heading, subtitle: body.isEmpty ? title : body, style: .attention)
+        a.action = ("Ir a Claude", {
+            NSRunningApplication.runningApplications(withBundleIdentifier: ClaudeAppMonitor.bundleID).first?.activate()
+        })
+        NotchModel.shared.announce(a, for: 45)
+        Sound.play(.ask)
+    }
+
     private static func fill(_ s: Snapshot, into session: inout AgentSession) {
         session.source = "App"
         session.title = s.title

@@ -112,7 +112,9 @@ final class NotchModel: ObservableObject {
     var ringing: Bool { WhatsAppCalls.shared.call?.phase == .ringing }
 
     var showsIndicators: Bool {
-        if fullscreen { return !AgentStore.shared.asks.isEmpty || ringing || announcement?.style == .attention }
+        if fullscreen {
+            return hasLiveActivity || !AgentStore.shared.asks.isEmpty || ringing || announcement?.style == .attention
+        }
         return hasLiveActivity || (!island && !ShelfStore.shared.items.isEmpty)
     }
 

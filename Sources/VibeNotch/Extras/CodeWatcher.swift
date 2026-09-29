@@ -11,7 +11,7 @@ final class CodeWatcher {
     private var scanning = false
     private var seen: [String] = []
     private var lastCode: (String, Date)?
-    private let queue = DispatchQueue(label: "vibenotch.codes", qos: .utility)
+    private let queue = DispatchQueue(label: "vibenotch.codes", qos: .userInitiated)
     nonisolated static let trace = ProcessInfo.processInfo.environment["VIBENOTCH_TRACE"] != nil
 
     struct Banner: Sendable {
@@ -31,7 +31,8 @@ final class CodeWatcher {
     }
 
     private func poll() {
-        guard AppSettings.shared.codesEnabled, !scanning, AXIsProcessTrusted(),
+        let claudeOpen = !NSRunningApplication.runningApplications(withBundleIdentifier: ClaudeAppMonitor.bundleID).isEmpty
+        guard AppSettings.shared.codesEnabled || claudeOpen, !scanning, AXIsProcessTrusted(),
               let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first?.processIdentifier
         else { return }
         scanning = true
@@ -50,7 +51,12 @@ final class CodeWatcher {
         for b in banners where !seen.contains(b.id) {
             seen.append(b.id)
             if seen.count > 40 { seen.removeFirst() }
-            guard b.app != "VibeNotch", let code = Self.extract(b.text) else { continue }
+            guard b.app != "VibeNotch" else { continue }
+            guard let code = Self.extract(b.text) else {
+                if b.app == "Claude" { ClaudeAppMonitor.shared.notified(title: b.title, text: b.text) }
+                continue
+            }
+            guard AppSettings.shared.codesEnabled else { continue }
             let title = b.title.trimmingCharacters(in: .whitespaces)
             offer(code, from: title.isEmpty || title.count > 40 ? b.app : "\(b.app) · \(title)")
         }
