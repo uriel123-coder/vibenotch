@@ -1216,6 +1216,7 @@ private enum Brain {
                 Escríbelo en primera persona, como lo escribiría el usuario, hablándole de tú a esa persona. \
                 Cambia lo mínimo: corrige errores de dictado, puntuación y pasa lo indirecto a directo \
                 («que me llame» → «Llámame cuando puedas», «si ya llegó» → «¿Ya llegaste?»). \
+                Conserva el saludo si lo dijo («hola…»). No empieces con el nombre de la persona. \
                 No agregues saludos, datos ni emojis que no dijo. Responde solo con el mensaje, en una o dos frases.
                 """)
                 let text = try? await session.respond(to: "Para: \(name)\nDictado: \(said)", options: options).content
@@ -1226,7 +1227,15 @@ private enum Brain {
                 box.resume(nil)
             }
         }
-        let out = raw?.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"«»"))
+        var out = raw?.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"«»"))
+        // «Mamá, ¿ya llegaste?» → «¿Ya llegaste?»: the chat already says who it's for.
+        if let o = out, let comma = o.firstIndex(of: ","), VoiceAgent.fold(String(o[..<comma])) == VoiceAgent.fold(name) {
+            let rest = o[o.index(after: comma)...].trimmingCharacters(in: .whitespaces)
+            if let i = rest.firstIndex(where: \.isLetter) { out = rest[..<i] + rest[i...].prefix(1).uppercased() + rest[rest.index(after: i)...] }
+        }
+        if VoiceAgent.fold(said).hasPrefix("hola"), let o = out, !VoiceAgent.fold(o).hasPrefix("hola") {
+            out = "Hola, " + o.prefix(1).lowercased() + o.dropFirst()
+        }
         guard let out, !out.isEmpty, out.count < max(160, said.count * 3), !out.contains("\n\n") else { return nil }
         return out
     }
