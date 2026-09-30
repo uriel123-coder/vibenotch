@@ -108,6 +108,9 @@ final class Assistant: ObservableObject {
         phase = .working
     }
 
+    /// Shows something useful while the work goes on, like the search results before the summary.
+    func preview(_ card: Card) { self.card = card }
+
     func finish(_ card: Card?, say: String? = nil, linger: Double = 9) {
         for i in steps.indices { steps[i].finished = true }
         self.card = card

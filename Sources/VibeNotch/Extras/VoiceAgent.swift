@@ -469,7 +469,7 @@ enum Rules {
         let t = f.trimmingCharacters(in: CharacterSet(charactersIn: "¿?¡!., "))
         let time = DateFormatter()
         time.locale = Locale(identifier: "es_MX")
-        if t.hasPrefix("que hora es") || t == "la hora" { time.dateFormat = "h:mm a"; return "Son las \(time.string(from: Date()))." }
+        if t.hasPrefix("que hora es") || t == "la hora" { time.dateFormat = "h:mm a"; return "Son las \(time.string(from: Date()))" }
         if t.hasPrefix("que dia es") || t.hasPrefix("a que estamos") || t.hasPrefix("que fecha es") {
             time.dateFormat = "EEEE d 'de' MMMM"; return "Hoy es \(time.string(from: Date()))."
         }
@@ -811,7 +811,7 @@ enum Hands {
         #if canImport(FoundationModels)
         if #available(macOS 26, *), VoiceAgent.isQuestion(question), VoiceAgent.available {
             a.step("text.magnifyingglass", "Leyendo \(min(hits.count, 4)) resultados…")
-            a.card = .web(answer: nil, hits: hits)
+            a.preview(.web(answer: nil, hits: hits))
             if let answer = try? await Brain.summarize(question, hits: hits) {
                 return a.finish(.web(answer: answer, hits: hits), say: answer, linger: 25)
             }
