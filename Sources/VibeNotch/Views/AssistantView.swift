@@ -10,7 +10,7 @@ struct AssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             if !model.island { Color.clear.frame(height: model.notchSize.height - 6) }
             HStack(spacing: 10) {
-                Orb(phase: assistant.phase, level: dictation.level)
+                Orb(phase: assistant.phase, level: assistant.speaking ? assistant.voicePulse : dictation.level, speaking: assistant.speaking)
                 Text(assistant.status)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(assistant.phase == .failed ? Color.orange : .white.opacity(0.95))
@@ -24,6 +24,10 @@ struct AssistantView: View {
                         .foregroundStyle(.white.opacity(0.35))
                 }
                 if assistant.phase != .listening || assistant.followUp {
+                    IconButton(symbol: "list.bullet.rectangle", help: assistant.busy ? "Seguir en segundo plano y ver tus tareas" : "Tus tareas") {
+                        assistant.sendToBackground()
+                        NotchModel.shared.open(.jarvis)
+                    }
                     IconButton(symbol: "xmark", help: "Cerrar") { assistant.dismiss() }
                 }
             }
@@ -79,36 +83,41 @@ private struct ContentHeight: PreferenceKey {
 private struct Orb: View {
     var phase: Assistant.Phase
     var level: Float
+    var speaking = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: phase == .done || phase == .failed || phase == .idle)) { ctx in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !speaking && (phase == .done || phase == .failed || phase == .idle))) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let spin = phase == .thinking || phase == .working
+            let alive = phase == .listening || speaking
             ZStack {
                 Circle()
-                    .fill(AngularGradient(colors: colors + [colors[0]], center: .center, angle: .degrees(spin ? t * 240 : t * 40)))
+                    .fill(AngularGradient(colors: colors + [colors[0]], center: .center, angle: .degrees(spin ? t * 240 : t * (speaking ? 120 : 40))))
                     .blur(radius: 1.5)
                 Circle()
                     .fill(RadialGradient(colors: [.white.opacity(0.55), .clear], center: .init(x: 0.35, y: 0.3), startRadius: 0, endRadius: 12))
-                if phase == .done {
+                if phase == .done && !speaking {
                     Image(systemName: "checkmark").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
-                } else if phase == .failed {
+                        .transition(.scale.combined(with: .opacity))
+                } else if phase == .failed && !speaking {
                     Image(systemName: "exclamationmark").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
                 }
             }
             .frame(width: 22, height: 22)
-            .scaleEffect(phase == .listening ? 0.9 + CGFloat(level) * 0.35 : spin ? 0.95 + 0.05 * sin(t * 5) : 1)
-            .shadow(color: colors[0].opacity(0.7), radius: phase == .listening ? 4 + CGFloat(level) * 8 : 5)
+            .scaleEffect(alive ? 0.9 + CGFloat(level) * 0.35 : spin ? 0.95 + 0.05 * sin(t * 5) : 1)
+            .shadow(color: colors[0].opacity(0.7), radius: alive ? 4 + CGFloat(level) * 8 : 5)
         }
         .frame(width: 26, height: 26)
-        .animation(.easeOut(duration: 0.1), value: level)
+        .animation(.easeOut(duration: 0.12), value: level)
+        .animation(.snappy, value: speaking)
     }
 
     private var colors: [Color] {
+        if speaking { return [.blue, .purple, .pink, .cyan] }
         switch phase {
-        case .done: [.green, .mint, .teal]
-        case .failed: [.orange, .red, .pink]
-        default: [.blue, .purple, .pink, .cyan]
+        case .done: return [.green, .mint, .teal]
+        case .failed: return [.orange, .red, .pink]
+        default: return [.blue, .purple, .pink, .cyan]
         }
     }
 }

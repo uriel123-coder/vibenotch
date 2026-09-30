@@ -73,8 +73,13 @@ final class Assistant: ObservableObject {
         didSet { if !hovering && (phase == .done || phase == .failed) { scheduleHide(after: 4) } }
     }
 
+    /// Talking out loud: the orb moves with the voice and the panel stays until it's done.
+    @Published fileprivate(set) var speaking = false
+    @Published fileprivate(set) var voicePulse: Float = 0
+
     private var hideWork: DispatchWorkItem?
     private var session = 0
+    private var task: UUID?
     private var watch: AnyCancellable?
 
     private init() {
@@ -85,7 +90,23 @@ final class Assistant: ObservableObject {
         }
     }
 
-    var visible: Bool { phase != .idle }
+    /// Working out of sight (you opened Tareas): it tells you when it's done.
+    @Published private(set) var background = false
+
+    var visible: Bool { phase != .idle && !background }
+
+    func sendToBackground() {
+        hideWork?.cancel()
+        if busy { background = true } else { dismiss() }
+    }
+
+    private func comeBack(_ text: String, failed: Bool) {
+        var n = Announcement(symbol: failed ? "exclamationmark.triangle.fill" : "sparkles", tint: failed ? .orange : .blue,
+                             title: failed ? "Jarvis no pudo" : "Jarvis terminó", subtitle: text)
+        n.action = ("Ver", { NotchModel.shared.open(.jarvis) })
+        NotchModel.shared.announce(n, for: 6)
+        phase = .idle
+    }
     var busy: Bool { phase == .thinking || phase == .working }
 
     // MARK: - Flow
@@ -93,6 +114,7 @@ final class Assistant: ObservableObject {
     func listening(followUp: Bool = false) {
         session += 1
         hideWork?.cancel()
+        background = false
         self.followUp = followUp && card != nil
         phase = .listening
         status = self.followUp ? "¿Algo más?" : "Escuchando…"
@@ -125,11 +147,13 @@ final class Assistant: ObservableObject {
         followUp = false
         streaming = false
         wasStreamed = false
+        background = false
         heard = order
         steps = []
         card = nil
         phase = .thinking
         status = "Pensando…"
+        task = TaskLog.shared.start(order)
         recent = Array(([order] + recent.filter { $0.caseInsensitiveCompare(order) != .orderedSame }).prefix(5))
         UserDefaults.standard.set(recent, forKey: "assistant.recent")
     }
@@ -150,6 +174,7 @@ final class Assistant: ObservableObject {
         steps.append(Step(symbol: symbol, text: text))
         status = text
         phase = .working
+        TaskLog.shared.step(task, symbol: symbol, text: text)
     }
 
     /// Shows something useful while the work goes on, like the search results before the summary.
@@ -166,6 +191,8 @@ final class Assistant: ObservableObject {
         self.card = card
         phase = .done
         status = say.map { $0.count > 70 ? "Listo" : $0 } ?? "Listo"
+        TaskLog.shared.finish(task, status: .done, card: card, say: say)
+        if background { return comeBack(say ?? heard, failed: false) }
         let current = session
         let listenAgain = talk && AppSettings.shared.assistantConversation
         let keepTalking = {
@@ -189,6 +216,8 @@ final class Assistant: ObservableObject {
         phase = .failed
         status = why
         card = nil
+        TaskLog.shared.finish(task, status: .failed, card: nil, say: why)
+        if background { return comeBack(why, failed: true) }
         if AppSettings.shared.assistantSpeaks { Voice.say(why) }
         scheduleHide(after: 6)
     }
@@ -226,6 +255,7 @@ final class Assistant: ObservableObject {
             MainActor.assumeIsolated {
                 let a = Assistant.shared
                 guard a.session == current, !a.hovering, !a.busy, a.phase != .listening else { return }
+                if a.speaking { return a.scheduleHide(after: 1.5) }
                 a.dismiss()
             }
         }
@@ -308,7 +338,28 @@ enum Voice {
 
     private final class Listener: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
         var then: (@Sendable () -> Void)?
+
+        private func speaking(_ on: Bool) {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    Assistant.shared.speaking = on
+                    if !on { Assistant.shared.voicePulse = 0 }
+                }
+            }
+        }
+
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) { speaking(true) }
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { speaking(false) }
+
+        /// Each word gives the orb a little beat, so it looks like it's the one talking.
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange,
+                               utterance: AVSpeechUtterance) {
+            let beat = Float(min(characterRange.length, 9)) / 9 * 0.6 + 0.4
+            DispatchQueue.main.async { MainActor.assumeIsolated { Assistant.shared.voicePulse = beat } }
+        }
+
         func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+            speaking(false)
             let next = then
             then = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { next?() }
@@ -518,6 +569,120 @@ enum Memory {
     }
 }
 
+// MARK: - What it learns about how you do things
+
+/// Your choices, learned once: «mándalo por WhatsApp» and from then on messages go by WhatsApp unless you say otherwise.
+@MainActor
+enum Habits {
+    enum Key: String { case messages, music, mail }
+
+    static func get(_ key: Key) -> String? {
+        (UserDefaults.standard.dictionary(forKey: "assistant.prefs") as? [String: String])?[key.rawValue]
+    }
+
+    static func set(_ key: Key, _ value: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: "assistant.prefs") as? [String: String]) ?? [:]
+        all[key.rawValue] = value
+        UserDefaults.standard.set(all, forKey: "assistant.prefs")
+    }
+
+    /// The app a phrase names, if any: «por WhatsApp», «en Spotify», «con Gmail».
+    static func mentioned(in text: String) -> (Key, String)? {
+        let f = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+        if f.contains("whats") || f.contains("wasap") || f.contains("guasap") { return (.messages, "whatsapp") }
+        if f.contains("imessage") || f.contains("sms") || f.contains("mensaje normal") || f.contains("app de mensajes") { return (.messages, "imessage") }
+        if f.contains("spotify") { return (.music, "spotify") }
+        if f.contains("apple music") || f.contains("app de musica") || f.contains("musica de apple") { return (.music, "applemusic") }
+        if f.contains("youtube music") || f.contains("en youtube") { return (.music, "youtube") }
+        if f.contains("gmail") { return (.mail, "gmail") }
+        if f.contains("por mail") || f.contains("app de mail") || f.contains("apple mail") || f.contains("app de correo") { return (.mail, "mail") }
+        return nil
+    }
+
+    static func name(_ value: String) -> String {
+        ["whatsapp": "WhatsApp", "imessage": "Mensajes", "spotify": "Spotify", "applemusic": "Apple Music", "youtube": "YouTube Music",
+         "gmail": "Gmail", "mail": "Mail"][value] ?? value
+    }
+}
+
+/// «mi mamá es Laura Pérez», «el correo de Carlos es carlos@empresa.com»: who people are, so you say it once.
+@MainActor
+enum Aliases {
+    struct Who: Codable {
+        var name: String?
+        var email: String?
+        var phone: String?
+    }
+
+    private static var url: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VibeNotch")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("personas.json")
+    }
+
+    static var all: [String: Who] {
+        get { (try? JSONDecoder().decode([String: Who].self, from: Data(contentsOf: url))) ?? [:] }
+        set { try? JSONEncoder().encode(newValue).write(to: url, options: .atomic) }
+    }
+
+    static func key(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+            .replacingOccurrences(of: #"^(a\s+)?(mi|mis|el|la|los|las)\s+"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.«»\"'"))
+    }
+
+    static func learn(_ who: String, name: String? = nil, email: String? = nil, phone: String? = nil) {
+        var all = self.all
+        var w = all[key(who)] ?? Who()
+        if let name { w.name = name }
+        if let email { w.email = email }
+        if let phone { w.phone = phone }
+        all[key(who)] = w
+        self.all = all
+    }
+
+    static func find(_ who: String) -> Who? { all[key(who)] }
+
+    struct Fact {
+        enum Kind { case name, email, phone }
+        let who: String
+        let kind: Kind
+        let value: String
+    }
+
+    /// «mi mamá se llama Laura Pérez», «el correo de Carlos es carlos@empresa.com», «el número de Ana es 55 1234 5678».
+    static func fact(in text: String) -> Fact? {
+        let t = text.trimmingCharacters(in: CharacterSet(charactersIn: " .!"))
+        let f = t.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+        guard t.count == f.count else { return nil }
+        func piece(_ r: NSRange) -> String? {
+            guard let range = Range(r, in: t) else { return nil }
+            return String(t[range]).trimmingCharacters(in: .whitespaces)
+        }
+        let patterns: [(String, Fact.Kind)] = [
+            (#"^(?:el )?(?:correo|email|mail) de (.+?) es (\S+@\S+)$"#, .email),
+            (#"^(?:el )?(?:numero|telefono|celular|cel|whatsapp) de (.+?) es ([\d +()\-]{7,})$"#, .phone),
+            (#"^((?i:mi) .+?) (?i:es|se llama) ([A-ZÁÉÍÓÚÑ][\p{L}]+(?: [A-ZÁÉÍÓÚÑ][\p{L}]+)*)$"#, .name),
+        ]
+        for (p, kind) in patterns {
+            let target = kind == .name ? t : f
+            guard let m = try? NSRegularExpression(pattern: p).firstMatch(in: target, range: NSRange(target.startIndex..., in: target)),
+                  let who = piece(m.range(at: 1)), let value = piece(m.range(at: 2)) else { continue }
+            return Fact(who: who, kind: kind, value: kind == .email ? value.lowercased() : value)
+        }
+        return nil
+    }
+
+    /// Saves it and returns what to say back.
+    static func learn(_ fact: Fact) -> String {
+        switch fact.kind {
+        case .email: learn(fact.who, email: fact.value); return "Listo, el correo de \(fact.who) es \(fact.value)."
+        case .phone: learn(fact.who, phone: fact.value); return "Listo, guardé el número de \(fact.who)."
+        case .name: learn(fact.who, name: fact.value); return "Listo, \(fact.who.lowercased()) es \(fact.value)."
+        }
+    }
+}
+
 // MARK: - Contacts
 
 /// Finds who "Ana" or "mi hermano" is in Contacts, for mails and messages.
@@ -546,7 +711,18 @@ enum People {
     }
 
     static func find(_ spoken: String) async -> Person? {
-        let q = spoken.trimmingCharacters(in: .whitespaces)
+        var q = spoken.trimmingCharacters(in: .whitespaces)
+        if let known = Aliases.find(q) {
+            if let name = known.name, Aliases.key(name) != Aliases.key(q) { q = name }
+            if known.email != nil || known.phone != nil {
+                let found = q == spoken ? nil : await contact(q)
+                return Person(name: known.name ?? q, email: known.email ?? found?.email, phone: known.phone ?? found?.phone)
+            }
+        }
+        return await contact(q)
+    }
+
+    private static func contact(_ q: String) async -> Person? {
         guard q.count >= 2, !q.contains("@"), q.filter(\.isNumber).count < 7 else { return nil }
         let store = CNContactStore()
         if CNContactStore.authorizationStatus(for: .contacts) != .authorized {
@@ -605,6 +781,51 @@ enum WebSearch {
             t = t.replacingOccurrences(of: entity, with: char)
         }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// The page open in your browser, as text: «resume esta página» with nothing selected.
+@MainActor
+enum Page {
+    static func current() async -> (title: String, text: String)? {
+        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return nil }
+        let script = id == "com.apple.Safari"
+            ? "tell application id \"\(id)\" to return (URL of front document) & linefeed & (name of front document)"
+            : "tell application id \"\(id)\" to return (URL of active tab of front window) & linefeed & (title of active tab of front window)"
+        var error: NSDictionary?
+        guard let out = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue, error == nil else { return nil }
+        let parts = out.components(separatedBy: "\n")
+        guard let url = URL(string: parts.first ?? ""), url.scheme?.hasPrefix("http") == true else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { return nil }
+        let text = await Task.detached(priority: .userInitiated) { readable(html) }.value
+        guard text.count > 200 else { return nil }
+        return (parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces), text)
+    }
+
+    /// The article's words: paragraphs and headings, without menus, scripts or ads.
+    nonisolated static func readable(_ html: String) -> String {
+        var h = html
+        for tag in ["script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form"] {
+            h = h.replacingOccurrences(of: "(?is)<\(tag)\\b.*?</\(tag)>", with: " ", options: .regularExpression)
+        }
+        let blocks = (try? NSRegularExpression(pattern: #"(?is)<(p|h1|h2|h3|li)\b[^>]*>(.*?)</\1>"#))?
+            .matches(in: h, range: NSRange(h.startIndex..., in: h))
+            .compactMap { Range($0.range(at: 2), in: h).map { String(h[$0]) } } ?? []
+        func clean(_ s: String) -> String {
+            var t = s.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+            for (entity, char) in [("&amp;", "&"), ("&quot;", "\""), ("&#x27;", "'"), ("&#39;", "'"), ("&lt;", "<"), ("&gt;", ">"),
+                                   ("&nbsp;", " "), ("&aacute;", "á"), ("&eacute;", "é"), ("&iacute;", "í"), ("&oacute;", "ó"),
+                                   ("&uacute;", "ú"), ("&ntilde;", "ñ")] {
+                t = t.replacingOccurrences(of: entity, with: char)
+            }
+            return t.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        }
+        let text = blocks.map(clean).filter { $0.count > 30 }.joined(separator: "\n")
+        return String((text.isEmpty ? clean(h) : text).prefix(6000))
     }
 }
 

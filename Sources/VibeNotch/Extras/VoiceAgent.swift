@@ -12,6 +12,9 @@ import FoundationModels
 enum VoiceAgent {
     static let wakeWords = ["oye vibe", "oye agente", "oye jarvis", "jarvis", "agente", "oye"]
 
+    /// The last thing it did that you might correct with «no, por WhatsApp» or «mejor a las 6».
+    static var last: (action: Action, at: Date, event: String?)?
+
     /// The order without its wake word, or nil when the phrase isn't meant for the agent.
     static func order(in text: String) -> String? {
         let plain = fold(text)
@@ -94,10 +97,22 @@ enum VoiceAgent {
         var pointer: String
         /// The cursor is in a text field, so results can be typed right there.
         var editable = false
+        var bundleID = ""
+        /// Everything in the focused field, for «corrige esto» with nothing selected.
+        var field = ""
+
+        static let messengers = ["net.whatsapp.WhatsApp", "com.apple.MobileSMS", "com.tinyspeck.slackmacgap", "ru.keepcoder.Telegram",
+                                 "com.hnc.Discord", "com.facebook.archon", "desktop.WhatsApp"]
+        static let browsers = ["com.apple.Safari", "com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser",
+                               "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "com.operasoftware.Opera"]
+
+        var inMessenger: Bool { Context.messengers.contains(bundleID) }
+        var inBrowser: Bool { Context.browsers.contains(bundleID) }
 
         @MainActor static func capture() -> Context {
-            let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+            let front = NSWorkspace.shared.frontmostApplication
             var selection = ""
+            var field = ""
             var focused: CFTypeRef?
             if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
                let element = focused {
@@ -105,10 +120,16 @@ enum VoiceAgent {
                 if AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &value) == .success {
                     selection = value as? String ?? ""
                 }
+                var whole: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element as! AXUIElement, kAXValueAttribute as CFString, &whole) == .success {
+                    field = whole as? String ?? ""
+                }
             }
             let clip = NSPasteboard.general.string(forType: .string) ?? ""
-            return Context(app: app, selection: String(selection.prefix(10000)), clipboard: String(clip.prefix(3000)),
-                           pointer: Pointer.context(), editable: VoiceKey.focusedIsText())
+            let editable = VoiceKey.focusedIsText()
+            return Context(app: front?.localizedName ?? "", selection: String(selection.prefix(10000)), clipboard: String(clip.prefix(3000)),
+                           pointer: Pointer.context(), editable: editable, bundleID: front?.bundleIdentifier ?? "",
+                           field: editable ? String(field.prefix(10000)) : "")
         }
     }
 
@@ -125,8 +146,10 @@ enum VoiceAgent {
         var url = ""
         /// `text` is what you said, not a finished message yet.
         var draft = false
+        /// Set when a correction already worked out the exact time.
+        var at: Date?
 
-        var date: Date? { VoiceAgent.date(in: when) ?? VoiceAgent.date(in: order) }
+        var date: Date? { at ?? VoiceAgent.date(in: when) ?? VoiceAgent.date(in: order) }
     }
 
     static let kinds = ["correo", "evento", "recordatorio", "whatsapp", "mensaje", "abrir_app", "abrir_web", "buscar_web",
@@ -154,9 +177,22 @@ enum VoiceAgent {
         Task { @MainActor in
             let empty = Context(app: "Safari", selection: "", clipboard: "", pointer: "")
             var hard: [String] = []
-            for order in orders.split(separator: "|").map(String.init) {
+            for var order in orders.split(separator: "|").map(String.init) {
+                // «[wa] …» pretends you're in a WhatsApp chat; «[msg] …» / «[cita] …» pretend it just did that, to test corrections.
+                var context = empty
+                if order.hasPrefix("[wa] ") {
+                    order = String(order.dropFirst(5)); context.bundleID = "net.whatsapp.WhatsApp"; context.editable = true
+                } else if order.hasPrefix("[msg] ") {
+                    order = String(order.dropFirst(6))
+                    var m = Action(kind: "mensaje", order: "mándale un mensaje a Ana que ya voy"); m.to = "Ana"; m.text = "Ya voy."
+                    last = (m, Date(), nil)
+                } else if order.hasPrefix("[cita] ") {
+                    order = String(order.dropFirst(7))
+                    var e = Action(kind: "evento", order: "pon una junta mañana a las 5"); e.text = "Junta"; e.when = "mañana a las 5"
+                    last = (e, Date(), nil)
+                }
                 if let quick = Quick.intent(order) { print("«\(order)» → al instante: \(quick)"); continue }
-                if let steps = Rules.plan(order, context: empty) {
+                if let steps = Rules.plan(order, context: context) {
                     print("«\(order)» → al instante:")
                     for a in steps {
                         var line = "   → \(a.kind) · para=\(a.to) fecha=\(a.date.map { "\($0)" } ?? "-") min=\(a.minutes.map { "\($0)" } ?? "-") nombre=\(a.name) url=\(a.url)\n     texto=\(a.text)"
@@ -220,8 +256,12 @@ enum Quick {
     enum Intent: CustomStringConvertible {
         case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
+        case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action)
         var description: String {
             switch self {
+            case .pref(let k, let v): "preferencia \(k.rawValue) = \(v)"
+            case .person(let f): "persona «\(f.who)» \(f.kind) = \(f.value)"
+            case .correct(let a): "corregir → \(a.kind) to=\(a.to) text=\(a.text) when=\(a.when) name=\(a.name)"
             case .skill(let s): "habilidad «\(s.name)» → \(s.orders)"
             case .newSkill(let n, let o): "nueva habilidad «\(n)» → \(o)"
             case .listSkills: "mostrar habilidades"
@@ -247,6 +287,9 @@ enum Quick {
             return nil
         }
         if let skill = Skills.match(order) { return .skill(skill) }
+        if let fixed = correction(order) { return .correct(fixed) }
+        if let (key, value) = preference(order) { return .pref(key, value) }
+        if let fact = Aliases.fact(in: order) { return .person(fact) }
         if let made = newSkill(order) { return .newSkill(made.name, made.orders) }
         if ["que habilidades", "mis habilidades", "mis rutinas", "que rutinas", "muestrame mis habilidades", "muestrame mis rutinas"]
             .contains(where: { t.hasPrefix($0) }) { return .listSkills }
@@ -267,6 +310,69 @@ enum Quick {
         if let q = rest(["busca el archivo", "busca los archivos", "busca mis archivos de", "busca mis archivos", "busca el documento",
                          "busca el pdf", "encuentra el archivo", "encuentra mis archivos de", "encuentra el documento"]) {
             return .files(q)
+        }
+        return nil
+    }
+
+    /// «los mensajes siempre por WhatsApp», «prefiero Spotify», «de ahora en adelante usa Gmail».
+    private static func preference(_ order: String) -> (Habits.Key, String)? {
+        let t = VoiceAgent.fold(order)
+        let sending = ["mandale", "manda un", "manda una", "enviale", "envia un", "escribele", "dile", "pon ", "ponme", "reproduce", "busca"]
+        guard !sending.contains(where: { t.hasPrefix($0) }) else { return nil }
+        let cues = ["siempre", "de ahora en adelante", "a partir de ahora", "prefiero", "por defecto", "normalmente", "usa ", "usa mejor",
+                    "los mensajes", "mis mensajes", "la musica", "mi musica", "los correos", "mis correos"]
+        guard cues.contains(where: { t.contains($0) }) else { return nil }
+        return Habits.mentioned(in: order)
+    }
+
+    /// «no, por WhatsApp», «mejor en Spotify», «no, a las 6», «no, era para Laura»: redo the last thing the way you meant it.
+    private static func correction(_ order: String) -> VoiceAgent.Action? {
+        guard let last = VoiceAgent.last, Date().timeIntervalSince(last.at) < 300 else { return nil }
+        let t = VoiceAgent.fold(order).trimmingCharacters(in: CharacterSet(charactersIn: "¡!¿?. "))
+        let openers = ["no ", "no,", "mejor ", "cambialo", "cambia ", "en realidad", "perdon", "me equivoque", "era "]
+        guard openers.contains(where: { t.hasPrefix($0) }), t.split(separator: " ").count <= 9 else { return nil }
+        var a = last.action
+        a.name = a.kind == "musica" ? "" : a.name
+        if let (key, value) = Habits.mentioned(in: order) {
+            switch (key, a.kind) {
+            case (.messages, "whatsapp"), (.messages, "mensaje"), (.messages, "correo"):
+                a.kind = value == "whatsapp" ? "whatsapp" : "mensaje"
+            case (.mail, "whatsapp"), (.mail, "mensaje"), (.mail, "correo"):
+                a.kind = "correo"; a.draft = true
+            case (.music, "musica"):
+                a.name = value
+            default: return nil
+            }
+            return a
+        }
+        if ["evento", "recordatorio"].contains(a.kind), t.split(separator: " ").count <= 7, var date = VoiceAgent.date(in: order) {
+            let days = ["hoy", "manana", "pasado", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo", "enero", "febrero",
+                        "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre", "semana"]
+            let saysDay = days.contains { t.contains($0) } && !t.contains("de la manana")
+            if let before = last.action.date, !saysDay {
+                let cal = Calendar.current
+                let time = cal.dateComponents([.hour, .minute], from: date)
+                date = cal.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: before) ?? date
+            }
+            // «a las 6» for a meeting means the evening, unless you say «de la mañana».
+            let hour = Calendar.current.component(.hour, from: date)
+            if (1...7).contains(hour), !t.contains("de la manana"), !t.contains(" am") {
+                date = date.addingTimeInterval(12 * 3600)
+            }
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "es_MX")
+            f.dateFormat = "d 'de' MMMM 'a las' H:mm"
+            a.kind = "evento"
+            a.when = f.string(from: date)
+            a.at = date
+            a.name = "corregir"
+            return a
+        }
+        if ["whatsapp", "mensaje", "correo"].contains(a.kind), VoiceAgent.date(in: order) == nil,
+           let m = try? NSRegularExpression(pattern: #"^(?:no|mejor|perdon|era)[, ]+(?:no )?(?:era |es |se lo mandes )?(?:para |a )(?:mi |el |la )?(.+)$"#)
+            .firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let r = Range(m.range(at: 1), in: t) {
+            a.to = t[r].split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+            return a
         }
         return nil
     }
@@ -306,6 +412,23 @@ enum Quick {
         guard let intent = intent(order) else { return false }
         let a = Assistant.shared
         switch intent {
+        case .pref(let key, let value):
+            Habits.set(key, value)
+            let what = ["messages": "los mensajes", "music": "la música", "mail": "los correos"][key.rawValue] ?? ""
+            a.finish(.done(symbol: "person.crop.circle.badge.checkmark", title: "Aprendido", detail: "\(what.capitalized) por \(Habits.name(value))", bundleID: nil),
+                     say: "Listo, de ahora en adelante \(what) por \(Habits.name(value)).", linger: 5)
+        case .person(let fact):
+            let said = Aliases.learn(fact)
+            a.finish(.done(symbol: "person.crop.circle.badge.checkmark", title: "Aprendido", detail: said, bundleID: nil), say: said, linger: 5)
+        case .correct(let fixed):
+            if let (key, value) = Habits.mentioned(in: order) { Habits.set(key, value) }
+            if fixed.name == "corregir", let old = VoiceAgent.last?.event {
+                a.step("arrow.uturn.backward", "Quitando el anterior…")
+                Hands.removeEvent(old)
+            }
+            var redo = fixed
+            if redo.name == "corregir" { redo.name = "" }
+            await Hands.perform(redo)
         case .skill(let skill):
             a.step("wand.and.stars", "Corriendo tu habilidad «\(skill.name)»…")
             await VoiceAgent.execute(skill.orders, context: .capture())
@@ -321,6 +444,8 @@ enum Quick {
             a.finish(.skills(saved: nil, all: Skills.all), say: removed ? "Listo, la quité." : "No encontré esa habilidad.")
         case .remember(let fact):
             a.step("brain", "Guardando en mi memoria…")
+            if let who = Aliases.fact(in: fact) { _ = Aliases.learn(who) }
+            if let (key, value) = preference(fact) { Habits.set(key, value) }
             Memory.remember(fact)
             a.finish(.memory(saved: Memory.facts.last, all: Memory.facts), say: "Listo, lo recordaré.")
         case .forget(let what):
@@ -374,19 +499,30 @@ enum Rules {
             && (pointing.contains { f.contains($0) } || f.split(separator: " ").count <= 3)
         if isEdit && clauses(order).count == 1 {
             var a = VoiceAgent.Action(kind: "transformar", order: order)
+            let rewrites = ["corrige", "corregi", "mejora", "reescrib", "parafrase", "simplifica", "hazlo", "formal", "mas corto", "mas largo",
+                            "amable", "profesional", "ortografia", "traduc"]
+            let rewriting = rewrites.contains { f.contains($0) }
+            let field = context.field.trimmingCharacters(in: .whitespacesAndNewlines)
             if !context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 a.text = context.selection
-                let rewrites = ["corrige", "corregi", "mejora", "reescrib", "parafrase", "simplifica", "hazlo", "formal", "mas corto", "mas largo",
-                                "amable", "profesional", "ortografia", "traduc"]
-                if context.editable && rewrites.contains(where: { f.contains($0) }) { a.name = "reemplazar" }
+                if context.editable && rewriting { a.name = "reemplazar" }
+            } else if ["copiado", "portapapeles", "copie"].contains(where: { f.contains($0) }), !context.clipboard.isEmpty {
+                a.text = context.clipboard
+            } else if Conversation.active && ["hazlo", "mas corto", "mas largo", "formal", "amable", "profesional"].contains(where: { f.contains($0) }) {
+                a.kind = "charla"
+                a.text = order
+            } else if context.editable, field.count >= 3 {
+                a.text = context.field
+                if rewriting { a.name = "reemplazar_todo" }
+            } else if context.inBrowser {
+                a.name = "pagina"
             } else if Conversation.active {
                 a.kind = "charla"
                 a.text = order
-            } else if ["copiado", "portapapeles", "copie"].contains(where: { f.contains($0) }), !context.clipboard.isEmpty {
+            } else if !context.clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 a.text = context.clipboard
             } else {
-                a.kind = "responder"
-                a.text = "Selecciona el texto (o cópialo) y vuelve a pedírmelo."
+                return nil
             }
             return [a]
         }
@@ -455,7 +591,8 @@ enum Rules {
             a.name = a.name.trimmingCharacters(in: CharacterSet(charactersIn: " ,.«»\"'"))
             return a
         }
-        if let message = message(o, f) { return message }
+        if let reply = reply(o, f, context: context) { return reply }
+        if let message = message(o, f, context: context) { return message }
         if ["organiza mi dia", "organizame el dia", "organiza mi semana", "organiza mi agenda", "planea mi dia", "planeame el dia", "como organizo mi dia",
             "ayudame a organizar mi dia"].contains(where: { f.hasPrefix($0) }) {
             a.kind = "organizar"; a.when = dateText(o) ?? ""; return a
@@ -463,7 +600,8 @@ enum Rules {
         if let r = rest(["reproduce", "ponme musica de", "pon musica de", "ponme musica", "pon musica", "ponme la cancion", "pon la cancion",
                          "ponme canciones de", "pon canciones de", "ponme una playlist de", "pon una playlist de"]) {
             a.kind = "musica"
-            a.text = r.replacingOccurrences(of: #"(?i)\s+en spotify$"#, with: "", options: .regularExpression)
+            a.text = r.replacingOccurrences(of: #"(?i)\s+(en|por|con) (spotify|youtube( music)?|apple music|la app de m[uú]sica)$"#, with: "",
+                                            options: .regularExpression)
             if f.hasPrefix("pon musica ") || f.hasPrefix("ponme musica ") { a.text = "música " + a.text }
             return a
         }
@@ -501,6 +639,11 @@ enum Rules {
             a.kind = "buscar_web"; a.text = r; return a
         }
         if let answer = smallTalk(f) { a.kind = "responder"; a.text = answer; return a }
+        let greetings = ["hola", "oye", "buenas", "buenos dias", "buenas tardes", "buenas noches", "gracias", "quien eres", "que eres",
+                         "que puedes hacer", "que sabes hacer", "como estas", "que tal"]
+        if VoiceAgent.available, greetings.contains(where: { f == $0 || f.hasPrefix($0 + " ") || f.hasPrefix($0 + ",") }) {
+            a.kind = "charla"; a.text = o; return a
+        }
         let talk = ["escribeme", "escribe", "redactame", "redacta", "dame ideas", "dame una idea", "dame consejos", "dame un consejo", "dame un plan",
                     "dame una lista", "ideas para", "explicame", "explica", "ayudame", "como puedo", "como hago", "como le hago", "que opinas",
                     "cuentame", "inventa", "hazme una lista", "haz una lista", "hazme un plan", "planea", "planeame", "sugiereme", "sugiere",
@@ -520,7 +663,23 @@ enum Rules {
     }
 
     /// «mándale un correo a Ana diciendo que llego tarde», «dile a mi mamá por WhatsApp que ya voy».
-    private static func message(_ o: String, _ f: String) -> VoiceAgent.Action? {
+    /// In WhatsApp, Slack or any chat: «respóndele que ya voy» or «dile que sí» writes it in the chat that's open.
+    private static func reply(_ o: String, _ f: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
+        let anywhere = ["respondele que", "contestale que", "responde que", "contesta que", "escribe que"]
+        let inChat = ["dile que", "ponle que", "escribele que", "preguntale si", "preguntale", "respondele", "contestale"]
+        let allowed = (context.editable ? anywhere : []) + (context.inMessenger ? anywhere + inChat : [])
+        guard let p = allowed.sorted(by: { $0.count > $1.count }).first(where: { f.hasPrefix($0 + " ") }) else { return nil }
+        var said = original(o, f, from: p.count + 1).trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
+        guard !said.isEmpty else { return nil }
+        said = capitalized(said)
+        if p.hasPrefix("preguntale") { said = "¿" + said.trimmingCharacters(in: CharacterSet(charactersIn: "¿?")) + "?" }
+        if let last = said.last, !".!?".contains(last) { said += "." }
+        var a = VoiceAgent.Action(kind: "escribir", order: o)
+        a.text = said
+        return a
+    }
+
+    private static func message(_ o: String, _ f: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
         let pattern = #"^(?:mandale|manda|mandame|enviale|envia|escribele|escribe|hazle)\s+(?:un|una)?\s*(correo|mail|email|e-mail|whatsapp|wasap|whats|guasap|mensajito|mensaje|msj|sms|imessage)\s+(?:por whatsapp\s+)?(?:a|para)\s+"#
         var kindWord = ""
         var restStart: Int?
@@ -546,10 +705,9 @@ enum Rules {
         var who = cut.map { String(restO.prefix($0.0)) } ?? restO
         var said = cut.map { original(restO, restF, from: $0.0 + $0.1.count) } ?? ""
         let viaWhatsApp = f.contains("whats") || f.contains("wasap") || f.contains("guasap")
-        for noise in [" por whatsapp", " por wasap", " por correo", " por mensaje", " por mail"] {
-            who = who.replacingOccurrences(of: noise, with: "", options: [.caseInsensitive, .diacriticInsensitive])
-            said = said.replacingOccurrences(of: noise, with: "", options: [.caseInsensitive, .diacriticInsensitive])
-        }
+        let noise = #"(?i)\s+(por|en|con|via)\s+(whatsapp|wasap|guasap|correo|mensaje|mail|gmail|imessage|sms|telegram)\b"#
+        who = who.replacingOccurrences(of: noise, with: "", options: .regularExpression)
+        said = said.replacingOccurrences(of: noise, with: "", options: .regularExpression)
         who = who.replacingOccurrences(of: #"(?i)^(a\s+)?(mi|mis)\s+"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
         guard !who.isEmpty else { return nil }
         said = said.trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
@@ -570,7 +728,21 @@ enum Rules {
         case "sms", "imessage":
             a.kind = "mensaje"
         default:
-            a.kind = viaWhatsApp || VoiceCommand.findApp("WhatsApp") != nil ? "whatsapp" : "mensaje"
+            if viaWhatsApp {
+                a.kind = "whatsapp"
+            } else if case (.mail, _)? = Habits.mentioned(in: o) {
+                a.kind = "correo"; a.draft = true
+            } else if case (.messages, let app)? = Habits.mentioned(in: o) {
+                a.kind = app == "whatsapp" ? "whatsapp" : "mensaje"
+            } else if context.bundleID.lowercased().contains("whatsapp") {
+                a.kind = "whatsapp"
+            } else if context.bundleID == "com.apple.MobileSMS" {
+                a.kind = "mensaje"
+            } else if let learned = Habits.get(.messages) {
+                a.kind = learned == "whatsapp" ? "whatsapp" : "mensaje"
+            } else {
+                a.kind = VoiceCommand.findApp("WhatsApp") != nil ? "whatsapp" : "mensaje"
+            }
         }
         return a
     }
@@ -615,6 +787,7 @@ enum Rules {
         if t.hasPrefix("que dia es") || t.hasPrefix("a que estamos") || t.hasPrefix("que fecha es") {
             time.dateFormat = "EEEE d 'de' MMMM"; return "Hoy es \(time.string(from: Date()))."
         }
+        guard !VoiceAgent.available else { return nil }
         if ["hola", "oye", "buenas", "buenos dias", "buenas tardes", "buenas noches"].contains(t) { return "¡Hola! ¿En qué te ayudo?" }
         if t.hasPrefix("gracias") { return "¡De nada!" }
         if t.hasPrefix("quien eres") || t.hasPrefix("que eres") || t.hasPrefix("que puedes hacer") {
@@ -833,6 +1006,14 @@ private enum Brain {
 
     private static var chatSession: (session: LanguageModelSession, at: Date)?
 
+    /// People and choices it has learned, so it doesn't ask again.
+    private static func learned() -> String {
+        let people = Aliases.all.compactMap { who, w in w.name.map { "- \(who): \($0)" } }.prefix(15)
+        let prefs = [Habits.Key.messages, .music, .mail].compactMap { k in Habits.get(k).map { "- \(k.rawValue): \(Habits.name($0))" } }
+        return (people.isEmpty ? "" : "\nPersonas:\n" + people.joined(separator: "\n"))
+            + (prefs.isEmpty ? "" : "\nPrefiere:\n" + prefs.joined(separator: "\n"))
+    }
+
     private static func chatInstructions() -> String {
         let facts = Memory.facts.suffix(25).map { "- \($0)" }.joined(separator: "\n")
         let f = DateFormatter()
@@ -844,9 +1025,12 @@ private enum Brain {
         ideas o explicación, entrégalo bien organizado con «- » para listas, en menos de 120 palabras salvo que pida algo largo. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. \
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
-        Hoy es \(f.string(from: Date())).
+        Si pregunta qué sabes hacer: abrir apps y páginas, buscar en la web, dejar listos WhatsApps y correos, agendar en su calendario, \
+        recordatorios, notas, crear y mejorar documentos, resumir o corregir lo que tenga seleccionado o la página abierta, \
+        rutinas que él crea diciendo «cuando diga X, haz Y», y recordar lo que te cuente. No prometas nada más.
+        Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
         Lo que sabes del usuario:
-        \(facts.isEmpty ? "- (nada todavía)" : facts)
+        \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
         """
     }
 
@@ -941,6 +1125,18 @@ enum Hands {
     private static var a: Assistant { .shared }
 
     static func perform(_ s: VoiceAgent.Action) async {
+        if let (key, value) = Habits.mentioned(in: s.order) {
+            let fits: [Habits.Key: Set<String>] = [.messages: ["whatsapp", "mensaje"], .music: ["musica"], .mail: ["correo"]]
+            if fits[key]?.contains(s.kind) == true { Habits.set(key, value) }
+        }
+        await act(s)
+        guard ["correo", "whatsapp", "mensaje", "musica", "evento", "recordatorio"].contains(s.kind), a.phase != .failed else { return }
+        var event: String?
+        if case .event(let e) = a.card { event = e.id }
+        VoiceAgent.last = (s, Date(), event)
+    }
+
+    private static func act(_ s: VoiceAgent.Action) async {
         switch s.kind {
         case "correo":
             var to = s.to
@@ -958,10 +1154,19 @@ enum Hands {
                 (subject, body) = Rules.mail(to: name.contains("@") ? "" : name, saying: s.text)
                 #if canImport(FoundationModels)
                 if #available(macOS 26, *), VoiceAgent.available, !s.text.isEmpty,
-                   let better = await Brain.compose(to: name.contains("@") ? "" : name, saying: s.text, within: 7) {
+                   let better = await Brain.compose(to: name.contains("@") ? "" : name, saying: s.text, within: 25) {
                     (subject, body) = better
                 }
                 #endif
+            }
+            if Habits.get(.mail) == "gmail" {
+                var c = URLComponents(string: "https://mail.google.com/mail/")!
+                c.queryItems = [URLQueryItem(name: "view", value: "cm"), URLQueryItem(name: "fs", value: "1"),
+                                URLQueryItem(name: "to", value: to.contains("@") ? to : ""), URLQueryItem(name: "su", value: subject),
+                                URLQueryItem(name: "body", value: body)]
+                guard let url = c.url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir Gmail") }
+                return a.finish(.draft(app: "Gmail", bundleID: "", to: to, subject: subject, body: body),
+                                say: "Listo, tu correo está abierto en Gmail para que lo envíes.", linger: 12)
             }
             let script = """
             tell application "Mail"
@@ -1040,7 +1245,8 @@ enum Hands {
                 a.fail("No encontré el atajo «\(s.name)»")
             }
         case "escribir":
-            guard VoiceKey.focusedIsText() else {
+            let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+            guard VoiceKey.focusedIsText() || VoiceAgent.Context.messengers.contains(front) else {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(s.text, forType: .string)
                 return a.finish(.answer(s.text), say: "Te lo dejé copiado.", linger: max(10, min(30, Double(s.text.count) / 10)))
@@ -1049,21 +1255,38 @@ enum Hands {
             VoiceKey.type(s.text)
             a.finish(nil, linger: 1.5)
         case "musica":
-            let spotify = VoiceCommand.findApp("Spotify") != nil
-            a.step("music.note", spotify ? "Buscando «\(s.text)» en Spotify…" : "Buscando «\(s.text)» en YouTube…")
+            let said = Habits.mentioned(in: s.order).flatMap { $0.0 == .music ? $0.1 : nil }
+            let app = [s.name, said, Habits.get(.music)].compactMap { $0 }.first { !$0.isEmpty }
+                ?? (VoiceCommand.findApp("Spotify") != nil ? "spotify" : "youtube")
             let q = s.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s.text
-            let url = URL(string: spotify ? "spotify:search:\(q)" : "https://music.youtube.com/search?q=\(q)")
-            guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir la música") }
-            a.finish(.done(symbol: "music.note", title: spotify ? "Abrí Spotify" : "Abrí YouTube Music", detail: s.text,
-                           bundleID: spotify ? "com.spotify.client" : nil), say: "Listo, dale play.", linger: 4)
+            let url: URL?
+            switch app {
+            case "spotify": url = URL(string: "spotify:search:\(q)")
+            case "applemusic": url = URL(string: "music://music.apple.com/search?term=\(q)")
+            default: url = URL(string: "https://music.youtube.com/search?q=\(q)")
+            }
+            a.step("music.note", "Buscando «\(s.text)» en \(Habits.name(app))…")
+            guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir \(Habits.name(app))") }
+            let bundle = ["spotify": "com.spotify.client", "applemusic": "com.apple.Music"][app]
+            a.finish(.done(symbol: "music.note", title: "Abrí \(Habits.name(app))", detail: s.text, bundleID: bundle),
+                     say: "Listo, está en \(Habits.name(app)).", linger: 4)
         case "transformar":
             #if canImport(FoundationModels)
             if #available(macOS 26, *), VoiceAgent.available {
-                let replace = s.name == "reemplazar"
-                a.step("text.viewfinder", replace ? "Reescribiendo lo que seleccionaste…" : "Leyendo lo que seleccionaste…")
-                let answer = (try? await Brain.transform(s.order, text: s.text, onPartial: replace ? nil : { a.stream($0) })) ?? ""
+                let replace = s.name == "reemplazar" || s.name == "reemplazar_todo"
+                var text = s.text
+                if s.name == "pagina" {
+                    a.step("safari", "Leyendo la página que tienes abierta…")
+                    guard let page = await Page.current() else { return a.fail("No pude leer esa página; selecciona el texto y pídemelo otra vez") }
+                    a.step("text.viewfinder", "Leyendo «\(page.title)»…")
+                    text = page.text
+                } else {
+                    a.step("text.viewfinder", replace ? "Reescribiendo tu texto…" : s.name.isEmpty && s.text.count > 0 ? "Leyendo tu texto…" : "Leyendo…")
+                }
+                let answer = (try? await Brain.transform(s.order, text: text, onPartial: replace ? nil : { a.stream($0) })) ?? ""
                 guard !answer.isEmpty else { return a.fail("No pude con ese texto") }
                 if replace {
+                    if s.name == "reemplazar_todo" { VoiceKey.selectAllInField() }
                     VoiceKey.type(Documents.plain(answer))
                     return a.finish(.done(symbol: "text.badge.checkmark", title: "Listo, lo reemplacé", detail: "⌘Z para deshacer", bundleID: nil),
                                     say: "Listo.", linger: 4)
@@ -1291,11 +1514,16 @@ enum Hands {
         a.finish(.event(event), say: "Listo, agendé \(e.title ?? "el evento") el \(f.string(from: start)).", linger: 14)
     }
 
+    static func removeEvent(_ id: String) {
+        let store = EKEventStore()
+        if let e = store.event(withIdentifier: id) { try? store.remove(e, span: .thisEvent) }
+        if VoiceAgent.last?.event == id { VoiceAgent.last = nil }
+    }
+
     /// The «Deshacer» on the card of an event it just created.
     static func undoEvent(_ id: String?) {
         guard let id else { return }
-        let store = EKEventStore()
-        if let e = store.event(withIdentifier: id) { try? store.remove(e, span: .thisEvent) }
+        removeEvent(id)
         a.finish(.done(symbol: "arrow.uturn.backward", title: "Lo quité del calendario", detail: "", bundleID: nil), linger: 3)
     }
 

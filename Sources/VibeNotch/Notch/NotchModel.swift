@@ -3,11 +3,12 @@ import SwiftUI
 enum NotchState { case closed, peek, open }
 
 enum NotchTab: String, CaseIterable {
-    case agents, shelf, clipboard, search, today, tools
+    case agents, jarvis, shelf, clipboard, search, today, tools
 
     var symbol: String {
         switch self {
         case .agents: "sparkles"
+        case .jarvis: "waveform.circle.fill"
         case .shelf: "tray.full.fill"
         case .clipboard: "doc.on.clipboard.fill"
         case .search: "magnifyingglass"
@@ -18,6 +19,7 @@ enum NotchTab: String, CaseIterable {
     var title: String {
         switch self {
         case .agents: "Agentes"
+        case .jarvis: "Jarvis"
         case .shelf: "Estante"
         case .clipboard: "Clips"
         case .search: "Buscar"

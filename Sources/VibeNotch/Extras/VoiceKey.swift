@@ -117,6 +117,26 @@ final class VoiceKey {
         }
     }
 
+    /// Selects everything in the focused field, so the next `type` replaces it; ⌘A when the app doesn't allow it.
+    static func selectAllInField() {
+        var focused: CFTypeRef?
+        if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+           let element = focused {
+            let field = element as! AXUIElement
+            var count: CFTypeRef?
+            AXUIElementCopyAttributeValue(field, kAXNumberOfCharactersAttribute as CFString, &count)
+            var range = CFRange(location: 0, length: (count as? Int) ?? 0)
+            if range.length > 0, let value = AXValueCreate(.cfRange, &range),
+               AXUIElementSetAttributeValue(field, kAXSelectedTextRangeAttribute as CFString, value) == .success { return }
+        }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: down)
+            e?.flags = .maskCommand
+            e?.post(tap: .cghidEventTap)
+        }
+    }
+
     static func focusedIsText() -> Bool {
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,

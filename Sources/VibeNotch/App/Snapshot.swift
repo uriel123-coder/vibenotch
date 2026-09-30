@@ -11,6 +11,10 @@ enum Snapshot {
         Task { @MainActor in
             let m = NotchModel.shared
             let prefix = m.hasNotch ? "notch" : "isla"
+            if let orders = ProcessInfo.processInfo.environment["VIBENOTCH_LIVE"] {
+                await liveShots(orders, prefix, panel, dir)
+                exit(0)
+            }
             let samples = makeSamples(in: dir.appendingPathComponent("samples"))
             seedDemo(samples)
 
@@ -385,6 +389,36 @@ enum Snapshot {
                ]))
         await shot("\(prefix)-12j-asistente-habilidad", panel, dir, height: 280)
         a.dismiss()
+    }
+
+    /// `VIBENOTCH_LIVE="orden|orden"`: real orders, really answered by the model, shot when each one finishes.
+    private static func liveShots(_ orders: String, _ prefix: String, _ panel: NSPanel, _ dir: URL) async {
+        let a = Assistant.shared
+        let settings = AppSettings.shared
+        let (speaks, talks) = (settings.assistantSpeaks, settings.assistantConversation)
+        settings.assistantSpeaks = false
+        settings.assistantConversation = false
+        VoiceAgent.prepare()
+        var report = ""
+        for (i, order) in orders.split(separator: "|").map(String.init).enumerated() {
+            let start = Date()
+            VoiceAgent.run(order)
+            try? await Task.sleep(for: .milliseconds(300))
+            while a.phase != .done && a.phase != .failed && Date().timeIntervalSince(start) < 120 {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            let took = Date().timeIntervalSince(start)
+            report += String(format: "«%@» → %@ en %.1f s\n%@\n\n", order, a.phase == .done ? "listo" : "falló", took,
+                             TaskLog.shared.entries.first?.result ?? a.status)
+            await shot("\(prefix)-live-\(i + 1)", panel, dir, height: min(560, a.height + 80))
+            a.dismiss()
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        NotchModel.shared.open(.jarvis)
+        await shot("\(prefix)-live-tareas", panel, dir, height: 420)
+        try? report.write(to: dir.appendingPathComponent("live.txt"), atomically: true, encoding: .utf8)
+        settings.assistantSpeaks = speaks
+        settings.assistantConversation = talks
     }
 
     /// Renders the panel at 2x over a wallpaper with a fake menu bar, cropped to the interesting part.
