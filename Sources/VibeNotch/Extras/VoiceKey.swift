@@ -117,6 +117,31 @@ final class VoiceKey {
         }
     }
 
+    /// What's selected in apps that don't share it (Chrome, Kindle, PDFs, Electron): a quick ⌘C, then your clipboard back as it was.
+    static func copySelection() async -> String {
+        guard AXIsProcessTrusted() else { return "" }
+        let pb = NSPasteboard.general
+        let before = pb.changeCount
+        let saved: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for t in item.types { if let data = item.data(forType: t) { copy.setData(data, forType: t) } }
+            return copy
+        }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: down)
+            e?.flags = .maskCommand
+            e?.post(tap: .cghidEventTap)
+        }
+        for _ in 0..<8 where pb.changeCount == before { try? await Task.sleep(for: .milliseconds(40)) }
+        guard pb.changeCount != before else { return "" }
+        let text = pb.string(forType: .string) ?? ""
+        pb.clearContents()
+        if !saved.isEmpty { pb.writeObjects(saved) }
+        ClipboardStore.shared.skipCurrentChange()
+        return text
+    }
+
     /// Selects everything in the focused field, so the next `type` replaces it; ⌘A when the app doesn't allow it.
     static func selectAllInField() {
         var focused: CFTypeRef?

@@ -75,8 +75,12 @@ enum VoiceAgent {
         // The same order again means the first try is stuck.
         if let running, fold(running.order) == fold(order) { running.task.cancel() }
         let id = assistant.begin(order)
-        let context = Context.capture()
+        var context = Context.capture()
         let task = Task { @MainActor in
+            if context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Context.aboutText(order),
+               context.bundleID != Bundle.main.bundleIdentifier {
+                context.selection = String(await VoiceKey.copySelection().prefix(10000))
+            }
             await Run.$id.withValue(id) {
                 if await Quick.handle(order) { return }
                 await execute(order, context: context)
@@ -132,6 +136,14 @@ enum VoiceAgent {
                                  "com.hnc.Discord", "com.facebook.archon", "desktop.WhatsApp"]
         static let browsers = ["com.apple.Safari", "com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser",
                                "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "com.operasoftware.Opera"]
+
+        /// The order is about some text you're looking at, so it's worth reaching for the selection.
+        @MainActor static func aboutText(_ order: String) -> Bool {
+            let f = " " + VoiceAgent.fold(order) + " "
+            let cues = ["texto", " esto ", " este ", " esta ", " eso ", "seleccion", "lo que dice", "parrafo", "entender", "entiendo", "explica",
+                        "resum", "traduc", "corrig", "corrige", "mejor", "significa", "analiza", "revisa", "ortografia", "reescrib"]
+            return cues.contains { f.contains($0) }
+        }
 
         var inMessenger: Bool { Context.messengers.contains(bundleID) }
         var inBrowser: Bool { Context.browsers.contains(bundleID) }
@@ -208,7 +220,10 @@ enum VoiceAgent {
             for var order in orders.split(separator: "|").map(String.init) {
                 // «[wa] …» pretends you're in a WhatsApp chat; «[msg] …» / «[cita] …» pretend it just did that, to test corrections.
                 var context = empty
-                if order.hasPrefix("[wa] ") {
+                if order.hasPrefix("[sel] ") {
+                    order = String(order.dropFirst(6))
+                    context.selection = "No era un vil traidor sino un vil bóger. Esa mañana hubiera dado todo lo que tenía por haber sido un adulto."
+                } else if order.hasPrefix("[wa] ") {
                     order = String(order.dropFirst(5)); context.bundleID = "net.whatsapp.WhatsApp"; context.editable = true
                 } else if order.hasPrefix("[msg] ") {
                     order = String(order.dropFirst(6))
@@ -235,23 +250,12 @@ enum VoiceAgent {
             if #available(macOS 26, *) {
                 print("Apple Intelligence:", SystemLanguageModel.default.availability, "· voz:", Voice.best?.name ?? "-")
                 guard available else { exit(1) }
-                let composeStart = Date()
-                let mail = await Brain.compose(to: "Ana López", saying: "Llego tarde a la junta.", within: 12)
-                print(String(format: "correo redactado (%.1f s) → %@", Date().timeIntervalSince(composeStart), mail.map { "\($0.subject) | \($0.body)" } ?? "-"))
-                let topic = "beneficios de dormir la siesta"
-                let found = await WebSearch.search(topic)
-                var pages: [(title: String, text: String)] = []
-                for hit in found.prefix(3) { pages.append((hit.title, await Page.read(hit.url, timeout: 8) ?? hit.snippet)) }
-                let researchStart = Date()
-                let report = (try? await Brain.research(topic, sources: pages) { _ in }) ?? "-"
-                print(String(format: "investigar (%d fuentes, %d leídas, %.1f s) → %@", found.count, pages.filter { $0.text.count > 300 }.count,
-                             Date().timeIntervalSince(researchStart), report))
-                let gameStart = Date()
-                for ask in ["hazme un juego de gatos que atrapan peces", "quiero un juego para dispararle a zombies"] {
-                    let g = try? await Brain.game(ask)
-                    print(String(format: "juego «%@» (%.1f s) → %@", ask, Date().timeIntervalSince(gameStart),
-                                 g.map { "\($0.mode) · \($0.title) · \($0.player) \($0.target) · \($0.color) · vel \($0.speed)" } ?? "-"))
-                }
+                let explainStart = Date()
+                let explained = (try? await Brain.transform("ayúdame a entender este texto", text: """
+                    No era un vil traidor sino un vil bóger. Esa mañana hubiera dado todo lo que tenía por haber sido un adulto, \
+                    porque los adultos no tienen que dar explicaciones cuando rompen algo.
+                    """)) ?? "-"
+                print(String(format: "explicar texto (%.1f s) → %@", Date().timeIntervalSince(explainStart), explained))
                 Conversation.call = true
                 for ask in ["Quiero armar una startup de comida saludable para oficinas en la Ciudad de México", "¿Cómo le cobraría a las empresas?",
                             "Me gusta lo de la suscripción, ¿qué necesito para empezar?"] {
@@ -280,10 +284,12 @@ enum VoiceAgent {
                         print("«\(order)» → error: \(error)")
                     }
                 }
-                let q = "¿quién es Kai Brokering?"
-                let hits = await WebSearch.search("Kai Brokering")
+                let q = "¿qué pasó en la Fórmula 1 el fin de semana?"
+                let hits = await WebSearch.search(q)
+                var read: [String] = []
+                for hit in hits.prefix(2) { if let t = await Page.read(hit.url, timeout: 6) { read.append(t) } }
                 let start = Date()
-                let answer = (try? await Brain.summarize(q, hits: hits)) ?? "-"
+                let answer = (try? await Brain.summarize(q, hits: hits, pages: read)) ?? "-"
                 print(String(format: "web «%@» %d resultados (%.1f s) → %@", q, hits.count, Date().timeIntervalSince(start), answer))
                 exit(0)
             }
@@ -666,15 +672,19 @@ enum Rules {
     static func plan(_ order: String, context: VoiceAgent.Context) -> [VoiceAgent.Action]? {
         let f = VoiceAgent.fold(order)
         let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica",
-                     "hazlo", "formal", "mas corto", "mas largo", "amable", "profesional", "ortografia"]
-        let pointing = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "portapapeles", "hazlo", "resumelo", "traducelo", "corrigelo",
+                     "hazlo", "formal", "mas corto", "mas largo", "amable", "profesional", "ortografia", "mejor", "entend", "entiend"]
+        let pointing = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "portapapeles", "hazlo", "texto", "parrafo", "resumelo", "traducelo", "corrigelo",
                         "mejoralo", "reescribelo", "explicalo", "simplificalo", "resumemelo", "explicamelo", "traducemelo"]
         let aboutFile = ["documento", "archivo", " doc ", "pdf", "word"].contains { (" " + f + " ").contains($0) }
-        let isEdit = edits.contains { f.contains($0) } && !aboutFile
-            && (pointing.contains { f.contains($0) } || f.split(separator: " ").count <= 3)
+        let selected = !context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let elsewhere = ["manda", "envia", "escribele", "dile ", "agenda", "abre ", "recuerdame", "busca en", "pon ", "whatsapp", "correo"]
+        let isEdit = (edits.contains { f.contains($0) } && !aboutFile
+            && (pointing.contains { f.contains($0) } || f.split(separator: " ").count <= 3))
+            // With text selected, anything about «este texto» is about that text.
+            || (selected && !aboutFile && VoiceAgent.Context.aboutText(order) && !elsewhere.contains { f.contains($0) })
         if isEdit && clauses(order).count == 1 {
             var a = VoiceAgent.Action(kind: "transformar", order: order)
-            let rewrites = ["corrige", "corregi", "mejora", "reescrib", "parafrase", "simplifica", "hazlo", "formal", "mas corto", "mas largo",
+            let rewrites = ["corrige", "corregi", "mejor", "reescrib", "parafrase", "simplifica", "hazlo", "formal", "mas corto", "mas largo",
                             "amable", "profesional", "ortografia", "traduc"]
             let rewriting = rewrites.contains { f.contains($0) }
             let field = context.field.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1091,7 +1101,7 @@ enum Conversation {
         didSet { if call, !oldValue { turns = []; topic = ""; at = Date() } }
     }
 
-    static var active: Bool { (call && Date().timeIntervalSince(at) < 1200) || (!turns.isEmpty && Date().timeIntervalSince(at) < 300) }
+    static var active: Bool { (call && Date().timeIntervalSince(at) < 1200) || (!turns.isEmpty && Date().timeIntervalSince(at) < 600) }
 
     static func record(_ question: String, _ answer: String, topic newTopic: String? = nil) {
         if !active { turns = []; topic = "" }
@@ -1160,7 +1170,7 @@ private enum Brain {
         let session = LanguageModelSession(instructions: instructions())
         session.prewarm()
         ready = (session, Date())
-        if chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 170 {
+        if chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 590 {
             let chat = LanguageModelSession(instructions: chatInstructions())
             chat.prewarm()
             chatSession = (chat, Date())
@@ -1249,21 +1259,29 @@ private enum Brain {
     }
 
     /// Answers a question from the search results, like a person who just read them.
-    static func summarize(_ question: String, hits: [Assistant.WebHit], onPartial: ((String) -> Void)? = nil) async throws -> String {
+    static func summarize(_ question: String, hits: [Assistant.WebHit], pages: [String] = [],
+                          onPartial: ((String) -> Void)? = nil) async throws -> String {
         let sources = hits.prefix(4).enumerated().map { "\($0.offset + 1). \($0.element.title): \($0.element.snippet)" }.joined(separator: "\n")
+        let read = pages.prefix(2).enumerated().map { "Página \($0.offset + 1):\n\($0.element.prefix(1400))" }.joined(separator: "\n\n")
         let session = LanguageModelSession(instructions: """
-        Respondes preguntas en español con 1 a 3 frases claras, usando solo los resultados de búsqueda que te dan. \
-        Si no está la respuesta, dilo en una frase. No menciones «los resultados».
+        Respondes preguntas en español como alguien que acaba de leer las noticias y se lo explica a un amigo. \
+        Usa solo la información que te dan. Primero la respuesta directa; luego lo importante: qué pasó, quiénes, \
+        por qué importa y cualquier dato concreto (cifras, fechas, resultados). Entre 3 y 6 frases, en lenguaje simple. \
+        Si la información no alcanza para responder, dilo y di lo que sí se sabe. No menciones «los resultados» ni «las páginas».
         """)
         let before = Conversation.active ? "Conversación reciente:\n\(Conversation.history)\n" : ""
-        return try await stream(session, "\(before)Pregunta: \(question)\nResultados:\n\(sources)", options: options, onPartial: onPartial)
+        return tidy(try await stream(session, "\(before)Pregunta: \(question)\nResultados:\n\(sources)\n\n\(read)",
+                                     options: GenerationOptions(temperature: 0.2, maximumResponseTokens: 380), onPartial: onPartial))
     }
 
     /// «resúmelo», «tradúcelo al inglés», «¿qué significa esto?» over the text you selected.
     static func transform(_ order: String, text: String, onPartial: ((String) -> Void)? = nil) async throws -> String {
         let session = LanguageModelSession(instructions: """
         Haces lo que el usuario pide con el texto que te da: resumir, traducir, explicar, corregir o mejorar. \
+        La orden viene de un dictado y puede tener errores («mejores de texto» = «mejora el texto»): entiende la intención. \
         Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. \
+        Si pide explicar o entender: di en lenguaje sencillo de qué trata, las ideas principales, lo que significa lo difícil \
+        y el contexto que ayude a entenderlo, en 4 a 8 frases o una lista corta. \
         Si pide corregir o mejorar, devuelve solo el texto nuevo completo, con el mismo sentido. Nunca uses marcadores como [nombre]. \
         Si el texto es un prompt para una IA y pide mejorarlo, reescríbelo como un prompt claro con: rol, objetivo, contexto, \
         pasos o requisitos, formato de respuesta y restricciones; conserva la intención y el idioma del original.
@@ -1289,12 +1307,14 @@ private enum Brain {
         f.dateFormat = "EEEE d 'de' MMMM 'de' yyyy, h:mm a"
         return """
         Eres Jarvis, el asistente personal del usuario en su Mac. Hablas español de México natural, cálido y directo, \
-        como el mejor asistente humano. Sé breve: si es plática o una pregunta, 1 o 2 frases. \
-        Si pide ideas, una lista o un plan: de 3 a 5 puntos, cada uno de una sola línea corta que empiece con «- », \
-        sin sub-puntos, sin negritas, sin títulos. Máximo 80 palabras en total salvo que pida explícitamente algo largo. \
+        como el mejor asistente humano: tu trabajo es ahorrarle trabajo y que de verdad entienda. \
+        Lo que te dice viene de un dictado y puede tener palabras mal escritas: entiende la intención, no la letra. \
+        Si es plática, 1 o 2 frases. Si pregunta algo o pide ayuda, explica lo necesario para que le sirva: \
+        la respuesta directa primero y luego el porqué, ejemplos o pasos concretos, en 3 a 6 frases claras (hasta 150 palabras). \
+        Si pide ideas, una lista o un plan: de 3 a 6 puntos que empiecen con «- », cada uno concreto y útil, sin negritas ni títulos. \
         Si pide «más corto», déjalo en la mitad. \
-        No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. \
-        No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
+        No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. No pongas trabas: haz lo que puedas con lo que tienes. \
+        No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase y sugiere que te pida buscarlo.
         Háblale de tú. Si te saluda, saluda en una frase y pregunta en qué le ayudas. \
         Si pregunta qué sabes hacer, contesta en 2 frases con 3 o 4 ejemplos, sin lista. Lo que sabes hacer en su Mac: abrir apps y páginas, \
         buscar en la web, investigar un tema con varias fuentes, mandar WhatsApps, mensajes y correos, agendar en su calendario, \
@@ -1309,7 +1329,8 @@ private enum Brain {
         Termina con una sola pregunta corta sobre su idea para entenderla mejor (no ofrezcas investigar). \
         Cuando el usuario diga que ya está, recuérdale que te puede pedir «haz un documento con esto» o «investiga eso».
         """ : "")
-        Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
+        Hoy es \(f.string(from: Date())). (Tiene abierta la app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "Finder"); \
+        menciónala solo si pregunta por ella. Tú no ves su pantalla.)
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
         """
@@ -1318,12 +1339,12 @@ private enum Brain {
     /// Talking: keeps the conversation for a few minutes and shows the answer as it's written.
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
         // Another order may still be talking on it; a session answers one thing at a time.
-        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > (Conversation.call ? 1200 : 180)
+        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > (Conversation.call ? 1200 : 600)
             || chatSession!.session.isResponding || chatCall != Conversation.call
         chatCall = Conversation.call
         let session = fresh ? LanguageModelSession(instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
             ? "\nConversación reciente:\n" + Conversation.history : "")) : chatSession!.session
-        let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 300)
+        let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 450)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
         do {
             let answer = try await stream(session, prompt, options: talk, onPartial: shown)
@@ -1872,10 +1893,17 @@ enum Hands {
         }
         #if canImport(FoundationModels)
         if #available(macOS 26, *), VoiceAgent.isQuestion(question), VoiceAgent.available {
-            a.step("text.magnifyingglass", "Leyendo \(min(hits.count, 4)) resultados…")
+            a.step("text.magnifyingglass", "Leyendo las primeras páginas…")
             a.preview(.web(answer: nil, hits: hits))
+            let pages = await withTaskGroup(of: (Int, String?).self) { group in
+                for (i, hit) in hits.prefix(2).enumerated() { group.addTask { (i, await Page.read(hit.url, timeout: 6)) } }
+                var out: [Int: String] = [:]
+                for await (i, text) in group { if let text { out[i] = text } }
+                return out.sorted { $0.key < $1.key }.map(\.value)
+            }
             let asked = Conversation.followsUp(question) ? "\(question) (sobre \(Conversation.topic))" : question
-            if let answer = try? await Brain.summarize(asked, hits: hits, onPartial: { a.preview(.web(answer: $0, hits: hits), streaming: true) }) {
+            if let answer = try? await Brain.summarize(asked, hits: hits, pages: pages,
+                                                       onPartial: { a.preview(.web(answer: $0, hits: hits), streaming: true) }) {
                 Conversation.record(question, answer, topic: Conversation.followsUp(question) ? nil : Conversation.subject(of: question))
                 return a.finish(.web(answer: answer, hits: hits), say: spoken(answer, fallback: "Esto encontré."), linger: 25, talk: true)
             }

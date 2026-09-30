@@ -24,6 +24,8 @@ final class Dictation: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
     private var endpoint: DispatchWorkItem?
+    private var committed = ""
+    private var segment = ""
 
     var active: Bool { phase != .idle }
 
@@ -122,6 +124,8 @@ final class Dictation: ObservableObject {
         }
         generation += 1
         let gen = generation
+        committed = ""
+        segment = ""
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
@@ -184,8 +188,15 @@ final class Dictation: ObservableObject {
     private func update(_ text: String?, final: Bool, failed: Bool, gen: Int) {
         guard gen == generation, phase == .recording || phase == .finishing else { return }
         if let text, !text.isEmpty {
-            transcript = text
-            if mode == .assistant && phase == .recording { stopAfterSilence(1.4) }
+            // On-device recognition starts over after a pause and reports only the new words: keep what came before.
+            if segment.count > 12, text.count < segment.count / 2 {
+                committed = (committed + " " + segment).trimmingCharacters(in: .whitespaces)
+            }
+            segment = text
+            transcript = (committed + " " + text).trimmingCharacters(in: .whitespaces)
+            // Room to think mid-sentence; a little more when it's barely started.
+            let words = transcript.split(separator: " ").count
+            if mode == .assistant && phase == .recording { stopAfterSilence(words < 4 ? 3 : 2.2) }
         }
         // Server recognition stops on its own after about a minute; keep what was said.
         if final || failed { save() }
