@@ -160,6 +160,7 @@ final class Assistant: ObservableObject {
 
     /// Text arriving from the model, word by word.
     func stream(_ text: String) {
+        guard !Task.isCancelled else { return }
         hideWork?.cancel()
         streaming = true
         wasStreamed = true
@@ -169,6 +170,7 @@ final class Assistant: ObservableObject {
 
     /// A visible step: "Buscando en la web…", "Abriendo Cursor…".
     func step(_ symbol: String, _ text: String) {
+        guard !Task.isCancelled else { return }
         hideWork?.cancel()
         for i in steps.indices { steps[i].finished = true }
         steps.append(Step(symbol: symbol, text: text))
@@ -179,6 +181,7 @@ final class Assistant: ObservableObject {
 
     /// Shows something useful while the work goes on, like the search results before the summary.
     func preview(_ card: Card, streaming: Bool = false) {
+        guard !Task.isCancelled else { return }
         self.streaming = streaming
         if streaming { wasStreamed = true }
         self.card = card
@@ -186,6 +189,8 @@ final class Assistant: ObservableObject {
 
     /// `talk`: it's a conversation (an answer, not an action), so it listens for a follow-up afterwards.
     func finish(_ card: Card?, say: String? = nil, linger: Double = 9, talk: Bool = false) {
+        // A newer order replaced this one: its late result must not land on the new one.
+        guard !Task.isCancelled else { return }
         for i in steps.indices { steps[i].finished = true }
         streaming = false
         self.card = card
@@ -212,6 +217,7 @@ final class Assistant: ObservableObject {
     }
 
     func fail(_ why: String) {
+        guard !Task.isCancelled else { return }
         for i in steps.indices { steps[i].finished = true }
         phase = .failed
         status = why
@@ -732,11 +738,27 @@ enum People {
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey,
                     CNContactPhoneNumbersKey] as [CNKeyDescriptor]
         return await Task.detached(priority: .userInitiated) { () -> Person? in
-            let matches = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: q), keysToFetch: keys)) ?? []
-            guard let c = matches.first else { return nil }
+            func fold(_ s: String) -> String {
+                s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+                    .filter { $0.isLetter || $0 == " " }.trimmingCharacters(in: .whitespaces)
+            }
+            var matches = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: q), keysToFetch: keys)) ?? []
+            if matches.isEmpty {
+                // «mamá» saved as «Mamá ❤️», «Mami» or «Mamá Laura».
+                let variants: [String: [String]] = ["mama": ["mami", "ma"], "papa": ["papi", "pa"], "abuela": ["abue", "abuelita"],
+                                                    "abuelo": ["abue", "abuelito"], "hermana": ["hermanita", "sis"], "hermano": ["hermanito", "bro"]]
+                let wanted = [fold(q)] + (variants[fold(q)] ?? [])
+                try? store.enumerateContacts(with: CNContactFetchRequest(keysToFetch: keys)) { c, _ in
+                    let full = fold([c.givenName, c.familyName, c.nickname].joined(separator: " "))
+                    let words = full.split(separator: " ").map(String.init)
+                    if wanted.contains(where: { w in words.contains(w) || (w.count > 3 && full.hasPrefix(w)) }) { matches.append(c) }
+                }
+            }
+            guard let c = matches.first(where: { !$0.phoneNumbers.isEmpty }) ?? matches.first else { return nil }
             let name = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
-            return Person(name: name, email: c.emailAddresses.first.map { String($0.value) },
-                          phone: c.phoneNumbers.first?.value.stringValue)
+            let mobile = c.phoneNumbers.first { [CNLabelPhoneNumberMobile, CNLabelPhoneNumberiPhone].contains($0.label ?? "") } ?? c.phoneNumbers.first
+            return Person(name: name.isEmpty ? q : name, email: c.emailAddresses.first.map { String($0.value) },
+                          phone: mobile?.value.stringValue)
         }.value
     }
 }

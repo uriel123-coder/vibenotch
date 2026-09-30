@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import EventKit
 #if canImport(FoundationModels)
 import FoundationModels
@@ -14,6 +15,8 @@ enum VoiceAgent {
 
     /// The last thing it did that you might correct with «no, por WhatsApp» or «mejor a las 6».
     static var last: (action: Action, at: Date, event: String?)?
+    /// The last message is written in its chat but not sent yet: «envíalo» sends it.
+    static var unsent = false
 
     /// The order without its wake word, or nil when the phrase isn't meant for the agent.
     static func order(in text: String) -> String? {
@@ -52,11 +55,18 @@ enum VoiceAgent {
         #endif
     }
 
+    private static var running: Task<Void, Never>?
+
     static func run(_ order: String) {
+        running?.cancel()
         let assistant = Assistant.shared
+        // Just «Jarvis» or «oye»: you're calling it, not asking for something yet.
+        if wakeWords.contains(fold(order).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))) {
+            return VoiceKey.listen(.assistant)
+        }
         assistant.begin(order)
         let context = Context.capture()
-        Task { @MainActor in
+        running = Task { @MainActor in
             if await Quick.handle(order) { return }
             await execute(order, context: context)
         }
@@ -214,6 +224,11 @@ enum VoiceAgent {
                 let composeStart = Date()
                 let mail = await Brain.compose(to: "Ana López", saying: "Llego tarde a la junta.", within: 12)
                 print(String(format: "correo redactado (%.1f s) → %@", Date().timeIntervalSince(composeStart), mail.map { "\($0.subject) | \($0.body)" } ?? "-"))
+                for said in ["Me llame.", "Hola sirve el noche.", "Si ya llegó a la casa.", "Ya voy en camino llego en 10 minutos."] {
+                    let t = Date()
+                    let out = await Brain.message(said, to: "mamá", within: 20) ?? "-"
+                    print(String(format: "mensaje «%@» (%.1f s) → %@", said, Date().timeIntervalSince(t), out))
+                }
                 for ask in ["Dame 3 ideas para un video de lanzamiento de una app", "hazlo más corto"] {
                     let t = Date()
                     var first: Double?
@@ -260,9 +275,10 @@ enum Quick {
     enum Intent: CustomStringConvertible {
         case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
-        case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action)
+        case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
         var description: String {
             switch self {
+            case .send: "enviar el mensaje que quedó escrito"
             case .pref(let k, let v): "preferencia \(k.rawValue) = \(v)"
             case .person(let f): "persona «\(f.who)» \(f.kind) = \(f.value)"
             case .correct(let a): "corregir → \(a.kind) to=\(a.to) text=\(a.text) when=\(a.when) name=\(a.name)"
@@ -291,6 +307,11 @@ enum Quick {
             return nil
         }
         if let skill = Skills.match(order) { return .skill(skill) }
+        let sendWords = ["envialo", "mandalo", "enviar", "envia", "mandar", "manda", "enviaselo", "mandaselo", "dale enviar", "si envialo",
+                         "si mandalo", "ya envialo", "ya mandalo", "envialo ya", "mandalo ya", "si enviar", "envia el mensaje", "manda el mensaje",
+                         "envialo por favor", "mandalo por favor", "hazlo", "si hazlo", "dale"]
+        if sendWords.contains(t), VoiceAgent.unsent, let last = VoiceAgent.last, ["whatsapp", "mensaje"].contains(last.action.kind),
+           Date().timeIntervalSince(last.at) < 600 { return .send }
         if let fixed = correction(order) { return .correct(fixed) }
         if let (key, value) = preference(order) { return .pref(key, value) }
         if let fact = Aliases.fact(in: order) { return .person(fact) }
@@ -416,6 +437,23 @@ enum Quick {
         guard let intent = intent(order) else { return false }
         let a = Assistant.shared
         switch intent {
+        case .send:
+            guard let last = VoiceAgent.last else { return true }
+            let family = last.action.kind == "whatsapp" ? "whatsapp" : "com.apple.mobilesms"
+            let running = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier?.lowercased().contains(family) == true }
+            guard let running else {
+                a.fail("\(last.action.kind == "whatsapp" ? "WhatsApp" : "Mensajes") ya no está abierto")
+                return true
+            }
+            a.step("paperplane", "Enviándolo…")
+            running.activate()
+            if await Hands.pressSend(in: running.bundleIdentifier ?? family) {
+                VoiceAgent.unsent = false
+                a.finish(.done(symbol: "checkmark.message.fill", title: "Enviado", detail: last.action.text, bundleID: running.bundleIdentifier),
+                         say: "Listo, enviado.", linger: 4)
+            } else {
+                a.fail("No pude enviarlo; activa VibeNotch en Accesibilidad")
+            }
         case .pref(let key, let value):
             Habits.set(key, value)
             let what = ["messages": "los mensajes", "music": "la música", "mail": "los correos"][key.rawValue] ?? ""
@@ -686,6 +724,16 @@ enum Rules {
         return a
     }
 
+    /// How many of the first words are someone's name: a contact, someone it learned, or else just the first word.
+    private static func nameLength(_ words: [String]) -> Int {
+        let known = (People.names + Array(Aliases.all.keys)).map(VoiceAgent.fold)
+        for n in stride(from: min(4, words.count - 1), through: 2, by: -1) {
+            let candidate = VoiceAgent.fold(words.prefix(n).joined(separator: " "))
+            if known.contains(where: { $0 == candidate || $0.hasPrefix(candidate + " ") }) { return n }
+        }
+        return 1
+    }
+
     private static func message(_ o: String, _ f: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
         let pattern = #"^(?:mandale|manda|mandame|enviale|envia|escribele|escribe|hazle)\s+(?:un|una)?\s*(correo|mail|email|e-mail|whatsapp|wasap|whats|guasap|mensajito|mensaje|msj|sms|imessage)\s+(?:por whatsapp\s+)?(?:a|para)\s+"#
         var kindWord = ""
@@ -698,10 +746,15 @@ enum Rules {
             restStart = f.hasPrefix("dile a ") ? 7 : f.hasPrefix("avisale a ") ? 10 : 12
         }
         guard let start = restStart else { return nil }
-        let restF = String(f.dropFirst(start))
-        let restO = original(o, f, from: start)
+        let via = #"(?i)\s+(por|en|con|v[ií]a|desde|de)\s+(whatsapp|wasap|guasap|correo|mensaje|mail|gmail|imessage|sms|telegram)\b"#
+        var restF = String(f.dropFirst(start)).replacingOccurrences(of: via, with: "", options: .regularExpression)
+        var restO = original(o, f, from: start).replacingOccurrences(of: via, with: "", options: .regularExpression)
+        restF = " " + restF + " "
+        restO = " " + restO + " "
         let separators = [" diciendole que ", " diciendo que ", " diciendole ", " diciendo ", " que diga que ", " que diga ", " para decirle que ",
-                          " para decirle ", " preguntandole si ", " preguntandole ", " preguntando si ", " preguntando ", " de que ", " sobre ", " que "]
+                          " para decirle ", " preguntandole si ", " preguntandole ", " preguntando si ", " preguntando ", " de que ", " sobre ",
+                          " y dile que ", " y dile ", " dile que ", " dile ", " y preguntale si ", " preguntale si ", " preguntale ", " que ",
+                          ", ", ": "]
         var cut: (Int, String)?
         for s in separators {
             if let r = restF.range(of: s) {
@@ -715,8 +768,21 @@ enum Rules {
         let noise = #"(?i)\s+(por|en|con|via)\s+(whatsapp|wasap|guasap|correo|mensaje|mail|gmail|imessage|sms|telegram)\b"#
         who = who.replacingOccurrences(of: noise, with: "", options: .regularExpression)
         said = said.replacingOccurrences(of: noise, with: "", options: .regularExpression)
-        who = who.replacingOccurrences(of: #"(?i)^(a\s+)?(mi|mis)\s+"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        who = who.replacingOccurrences(of: #"(?i)^\s*(a\s+)?(mi|mis)\s+"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
         guard !who.isEmpty else { return nil }
+        // «dile a mamá hola, ¿vienes en la noche?»: no «que» in between, so the name is only the words that are a name.
+        let words = who.split(separator: " ").map(String.init)
+        if cut == nil, words.count > 1 {
+            let n = nameLength(words)
+            said = words.dropFirst(n).joined(separator: " ")
+            who = words.prefix(n).joined(separator: " ")
+        } else if let c = cut, [", ", ": "].contains(c.1), VoiceAgent.fold(said).hasPrefix("que ") {
+            said = String(said.dropFirst(4))
+        } else if let c = cut, [", ", ": "].contains(c.1), words.count > 1 {
+            let n = nameLength(words)
+            said = words.dropFirst(n).joined(separator: " ") + ", " + said
+            who = words.prefix(n).joined(separator: " ")
+        }
         said = said.trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
         if !said.isEmpty {
             var asks = cut.map { $0.1.contains("pregunt") } ?? false || f.hasPrefix("preguntale")
@@ -848,7 +914,8 @@ enum Rules {
 
     private static func capitalized(_ s: String) -> String {
         let t = s.trimmingCharacters(in: .whitespaces)
-        return t.prefix(1).uppercased() + t.dropFirst()
+        guard let i = t.firstIndex(where: \.isLetter) else { return t }
+        return t[..<i] + t[i...].prefix(1).uppercased() + t[t.index(after: i)...]
     }
 
     /// A clean, friendly email from what you said, so it's ready even without the model.
@@ -1138,6 +1205,32 @@ private enum Brain {
         return (subject, body)
     }
 
+    /// «que me llame» → «¿Me puedes llamar cuando puedas?»: what you said about the message, turned into the message itself.
+    static func message(_ said: String, to name: String, within seconds: Double) async -> String? {
+        let box = RaceBox()
+        let raw: String? = await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+            box.continuation = c
+            Task { @MainActor in
+                let session = LanguageModelSession(instructions: """
+                Conviertes lo que el usuario dictó en el mensaje exacto que se le manda a otra persona por WhatsApp. \
+                Escríbelo en primera persona, como lo escribiría el usuario, hablándole de tú a esa persona. \
+                Cambia lo mínimo: corrige errores de dictado, puntuación y pasa lo indirecto a directo \
+                («que me llame» → «Llámame cuando puedas», «si ya llegó» → «¿Ya llegaste?»). \
+                No agregues saludos, datos ni emojis que no dijo. Responde solo con el mensaje, en una o dos frases.
+                """)
+                let text = try? await session.respond(to: "Para: \(name)\nDictado: \(said)", options: options).content
+                box.resume(text)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                box.resume(nil)
+            }
+        }
+        let out = raw?.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"«»"))
+        guard let out, !out.isEmpty, out.count < max(160, said.count * 3), !out.contains("\n\n") else { return nil }
+        return out
+    }
+
     @MainActor private final class RaceBox {
         var continuation: CheckedContinuation<String?, Never>?
         func resume(_ value: String?) {
@@ -1225,30 +1318,7 @@ enum Hands {
                 a.finish(.memory(saved: Memory.facts.last, all: Memory.facts), say: "Lo anoté.")
             }
         case "whatsapp", "mensaje":
-            var to = s.to
-            if !to.isEmpty && to.filter(\.isNumber).count < 8 && !to.contains("@") {
-                a.step("person.crop.circle", "Buscando a \(to) en Contactos…")
-                if let p = await People.find(to) { to = (s.kind == "mensaje" ? (p.phone ?? p.email) : p.phone) ?? to }
-            }
-            let whatsapp = s.kind == "whatsapp"
-            a.step(whatsapp ? "message" : "message.fill", "Preparando el mensaje…")
-            let digits = to.filter(\.isNumber)
-            let url: URL?
-            if whatsapp {
-                var c = URLComponents(string: "whatsapp://send")!
-                c.queryItems = [URLQueryItem(name: "text", value: s.text)] + (digits.count >= 8 ? [URLQueryItem(name: "phone", value: digits)] : [])
-                url = c.url
-            } else {
-                var c = URLComponents()
-                c.scheme = "sms"
-                c.path = to
-                c.queryItems = [URLQueryItem(name: "body", value: s.text)]
-                url = c.url
-            }
-            guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir \(whatsapp ? "WhatsApp" : "Mensajes")") }
-            a.finish(.draft(app: whatsapp ? "WhatsApp" : "Mensajes", bundleID: whatsapp ? "net.whatsapp.WhatsApp" : "com.apple.MobileSMS",
-                            to: to, subject: "", body: s.text),
-                     say: whatsapp && digits.count < 8 ? "Listo, elige el chat y envíalo." : "Listo, el mensaje está listo para enviar.", linger: 10)
+            await sendMessage(s)
         case "abrir_app":
             guard let app = VoiceCommand.findApp(s.name.isEmpty ? s.text : s.name) else { return a.fail("No encontré la app «\(s.name)»") }
             let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
@@ -1566,6 +1636,100 @@ enum Hands {
             if !search.hits.isEmpty && !search.searching { break }
         }
         return search.hits.prefix(6).map(\.url)
+    }
+
+    /// Finds the person, opens their chat with the message and sends it. Without their number it leaves it ready and says why.
+    private static func sendMessage(_ s: VoiceAgent.Action) async {
+        VoiceAgent.unsent = false
+        let whatsapp = s.kind == "whatsapp"
+        var name = s.to
+        var phone: String? = s.to.filter(\.isNumber).count >= 8 ? s.to : nil
+        var email: String? = s.to.contains("@") ? s.to : nil
+        if phone == nil, email == nil, !s.to.isEmpty {
+            a.step("person.crop.circle", "Buscando a \(s.to) en tus contactos…")
+            if let p = await People.find(s.to) {
+                name = p.name
+                phone = p.phone
+                email = p.email
+            }
+        }
+        if name.isEmpty { name = "esa persona" }
+        guard !s.text.isEmpty else { return a.fail("¿Qué le digo a \(name)? Dime «dile a \(name) que …»") }
+        var s = s
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), VoiceAgent.available, s.text.split(separator: " ").count > 1 {
+            a.step("text.bubble", "Escribiendo el mensaje…")
+            if let better = await Brain.message(s.text, to: name, within: 12) { s.text = better }
+        }
+        #endif
+        let auto = AppSettings.shared.assistantAutoSend
+        let app = whatsapp ? "WhatsApp" : "Mensajes"
+        let bundle = whatsapp ? "net.whatsapp.WhatsApp" : "com.apple.MobileSMS"
+        let sent = Assistant.Card.done(symbol: "checkmark.message.fill", title: "Le mandé el mensaje a \(name) por \(app)", detail: s.text, bundleID: bundle)
+
+        if !whatsapp, auto, let handle = phone ?? email {
+            a.step("message.fill", "Mandándole el mensaje a \(name)…")
+            let script = """
+            tell application "Messages"
+                set s to first account whose service type = iMessage
+                send \(quote(s.text)) to participant \(quote(handle)) of s
+            end tell
+            """
+            var error: NSDictionary?
+            NSAppleScript(source: script)?.executeAndReturnError(&error)
+            if error == nil { return a.finish(sent, say: "Listo, le mandé el mensaje a \(name).", linger: 5) }
+        }
+
+        let number = phone.map(international) ?? ""
+        let url: URL?
+        if whatsapp {
+            var c = URLComponents(string: "whatsapp://send")!
+            c.queryItems = [URLQueryItem(name: "text", value: s.text)] + (number.count >= 10 ? [URLQueryItem(name: "phone", value: number)] : [])
+            url = c.url
+        } else {
+            var c = URLComponents()
+            c.scheme = "sms"
+            c.path = phone ?? email ?? ""
+            c.queryItems = [URLQueryItem(name: "body", value: s.text)]
+            url = c.url
+        }
+        a.step(whatsapp ? "message" : "message.fill", number.isEmpty && whatsapp ? "Abriendo WhatsApp…" : "Abriendo el chat de \(name)…")
+        guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir \(app)") }
+        let draft = Assistant.Card.draft(app: app, bundleID: bundle, to: name, subject: "", body: s.text)
+        guard whatsapp ? number.count >= 10 : (phone ?? email) != nil else {
+            return a.finish(draft, say: "No tengo el número de \(name). Elige su chat en \(app). Si me dices «el número de \(name) es…», la próxima vez lo mando directo.",
+                            linger: 14)
+        }
+        if auto, await pressSend(in: bundle) { return a.finish(sent, say: "Listo, le mandé el mensaje a \(name).", linger: 5) }
+        VoiceAgent.unsent = true
+        a.finish(draft, say: "Está escrito en el chat de \(name). Di «envíalo» y lo mando.", linger: 12)
+    }
+
+    /// Waits for the chat to be in front with the message in its box, then presses Return.
+    static func pressSend(in bundle: String) async -> Bool {
+        let family = bundle.lowercased().contains("whatsapp") ? "whatsapp" : bundle.lowercased()
+        func inFront() -> Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.lowercased().contains(family) == true }
+        let start = Date()
+        while !inFront(), Date().timeIntervalSince(start) < 8 { try? await Task.sleep(for: .milliseconds(200)) }
+        guard inFront(), AXIsProcessTrusted() else { return false }
+        try? await Task.sleep(for: .milliseconds(1600))
+        guard inFront(), !Task.isCancelled else { return false }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for down in [true, false] {
+            CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: down)?.post(tap: .cghidEventTap)
+        }
+        return true
+    }
+
+    /// WhatsApp needs the country code: «55 1234 5678» in Mexico is 525512345678.
+    private static func international(_ phone: String) -> String {
+        let digits = phone.filter(\.isNumber)
+        if phone.trimmingCharacters(in: .whitespaces).hasPrefix("+") { return digits }
+        if digits.hasPrefix("00") { return String(digits.dropFirst(2)) }
+        let plans: [String: (code: String, length: Int)] = ["MX": ("52", 10), "US": ("1", 10), "ES": ("34", 9), "AR": ("54", 10),
+                                                            "CO": ("57", 10), "CL": ("56", 9), "PE": ("51", 9)]
+        let plan = plans[Locale.current.region?.identifier ?? "MX"] ?? plans["MX"]!
+        return digits.count == plan.length ? plan.code + digits : digits
     }
 
     private static func runAppleScript(_ source: String) -> Bool {

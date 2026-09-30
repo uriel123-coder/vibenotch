@@ -478,6 +478,7 @@ private struct ExtrasPage: View {
                 LabeledContent("Asistente", value: "⌃⌥J")
                 Toggle("El asistente responde en voz alta", isOn: $s.assistantSpeaks)
                 Toggle("Seguir la conversación (escucha unos segundos después de responder)", isOn: $s.assistantConversation)
+                Toggle("Enviar los mensajes directamente (WhatsApp y Mensajes)", isOn: $s.assistantAutoSend)
                 TextField("Palabras que uso", text: $s.voiceWords, prompt: Text("Apellidos, nombres, marcas: Nakamura, Lynqin, Palmier…"))
                 LabeledContent("Nota de voz", value: "⌃⌥D")
                 LabeledContent("Dónde se procesa") {

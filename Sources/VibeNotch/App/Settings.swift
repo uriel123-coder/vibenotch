@@ -84,6 +84,7 @@ final class AppSettings: ObservableObject {
     @Published var assistantSpeaks: Bool { didSet { store(assistantSpeaks, forKey: "assistantSpeaks") } }
     /// After answering, keep listening a few seconds so you can reply like in a conversation.
     @Published var assistantConversation: Bool { didSet { store(assistantConversation, forKey: "assistantConversation") } }
+    @Published var assistantAutoSend: Bool { didSet { store(assistantAutoSend, forKey: "assistantAutoSend") } }
     @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
     /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
     @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
@@ -126,6 +127,7 @@ final class AppSettings: ObservableObject {
         voiceWords = d.string(forKey: "voiceWords") ?? ""
         assistantSpeaks = d.object(forKey: "assistantSpeaks") as? Bool ?? true
         assistantConversation = d.object(forKey: "assistantConversation") as? Bool ?? true
+        assistantAutoSend = d.object(forKey: "assistantAutoSend") as? Bool ?? true
         codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
         codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
         mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false
