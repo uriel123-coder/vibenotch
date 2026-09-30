@@ -1228,8 +1228,11 @@ private enum Brain {
         Si las fuentes no coinciden, dilo en un punto. No inventes nada que no esté en las fuentes. Sin títulos ni negritas.
         """)
         let text = sources.enumerated().map { "Fuente \($0.offset + 1) — \($0.element.title):\n\($0.element.text.prefix(1500))" }.joined(separator: "\n\n")
-        return tidy(try await stream(session, "Tema: \(topic)\n\n\(text)", options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 450),
-                                     onPartial: { onPartial(tidy($0)) }))
+        let plain: (String) -> String = {
+            tidy($0.replacingOccurrences(of: #"^\s*(conclusi[oó]n( principal)?|resumen)\s*:\s*"#, with: "", options: [.regularExpression, .caseInsensitive]))
+        }
+        return plain(try await stream(session, "Tema: \(topic)\n\n\(text)", options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 450),
+                                      onPartial: { onPartial(plain($0)) }))
     }
 
     /// Picks and themes one of the game engines for what you asked.
