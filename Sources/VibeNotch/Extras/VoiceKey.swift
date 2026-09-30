@@ -61,6 +61,7 @@ final class VoiceKey {
         pending = nil
         guard holding, !Dictation.shared.active else { return }
         Dictation.shared.start(.type)
+        VoiceAgent.prepare()
     }
 
     // MARK: - Result

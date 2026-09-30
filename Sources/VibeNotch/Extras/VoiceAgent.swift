@@ -29,6 +29,13 @@ enum VoiceAgent {
         return false
     }
 
+    /// Called when you start talking: loading the model takes seconds, so it happens while you speak.
+    static func prepare() {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), available { Brain.prepare() }
+        #endif
+    }
+
     static func run(_ order: String) {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
@@ -69,6 +76,9 @@ enum VoiceAgent {
                 print("Apple Intelligence:", SystemLanguageModel.default.availability)
                 guard available else { exit(1) }
                 for order in orders.split(separator: "|").map(String.init) {
+                    // Like real use: the model warms up while you're still talking.
+                    Brain.prepare()
+                    try? await Task.sleep(for: .seconds(2))
                     let start = Date()
                     do {
                         let a = try await Brain.decide(order, context: Context(app: "Finder", selection: "", clipboard: ""))
@@ -111,6 +121,8 @@ enum VoiceAgent {
 
     struct Action {
         var kind: String
+        /// What you said, for anything the model left out.
+        var order = ""
         var to = ""
         var subject = ""
         var text = ""
@@ -118,6 +130,12 @@ enum VoiceAgent {
         var minutes: Double?
         var name = ""
         var url = ""
+    }
+
+    /// macOS reads Spanish dates well ("mañana a las 5 de la tarde", "el viernes a las 10"); the small model doesn't.
+    static func date(in text: String) -> Date? {
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
+        return detector?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))?.date
     }
 
     static let kinds = ["correo", "evento", "recordatorio", "whatsapp", "mensaje", "abrir_app", "abrir_web", "buscar_web",
@@ -128,30 +146,45 @@ enum VoiceAgent {
 @available(macOS 26, *)
 @MainActor
 private enum Brain {
-    static func decide(_ order: String, context: VoiceAgent.Context) async throws -> VoiceAgent.Action {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "es_MX")
-        f.dateFormat = "EEEE d 'de' MMMM yyyy, HH:mm"
+    private static var ready: (session: LanguageModelSession, at: Date)?
+
+    static func prepare() {
+        let session = LanguageModelSession(instructions: instructions())
+        session.prewarm()
+        ready = (session, Date())
+    }
+
+    private static func instructions() -> String {
         let shortcuts = Shortcuts.names().prefix(40).joined(separator: ", ")
-        let instructions = """
-        Eres el asistente de voz de VibeNotch en una Mac. El usuario te da una orden hablada en español. \
-        Elige UNA acción y llena solo los campos que necesita. Ahora es \(f.string(from: Date())).
+        return """
+        Eres el asistente de voz de VibeNotch en una Mac. Recibes una orden hablada en español y eliges UNA acción.
         Acciones:
-        - correo: redactar un correo (para, asunto, texto). Escribe el texto completo y amable, listo para enviar.
-        - evento: poner algo en el calendario (texto = título, fecha).
-        - recordatorio: avisarle algo (texto; minutos si dijo "en N minutos/horas", o fecha si dijo una hora o día).
-        - whatsapp: preparar un mensaje de WhatsApp (para = número si lo dijo, texto).
-        - mensaje: preparar un iMessage o SMS (para = número o correo, texto).
-        - abrir_app: abrir una app (nombre).
-        - abrir_web: abrir una página (url completa con https).
-        - buscar_web: buscar en Google (texto = lo que busca). Úsala también para personas, lugares o compras.
-        - buscar_archivo: buscar un archivo en la Mac (nombre).
-        - atajo: correr un atajo de la app Atajos (nombre exacto). Atajos del usuario: \(shortcuts.isEmpty ? "ninguno" : shortcuts).
-        - escribir: escribir texto donde está el cursor (texto ya redactado).
-        - responder: contestar una pregunta o hacer algo con el texto seleccionado, como resumir, traducir o explicar (texto = tu respuesta, breve).
-        Fechas en formato yyyy-MM-dd HH:mm. No inventes correos ni números que no te dieron.
+        - correo: para (correo), asunto corto, texto = el correo completo y amable, listo para enviar.
+        - evento: texto = título corto del evento.
+        - recordatorio: texto = qué recordar, corto; minutos si dijo «en N minutos/horas».
+        - whatsapp o mensaje: para = número si lo dijo, texto = el mensaje ya redactado.
+        - abrir_app: nombre de la app instalada.
+        - abrir_web: url de una página conocida.
+        - buscar_web: texto = lo que hay que buscar (compras, vuelos, personas, lugares, noticias).
+        - buscar_archivo: nombre del archivo.
+        - atajo: nombre del atajo. Atajos del usuario: \(shortcuts.isEmpty ? "ninguno" : shortcuts).
+        - escribir: texto ya redactado para escribir donde está el cursor.
+        - responder: texto = tu respuesta breve. Úsala para preguntas de conocimiento y para resumir, traducir o explicar el texto seleccionado.
+        Ejemplos:
+        «mándale un correo a ana@x.com diciendo que llego tarde» → correo, para ana@x.com, asunto «Llego tarde», texto «Hola Ana:\\n\\nTe aviso que voy a llegar un poco tarde. Una disculpa.\\n\\nSaludos».
+        «pon una reunión con Luis mañana a las 5» → evento, texto «Reunión con Luis».
+        «recuérdame sacar la ropa en 20 minutos» → recordatorio, texto «Sacar la ropa», minutos 20.
+        «busca vuelos baratos a Cancún» → buscar_web, texto «vuelos baratos a Cancún».
+        «abre YouTube» → abrir_web, url «https://www.youtube.com».
+        «¿cuál es la capital de Australia?» → responder, texto «Canberra».
+        No inventes correos ni números que no te dieron.
         """
-        let session = LanguageModelSession(instructions: instructions)
+    }
+
+    static func decide(_ order: String, context: VoiceAgent.Context) async throws -> VoiceAgent.Action {
+        let session: LanguageModelSession
+        if let ready, Date().timeIntervalSince(ready.at) < 120 { session = ready.session } else { session = LanguageModelSession(instructions: instructions()) }
+        ready = nil
         var prompt = "Orden: \(order)\nApp abierta: \(context.app)"
         if !context.selection.isEmpty { prompt += "\nTexto seleccionado:\n\(context.selection)" }
         else if !context.clipboard.isEmpty { prompt += "\nTexto copiado (úsalo solo si la orden habla de «esto» o «lo copiado»):\n\(context.clipboard)" }
@@ -162,7 +195,6 @@ private enum Brain {
             .init(name: "para", description: "Destinatario: correo o número", schema: text, isOptional: true),
             .init(name: "asunto", schema: text, isOptional: true),
             .init(name: "texto", schema: text, isOptional: true),
-            .init(name: "fecha", description: "yyyy-MM-dd HH:mm", schema: text, isOptional: true),
             .init(name: "minutos", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
             .init(name: "nombre", description: "App, atajo o archivo", schema: text, isOptional: true),
             .init(name: "url", schema: text, isOptional: true),
@@ -171,13 +203,11 @@ private enum Brain {
         let content = try await session.respond(to: prompt, schema: schema).content
 
         func str(_ key: String) -> String { ((try? content.value(String.self, forProperty: key)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-        let parse = DateFormatter()
-        parse.dateFormat = "yyyy-MM-dd HH:mm"
-        var action = VoiceAgent.Action(kind: str("accion"))
+        var action = VoiceAgent.Action(kind: str("accion"), order: order)
         action.to = str("para")
         action.subject = str("asunto")
         action.text = str("texto")
-        action.date = parse.date(from: str("fecha"))
+        action.date = VoiceAgent.date(in: order)
         action.minutes = try? content.value(Double.self, forProperty: "minutos")
         action.name = str("nombre")
         action.url = str("url")
@@ -203,7 +233,7 @@ private enum Hands {
         case "evento":
             addEvent(a)
         case "recordatorio":
-            if let m = a.minutes, m > 0 {
+            if let m = a.minutes ?? VoiceCommand.parseReminder(a.order).minutes, m > 0 {
                 TimerStore.shared.start(minutes: m, label: a.text.isEmpty ? "Recordatorio" : a.text)
                 done("Te aviso en \(Int(m.rounded())) min", a.text)
             } else if a.date != nil {
@@ -230,12 +260,13 @@ private enum Hands {
             } else {
                 fail("No encontré la app «\(a.name)»")
             }
-        case "abrir_web":
+        case "abrir_web" where !a.url.isEmpty:
             open(URL(string: a.url.hasPrefix("http") ? a.url : "https://" + a.url), "Abriendo", a.url)
-        case "buscar_web":
+        case "buscar_web", "abrir_web":
+            let query = [a.text, a.name, a.order].first { !$0.isEmpty } ?? ""
             var c = URLComponents(string: "https://www.google.com/search")!
-            c.queryItems = [URLQueryItem(name: "q", value: a.text.isEmpty ? a.name : a.text)]
-            open(c.url, "Buscando", a.text)
+            c.queryItems = [URLQueryItem(name: "q", value: query)]
+            open(c.url, "Buscando", query)
         case "buscar_archivo":
             FileSearch.shared.query = a.name.isEmpty ? a.text : a.name
             NotchModel.shared.open(.search)
@@ -261,7 +292,7 @@ private enum Hands {
                 MainActor.assumeIsolated {
                     guard granted else { return fail("Falta permiso de Calendario en Privacidad") }
                     let e = EKEvent(eventStore: store)
-                    e.title = a.text.isEmpty ? "Evento" : a.text
+                    e.title = [a.text, a.subject].first { !$0.isEmpty && $0.count <= 60 } ?? "Evento"
                     e.startDate = start
                     e.endDate = start.addingTimeInterval(3600)
                     e.calendar = store.defaultCalendarForNewEvents
@@ -310,17 +341,22 @@ private enum Hands {
 }
 
 /// The user's own Shortcuts become things the agent can do.
+@MainActor
 enum Shortcuts {
-    private static var cache: (Date, [String])?
+    private static var cache: (at: Date, list: [String])?
 
+    /// Listing takes about a second, so it's refreshed in the background and read from the cache.
     static func names() -> [String] {
-        if let (at, list) = cache, Date().timeIntervalSince(at) < 300 { return list }
-        let list = output(["list"]).split(separator: "\n").map(String.init)
-        cache = (Date(), list)
-        return list
+        if cache.map({ Date().timeIntervalSince($0.at) > 300 }) ?? true {
+            if cache == nil { cache = (Date(), []) } else { cache?.at = Date() }
+            DispatchQueue.global(qos: .utility).async {
+                let list = output(["list"]).split(separator: "\n").map(String.init)
+                DispatchQueue.main.async { MainActor.assumeIsolated { Shortcuts.cache = (Date(), list) } }
+            }
+        }
+        return cache?.list ?? []
     }
 
-    @MainActor
     static func run(_ name: String) {
         let match = names().first { $0.caseInsensitiveCompare(name) == .orderedSame }
             ?? names().first { $0.localizedCaseInsensitiveContains(name) }
@@ -338,7 +374,7 @@ enum Shortcuts {
         }
     }
 
-    private static func output(_ args: [String]) -> String {
+    nonisolated private static func output(_ args: [String]) -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
         p.arguments = args
