@@ -170,6 +170,18 @@ El texto pasa justo **debajo de la cámara**, así que al grabar un video, dar u
   - **«recuérdame llamar a Ana en 10 minutos»** (pone un temporizador; sin hora, lo guarda en Notas)
   - **«busca el archivo factura»** (cuando no estás escribiendo en un campo de texto)
 - Si presionas ⌥ con otra tecla (para escribir @, ñ, €…) no dicta nada.
+
+#### ✨ Agente (Apple Intelligence, gratis y en tu Mac)
+
+Empieza con **«oye…»** (o habla sin estar escribiendo en un campo de texto) y el agente lo hace por ti:
+
+- «oye, mándale un correo a ana@correo.com diciendo que llego tarde» → abre el correo en Mail ya redactado; tú le das enviar.
+- «oye, pon una reunión con Luis mañana a las 5» → la guarda en tu calendario con aviso 10 minutos antes.
+- «oye, mándale por WhatsApp a 5512345678 que ya voy» → abre WhatsApp con el mensaje listo.
+- «oye, busca vuelos a Cancún», «oye, abre YouTube», «oye, corre mi atajo Modo foco».
+- Selecciona un texto y di «oye, resúmelo», «oye, tradúcelo al inglés» o «oye, ¿qué significa esto?» → la respuesta aparece en el notch y queda copiada.
+
+Necesita macOS 26 con Apple Intelligence activado. Nada sale de tu Mac, y lo que se envía (correos, mensajes) siempre queda listo para que tú lo mandes.
 - Se apaga en Ajustes → Llamadas y más → Voz. Necesita el permiso de Accesibilidad.
 
 ### 🎙️ Notas de voz a texto

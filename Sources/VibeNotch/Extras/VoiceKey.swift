@@ -68,7 +68,11 @@ final class VoiceKey {
     static func deliver(_ raw: String) {
         let text = VoiceText.clean(raw)
         guard !text.isEmpty else { return }
-        if VoiceCommand.run(text, editing: focusedIsText()) { return }
+        if let order = VoiceAgent.order(in: text) { return VoiceAgent.run(order) }
+        let editing = focusedIsText()
+        if VoiceCommand.run(text, editing: editing) { return }
+        // With no text field to type into, what you said is an order.
+        if !editing && VoiceAgent.available { return VoiceAgent.run(text) }
         type(text)
     }
 
