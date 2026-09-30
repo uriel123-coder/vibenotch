@@ -1167,9 +1167,25 @@ enum Rules {
     }
 
     /// Orders about what's already on the Mac: the screen, the inbox, WhatsApp chats, a button to press.
-    private static func looking(_ o: String, _ f: String) -> VoiceAgent.Action? {
-        var a = VoiceAgent.Action(kind: "", order: o)
-        let clean = f.replacingOccurrences(of: #"^(oye|jarvis|porfa|por favor|a ver)\s+"#, with: "", options: .regularExpression)
+    private static func looking(_ order: String, _ folded: String) -> VoiceAgent.Action? {
+        var a = VoiceAgent.Action(kind: "", order: order)
+        // «¿oye, me puedes decir qué me escribió Samuel?» is «qué me escribió Samuel»; both strings stay the same length for `group`.
+        var o = order, f = folded
+        let edges = CharacterSet(charactersIn: "¿?¡!.,;: ")
+        func trim() {
+            while let c = f.unicodeScalars.first, edges.contains(c), !o.isEmpty { f.removeFirst(); o.removeFirst() }
+            while let c = f.unicodeScalars.last, edges.contains(c), !o.isEmpty { f.removeLast(); o.removeLast() }
+        }
+        trim()
+        let polite = #"^(oye|jarvis|porfa|por favor|a ver|y|me puedes|puedes|podrias|me podrias|me ayudas a|quiero que me|quiero que|necesito que me|necesito que|sabes)[\s,]+"#
+        for _ in 0..<3 {
+            guard let r = f.range(of: polite, options: .regularExpression) else { break }
+            let n = f.distance(from: f.startIndex, to: r.upperBound)
+            f.removeFirst(n); o.removeFirst(min(n, o.count))
+            trim()
+        }
+        if o.count != f.count { o = f }
+        let clean = f
         // Clicks.
         if let m = match(#"^(?:dale|da|haz|dar)\s+(?:un\s+)?(?:clic|click|clik|clic)\s+(?:en|a|al|sobre)\s+(?:el boton (?:de\s+)?|la opcion (?:de\s+)?|el link (?:de\s+)?|el enlace (?:de\s+)?)?(.+)$"#, clean)
             ?? match(#"^(?:presiona|aprieta|pulsa|picale a|picale en|picale)\s+(?:el boton (?:de\s+)?|la opcion (?:de\s+)?|el\s+|la\s+)?(.+)$"#, clean),
@@ -1179,9 +1195,10 @@ enum Rules {
         // Mail, never an order to send one.
         let mailWord = #"\b(mails?|correos?|emails?|e-mails?|inbox|bandeja( de entrada)?|gmail)\b"#
         let sendWord = #"^(manda|mandale|mandame|envia|enviale|enviame|escribe|escribele|redacta|redactame|contesta|contestale|responde|respondele|reenvia)\b"#
+        // Not how-tos or addresses: «¿cómo configuro Gmail?», «¿cuál es el correo de Ana?».
+        let aboutMail = #"^(como|que es|para que)\b|configur|crear? (una )?cuenta|contrasena|^cual es (el|su|mi) (correo|mail|email)"#
         if clean.range(of: mailWord, options: .regularExpression) != nil, clean.range(of: sendWord, options: .regularExpression) == nil,
-           clean.range(of: #"^(resume|resumeme|lee|leeme|revisa|revisame|checa|checame|dime|que|cuales|cuantos|tengo|hay|busca|buscame|ensename|muestrame|abre|abreme|descarga|descargame|baja|bajame|guarda|ve|mira|hazme|dame|me llego|llego|algun|alguno)\b"#,
-                       options: .regularExpression) != nil {
+           clean.range(of: aboutMail, options: .regularExpression) == nil {
             a.kind = "correos"
             if let m = match(#"\b(?:mails?|correos?|emails?)\s+(?:de|del|de la|que me (?:mando|envio|escribio|llego de)|sobre|con|acerca de)\s+(.+?)(?:\s+(?:y|para|en)\s+.*)?$"#, clean),
                let who = group(m, 1, o, f), !["hoy", "ayer", "esta semana", "hoy en la manana"].contains(VoiceAgent.fold(who)) {
@@ -1191,13 +1208,15 @@ enum Rules {
         }
         // WhatsApp chats.
         if let m = match(#"^(?:que|q)\s+(?:me\s+)?(?:dijo|dice|escribio|mando|contesto|respondio|puso|pregunto)\s+(?:el|la)?\s*(.+?)(?:\s+(?:en|por)\s+(?:whatsapp|el chat|el grupo))?$"#, clean),
-           let who = group(m, 1, o, f), who.split(separator: " ").count <= 4 {
+           var who = group(m, 1, o, f), who.split(separator: " ").count <= 5 {
+            who = who.replacingOccurrences(of: #"(?i)\s+(ayer|hoy|anoche|antier|ahorita|hace rato|en la ma[ñn]ana|en la tarde|en la noche|esta semana)$"#,
+                                           with: "", options: .regularExpression)
             if VoiceAgent.fold(who).range(of: #"^(esto|esta|este|eso|esa|aqui|ahi|la pantalla|mi pantalla)\b"#, options: .regularExpression) != nil {
-                a.kind = "ver"; a.text = o; return a
+                a.kind = "ver"; a.text = order; return a
             }
             a.kind = "chat"; a.to = who; return a
         }
-        if let m = match(#"^(?:resume|resumeme|lee|leeme|revisa|checa|ve|mira|dime que dice|que dice|que hay en|de que hablan en|que pasa en)\s+(?:mi\s+|el\s+|la\s+)?(?:chat|conversacion|platica|grupo|mensajes|whatsapp)s?\s+(?:de whatsapp\s+)?(?:con el|con la|con|de la|de los|de las|del|de)\s+(.+)$"#, clean),
+        if let m = match(#"^(?:resume|resumeme|resumir|lee|leeme|leer|revisa|revisar|checa|ve|mira|dime que dice|que dice|que dicen en|que hay en|que pasa en|de que (?:estan hablando|hablan|platican|se trata)(?: en)?|que (?:estan diciendo|hablan|platican) en)\s+(?:mi\s+|el\s+|la\s+)?(?:chat|conversacion|platica|grupo|mensajes|whatsapp)s?\s+(?:de whatsapp\s+)?(?:con el|con la|con|de la|de los|de las|del|de)\s+(.+)$"#, clean),
            let who = group(m, 1, o, f) {
             a.kind = "chat"; a.to = who; return a
         }
@@ -1208,7 +1227,7 @@ enum Rules {
         // The screen, any app or web page.
         if let m = match(#"^(?:abre|abreme|ve a|entra a|entra en|metete a)\s+(.+?)\s+y\s+(?:dime|resume|resumeme|mira|revisa|lee|leeme|checa|explicame|ayudame|ve|busca que)\b"#, clean),
            let name = group(m, 1, o, f), VoiceCommand.findApp(name) != nil || site(name) != nil {
-            a.kind = "ver"; a.name = name; a.text = o; return a
+            a.kind = "ver"; a.name = name; a.text = order; return a
         }
         let screen = [
             #"^(?:mira|ve|checa|revisa|lee|leeme|analiza|ayudame con|explicame|resume|resumeme)\s+(?:mi|la|esta|lo que (?:hay en|tengo en))\s+(?:pantalla|ventana)"#,
@@ -1216,9 +1235,11 @@ enum Rules {
             #"^(?:ayudame|me ayudas|puedes ayudarme)\s+(?:con|a entender|a mejorar|a usar)\s+(?:esto|esta app|esta aplicacion|esta pagina|esta ventana|lo que (?:estoy|tengo)|lo que ves)"#,
             #"^(?:que opinas de|que te parece|como mejoro|como puedo mejorar)\s+(?:esto|esta app|esta pagina|esta ventana|lo que ves|lo que tengo)"#,
             #"^(?:resume|resumeme|explicame|lee|leeme)\s+(?:este|esta)\s+(?:chat|conversacion|app|aplicacion|pantalla|ventana|pagina|hilo)"#,
+            #"\b(?:la app|la aplicacion|la ventana|la pagina|la pestana|el programa|lo) que (?:tengo|estoy) (?:abiert[oa]|viendo|usando|en pantalla|en frente)"#,
+            #"^(?:que|lee|leeme|resume|resumeme|mira|ve|checa|revisa|analiza|explicame|ayudame|dime|entiendes|ves)\b.*\b(?:mi pantalla|en pantalla|esta pantalla)\b"#,
         ]
         if screen.contains(where: { clean.range(of: $0, options: .regularExpression) != nil }) {
-            a.kind = "ver"; a.text = o; return a
+            a.kind = "ver"; a.text = order; return a
         }
         return nil
     }
