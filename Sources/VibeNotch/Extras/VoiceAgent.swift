@@ -79,8 +79,12 @@ enum VoiceAgent {
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             do {
-                let steps = Rules.clean(try await Brain.decide(order, context: context), order: order)
-                guard !steps.isEmpty else { return assistant.fail("No entendí qué hacer, dilo de otra forma") }
+                var steps = Rules.clean(try await Brain.decide(order, context: context), order: order)
+                if steps.isEmpty {
+                    var talk = Action(kind: "charla", order: order)
+                    talk.text = order
+                    steps = [talk]
+                }
                 for step in steps { await Hands.perform(step) }
             } catch {
                 assistant.fail("No pude con eso: \(error.localizedDescription)")
@@ -519,10 +523,12 @@ enum Rules {
             } else if Conversation.active {
                 a.kind = "charla"
                 a.text = order
-            } else if !context.clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                a.text = context.clipboard
+            } else if let recent = TaskLog.shared.entries.first(where: { $0.status == .done }), recent.result.count >= 40,
+                      Date().timeIntervalSince(recent.finished ?? .distantPast) < 900 {
+                a.text = recent.result
             } else {
-                return nil
+                a.kind = "responder"
+                a.text = "No veo ningún texto. Selecciónalo o cópialo y pídemelo otra vez."
             }
             return [a]
         }
@@ -651,7 +657,8 @@ enum Rules {
                     "mejora", "resume", "resumeme", "hablemos", "platicame", "platiquemos", "quiero que", "necesito que", "dime como", "dime que",
                     "hazme un resumen", "hazme un poema", "escribe un poema", "dame un resumen", "genera", "generame", "crea un plan", "creame un plan",
                     "crea una lista", "creame una lista", "crea un texto", "creame un texto"]
-        if talk.contains(where: { f == $0 || f.hasPrefix($0 + " ") }) {
+        let asksFor = #"^(dame|dime|hazme|escribeme|sugiereme|necesito|quiero|se te ocurren?|ocurreme)\s+(\d+|un|una|unos|unas|dos|tres|cuatro|cinco|diez|algunas?|algunos|mas|otras?|otros)?\s*(ideas?|consejos?|opciones|ejemplos|nombres|frases|titulos|tips|pasos|razones|formas|maneras|preguntas|hooks|ganchos|copys?|textos?|mensajes? para)\b"#
+        if talk.contains(where: { f == $0 || f.hasPrefix($0 + " ") }) || f.range(of: asksFor, options: .regularExpression) != nil {
             a.kind = "charla"; a.text = o
             if context.editable && ["escribe", "redacta"].contains(where: { f.hasPrefix($0) }) { a.name = "escribir" }
             return a
@@ -762,6 +769,14 @@ enum Rules {
                 if !f.contains(VoiceAgent.fold(label)) || s.url.contains("example") { s.url = "" }
             }
             switch s.kind {
+            case "correo", "whatsapp", "mensaje":
+                let sending = ["mand", "envia", "escrib", "dile", "avisa", "pregunt", "correo", "mail", "mensaje", "whats", "wasap", "sms",
+                               "contesta", "responde"]
+                guard sending.contains(where: { f.contains($0) }) else { continue }
+                if !s.to.isEmpty, !s.to.contains("@"), let first = s.to.split(separator: " ").first,
+                   !f.contains(VoiceAgent.fold(String(first))) { s.to = "" }
+            case "evento" where s.date == nil:
+                continue
             case "abrir_app":
                 let name = VoiceAgent.fold(s.name.isEmpty ? s.text : s.name)
                 if name.isEmpty || !f.contains(name.split(separator: " ").first.map(String.init) ?? name) { continue }
@@ -947,7 +962,8 @@ private enum Brain {
         if let ready, Date().timeIntervalSince(ready.at) < 120 { session = ready.session } else { session = LanguageModelSession(instructions: instructions()) }
         ready = nil
         var prompt = "Orden: \(order)\nApp abierta: \(context.app)"
-        if !context.pointer.isEmpty { prompt += "\nBajo el cursor: \(context.pointer)" }
+        let pointing = ["esto", "este", "esta", "eso", "ese", "esa", "aqui", "ahi"].contains { " \(VoiceAgent.fold(order)) ".contains(" \($0) ") }
+        if pointing, !context.pointer.isEmpty { prompt += "\nBajo el cursor (solo porque dijo «esto»): \(context.pointer)" }
         if !context.selection.isEmpty { prompt += "\nTexto seleccionado:\n\(context.selection.prefix(2000))" }
         else if !context.clipboard.isEmpty { prompt += "\nTexto copiado (solo si la orden habla de «esto» o «lo copiado»):\n\(context.clipboard.prefix(1200))" }
 
@@ -1027,9 +1043,11 @@ private enum Brain {
         Si pide «más corto», déjalo en la mitad. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. \
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
-        Si pregunta qué sabes hacer: abrir apps y páginas, buscar en la web, dejar listos WhatsApps y correos, agendar en su calendario, \
-        recordatorios, notas, crear y mejorar documentos, resumir o corregir lo que tenga seleccionado o la página abierta, \
-        rutinas que él crea diciendo «cuando diga X, haz Y», y recordar lo que te cuente. No prometas nada más.
+        Háblale de tú. Si te saluda, saluda en una frase y pregunta en qué le ayudas. \
+        Si pregunta qué sabes hacer, contesta en 2 frases con 3 o 4 ejemplos, sin lista. Lo que sabes hacer en su Mac: abrir apps y páginas, \
+        buscar en la web, dejar listos WhatsApps y correos, agendar en su calendario, recordatorios, notas, crear y mejorar documentos, \
+        resumir o corregir lo que tenga seleccionado o la página abierta, rutinas («cuando diga X, haz Y») y recordar lo que te cuente. \
+        No prometas nada más.
         Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
