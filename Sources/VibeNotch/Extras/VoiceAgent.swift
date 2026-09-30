@@ -1267,7 +1267,9 @@ private enum Brain {
         Respondes preguntas en español como alguien que acaba de leer las noticias y se lo explica a un amigo. \
         Usa solo la información que te dan. Primero la respuesta directa; luego lo importante: qué pasó, quiénes, \
         por qué importa y cualquier dato concreto (cifras, fechas, resultados). Entre 3 y 6 frases, en lenguaje simple. \
-        Si la información no alcanza para responder, dilo y di lo que sí se sabe. No menciones «los resultados» ni «las páginas».
+        Si la información no alcanza para responder, dilo y di lo que sí se sabe. No menciones «los resultados» ni «las páginas». \
+        Hoy es \(Date().formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "es_MX")))): \
+        si hay noticias de fechas distintas, usa la más reciente y di de cuándo es.
         """)
         let before = Conversation.active ? "Conversación reciente:\n\(Conversation.history)\n" : ""
         return tidy(try await stream(session, "\(before)Pregunta: \(question)\nResultados:\n\(sources)\n\n\(read)",
@@ -1366,7 +1368,7 @@ private enum Brain {
                                        with: "", options: [.regularExpression, .caseInsensitive])
         t = t.replacingOccurrences(of: "**", with: "")
         t = t.replacingOccurrences(of: #"(?m)^\s*[*•]\s+"#, with: "- ", options: .regularExpression)
-        t = t.replacingOccurrences(of: #"^¡(qu[eé] (buena|gran|excelente) idea|me encanta)[^!]*!\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: #"^¡(qu[eé]|me encanta|excelente|genial|perfecto|buen[ao])[^!]{0,40}!\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
         t = t.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = t.first else { return s }
         return first.uppercased() + t.dropFirst()
