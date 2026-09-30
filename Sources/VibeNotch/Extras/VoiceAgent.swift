@@ -1106,7 +1106,9 @@ enum Conversation {
         var out: [String] = []
         var size = 0
         for t in turns.reversed() {
-            let line = "Usuario: \(t.q)\nAsistente: \(t.a.prefix(900))"
+            // Its questions back to you are conversation, not content for the document.
+            let said = t.a.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("¿") }.joined(separator: "\n")
+            let line = "Usuario: \(t.q)\nAsistente: \(said.prefix(900))"
             if size + line.count > limit { break }
             out.insert(line, at: 0)
             size += line.count
@@ -1303,7 +1305,8 @@ private enum Brain {
         Puede hacer varias cosas a la vez: mientras trabaja en algo, el usuario le puede pedir otra. No prometas nada más.
         \(Conversation.call ? """
         Están en una llamada para desarrollar una idea juntos. Responde como un socio experto y honesto: opina, da datos concretos, \
-        detecta riesgos y propone el siguiente paso. Hasta 120 palabras. Termina con una sola pregunta corta para seguir. \
+        detecta riesgos y propone el siguiente paso. Hasta 120 palabras, sin halagos al inicio. \
+        Termina con una sola pregunta corta sobre su idea para entenderla mejor (no ofrezcas investigar). \
         Cuando el usuario diga que ya está, recuérdale que te puede pedir «haz un documento con esto» o «investiga eso».
         """ : "")
         Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
@@ -1341,6 +1344,8 @@ private enum Brain {
         var t = s.replacingOccurrences(of: #"^\s*(¡?(claro|por supuesto|con gusto|perfecto|desde luego)[!.,]*\s*)?(aqu[ií] (tienes|te dejo|van)[^\n]*:\s*\n+)?"#,
                                        with: "", options: [.regularExpression, .caseInsensitive])
         t = t.replacingOccurrences(of: "**", with: "")
+        t = t.replacingOccurrences(of: #"(?m)^\s*[*•]\s+"#, with: "- ", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"^¡(qu[eé] (buena|gran|excelente) idea|me encanta)[^!]*!\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
         t = t.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = t.first else { return s }
         return first.uppercased() + t.dropFirst()
@@ -1353,7 +1358,10 @@ private enum Brain {
         Usa «## » para secciones y «- » para listas. Entre 150 y 450 palabras salvo que pidan otra cosa. \
         Nunca uses marcadores como [nombre] ni digas que eres un modelo.
         """)
-        return try await stream(session, ask, options: GenerationOptions(temperature: 0.5, maximumResponseTokens: 1000), onPartial: onPartial)
+        let text = try await stream(session, ask, options: GenerationOptions(temperature: 0.5, maximumResponseTokens: 1000), onPartial: onPartial)
+        return text.replacingOccurrences(of: #"(?m)^\s*[*•]\s+"#, with: "- ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^#+ ¿[^\n]*\?\s*$\n?"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A short report from what the pages actually say, not from what the model remembers.
