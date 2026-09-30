@@ -59,9 +59,12 @@ enum VoiceAgent {
 
     /// A question it asked and is waiting on: «¿te refieres a Mami Laura?», «¿cómo se llama mamá en tus contactos?».
     enum Pending {
-        case confirm(Action, People.Person, Date)
+        /// The send card is up: «sí», «envíalo» or «no».
+        case outgoing(Date)
         case who(Action, Date)
-        var at: Date { switch self { case .confirm(_, _, let d), .who(_, let d): d } }
+        /// You stopped mid-sentence («busca a Samuel en…»): the next thing you say finishes it.
+        case partial(String, Date)
+        var at: Date { switch self { case .outgoing(let d), .who(_, let d), .partial(_, let d): d } }
     }
     static var pending: Pending?
 
@@ -193,7 +196,7 @@ enum VoiceAgent {
 
     static let kinds = ["correo", "evento", "recordatorio", "whatsapp", "mensaje", "abrir_app", "abrir_web", "buscar_web",
                         "buscar_archivo", "atajo", "escribir", "responder", "recordar", "agenda", "musica", "investigar", "juego",
-                        "documento"]
+                        "documento", "video", "perfil", "pagina"]
 
     /// macOS reads Spanish dates well ("mañana a las 5 de la tarde", "el viernes a las 10"); the small model doesn't.
     nonisolated static func date(in text: String) -> Date? {
@@ -210,6 +213,97 @@ enum VoiceAgent {
         let t = fold(s)
         let starts = ["que ", "quien", "cual", "cuanto", "cuanta", "como ", "donde", "cuando", "por que", "porque", "sabes", "dime"]
         return s.contains("?") || s.contains("¿") || starts.contains { t.hasPrefix($0) }
+    }
+
+    /// «hoy», «el viernes», «esta tarde»: a day is part of what you said.
+    static func saysDay(_ s: String) -> Bool {
+        let days = ["hoy", "manana", "pasado manana", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo", "semana",
+                    "esta tarde", "esta noche", "al rato", "en la tarde", "en la noche", "agenda", "calendario", "pendiente", "pendientes"]
+        let t = " " + fold(s).components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }.joined(separator: " ") + " "
+        return days.contains { t.contains(" \($0) ") }
+    }
+
+    /// «Nakach se escribe n-a-k-a-c-h», «se deletrea ene, a, ka…» or just «n-a-k-a-c-h»: the word it spells.
+    static func respelling(_ order: String) -> String? {
+        let t = fold(order)
+        guard let r = t.range(of: #"(se escribe( asi)?|se deletrea|lo deletreo|deletreado|es con)[:,]?\s+"#, options: .regularExpression) else {
+            return spelled(t, strict: true)
+        }
+        return spelled(String(t[r.upperBound...]), strict: false)
+    }
+
+    static func spelled(_ s: String, strict: Bool) -> String? {
+        if strict, s.filter({ $0 == "-" }).count < 2 { return nil }
+        let names = ["a": "a", "be": "b", "ce": "c", "de": "d", "e": "e", "efe": "f", "ge": "g", "hache": "h", "i": "i", "jota": "j", "ka": "k",
+                     "ca": "k", "ele": "l", "eme": "m", "ene": "n", "ene con tilde": "ñ", "o": "o", "pe": "p", "cu": "q", "ere": "r", "erre": "rr",
+                     "ese": "s", "te": "t", "u": "u", "uve": "v", "ve": "v", "doble ve": "w", "doble u": "w", "equis": "x", "ye": "y",
+                     "i griega": "y", "zeta": "z", "seta": "z"]
+        let tokens = s.split(whereSeparator: { " -.,;".contains($0) }).map(String.init)
+        var letters = "", i = 0
+        while i < tokens.count {
+            let tok = tokens[i]
+            if i + 1 < tokens.count, let two = names[tok + " " + tokens[i + 1]] { letters += two; i += 2; continue }
+            if tok.count == 1, tok.first?.isLetter == true { letters += tok }
+            else if let l = names[tok] { letters += l }
+            else if letters.count >= 3 { break }
+            else { letters = "" }
+            i += 1
+        }
+        guard letters.count >= 3 else { return nil }
+        return letters.prefix(1).uppercased() + letters.dropFirst()
+    }
+
+    /// «busca a Samuel en», «ponme música de»: you stopped mid-sentence, so it asks instead of guessing.
+    static func unfinished(_ order: String) -> Bool {
+        let o = order.trimmingCharacters(in: .whitespaces)
+        guard !o.hasSuffix("?"), !o.hasSuffix("!") else { return false }
+        let t = fold(o).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+        let words = t.split(separator: " ").map(String.init)
+        let needsMore = ["busca", "buscame", "abre", "abreme", "pon", "ponme", "manda", "mandale", "dile", "escribele", "reproduce", "enviale",
+                         "recuerdame", "agenda", "agendame", "llama a", "busca a", "investiga sobre", "dile a", "mandale a", "escribele a"]
+        if needsMore.contains(t) { return true }
+        let dangling = ["a", "en", "de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o", "con", "para", "por", "al",
+                        "mis", "sus", "sobre", "pero", "entre", "hacia", "desde", "hasta"]
+        return words.count >= 2 && dangling.contains(words.last ?? "")
+    }
+
+    /// «se llama Joe», «lo tengo como Joe Smith», «es Joe», «J-O-E»: just the name.
+    static func named(_ reply: String) -> String {
+        if let word = respelling(reply) { return word }
+        var r = reply.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))
+        let lead = #"^(?i)(?:no[, ]+)?(?:pues[, ]+)?(?:se llama|su nombre es|lo tengo (?:guardado )?como|la tengo (?:guardada )?como|lo tengo|la tengo|est[aá] (?:guardad[oa] )?como|guardad[oa] como|b[uú]scal[oa] como|b[uú]scal[oa]|ponle|es|era|como)\s+"#
+        r = r.replacingOccurrences(of: lead, with: "", options: .regularExpression)
+        r = r.replacingOccurrences(of: #"^(?i)(?:el|la|a)\s+"#, with: "", options: .regularExpression)
+        r = r.replacingOccurrences(of: #"(?i)\s+en\s+(?:whatsapp|contactos|mis contactos)$"#, with: "", options: .regularExpression)
+        return r.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))
+    }
+
+    /// Puts the spelled word where it was misheard: «samuel la cash» + «Nakach» → «samuel Nakach».
+    static func respell(_ text: String, with word: String) -> String? {
+        let words = text.split(separator: " ").map(String.init)
+        guard !words.isEmpty else { return nil }
+        let target = sound(word)
+        var best: (start: Int, length: Int, distance: Int)?
+        for length in 1...min(3, words.count) {
+            for start in 0...(words.count - length) {
+                let d = People.distance(sound(words[start..<start + length].joined()), target)
+                if best == nil || d < best!.distance || (d == best!.distance && length < best!.length) { best = (start, length, d) }
+            }
+        }
+        guard let b = best, b.distance <= max(2, target.count / 2) else { return nil }
+        var out = words
+        out.replaceSubrange(b.start..<b.start + b.length, with: [word])
+        return out.joined(separator: " ")
+    }
+
+    /// How a word sounds in Spanish, so «la cash» and «Nakach» come out close.
+    static func sound(_ s: String) -> String {
+        var t = People.fold(s).replacingOccurrences(of: " ", with: "")
+        for (from, to) in [("ch", "X"), ("sh", "X"), ("ll", "y"), ("qu", "k"), ("ce", "se"), ("ci", "si"), ("ge", "je"), ("gi", "ji"), ("c", "k"),
+                           ("z", "s"), ("v", "b"), ("w", "u"), ("h", "")] {
+            t = t.replacingOccurrences(of: from, with: to)
+        }
+        return t
     }
 
     /// `VIBENOTCH_AGENTTEST="orden|otra orden"`: prints what the model would do, without doing it.
@@ -233,6 +327,23 @@ enum VoiceAgent {
                     order = String(order.dropFirst(7))
                     var e = Action(kind: "evento", order: "pon una junta mañana a las 5"); e.text = "Junta"; e.when = "mañana a las 5"
                     last = (e, Date(), nil)
+                } else if order.hasPrefix("[who] ") {
+                    let q = String(order.dropFirst(6))
+                    let p = await People.find(q)
+                    print("«\(q)» → \(p.map { "\($0.name) · adivinado=\($0.guessed) · teléfono=\($0.phone != nil) · otros=\($0.others)" } ?? "nadie")")
+                    continue
+                } else if order.hasPrefix("[yt] ") {
+                    let q = String(order.dropFirst(5))
+                    let videos = await YouTube.search(q)
+                    print("YouTube «\(q)» → \(videos.count) videos; elegido: \(Hands.bestVideo(videos, for: q).map { "\($0.title) — \($0.snippet) \($0.url)" } ?? "-")")
+                    continue
+                } else if order.hasPrefix("[fix] "), let eq = order.firstIndex(of: "=") {
+                    let text = String(order[order.index(order.startIndex, offsetBy: 6)..<eq]), word = String(order[order.index(after: eq)...])
+                    print("«\(text)» + «\(word)» → \(respell(text, with: word) ?? "sin cambio")")
+                    continue
+                } else if order.hasPrefix("[name] ") {
+                    print("«\(order.dropFirst(7))» → «\(named(String(order.dropFirst(7))))»")
+                    continue
                 }
                 if let quick = Quick.intent(order) { print("«\(order)» → al instante: \(quick)"); continue }
                 if let steps = Rules.plan(order, context: context) {
@@ -256,6 +367,19 @@ enum VoiceAgent {
                     porque los adultos no tienen que dar explicaciones cuando rompen algo.
                     """)) ?? "-"
                 print(String(format: "explicar texto (%.1f s) → %@", Date().timeIntervalSince(explainStart), explained))
+                let topics = [("Oaxaca", "el mole negro y la Guelaguetza"), ("Monterrey", "el Cerro de la Silla y la industria del acero"),
+                              ("Mérida", "los cenotes y la cochinita pibil"), ("Tijuana", "la frontera y la ensalada César"),
+                              ("Puebla", "la talavera y los chiles en nogada"), ("Guanajuato", "el Festival Cervantino y los callejones")]
+                let long = topics.map { city, thing in
+                    (0..<6).map { i in "En \(city) lo más conocido es \(thing); es la sección \(i + 1) sobre \(city) y su gente habla de ello con orgullo." }
+                        .joined(separator: " ")
+                }.joined(separator: "\n")
+                let longStart = Date()
+                var parts: [String] = []
+                let summary = (try? await Brain.transform("resume este texto", text: long, onStep: { parts.append($0) })) ?? "-"
+                print(String(format: "texto largo de %d caracteres (%.1f s, pasos %@) → %@", long.count, Date().timeIntervalSince(longStart),
+                             parts.joined(separator: " / "), summary))
+                print("   menciona el final (Guanajuato): \(VoiceAgent.fold(summary).contains("guanajuato"))")
                 Conversation.call = true
                 for ask in ["Quiero armar una startup de comida saludable para oficinas en la Ciudad de México", "¿Cómo le cobraría a las empresas?",
                             "Me gusta lo de la suscripción, ¿qué necesito para empezar?"] {
@@ -310,8 +434,12 @@ enum Quick {
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
         case tab(NotchTab), awake(Bool), call(Bool), reply(String), history
+        case page, respell(String), unfinished(String)
         var description: String {
             switch self {
+            case .page: "la página abierta en el navegador"
+            case .respell(let w): "se escribe «\(w)»"
+            case .unfinished(let o): "incompleto: «\(o)»"
             case .call(let on): on ? "empezar llamada" : "terminar llamada"
             case .reply(let r): "respuesta a su pregunta: \(r)"
             case .history: "lo que hizo hoy"
@@ -358,11 +486,13 @@ enum Quick {
         if ["que hiciste hoy", "que has hecho", "que hiciste", "que tareas hiciste", "que me hiciste hoy", "resumen de lo que hiciste"]
             .contains(where: { t.hasPrefix($0) }) { return .history }
         if let skill = Skills.match(order) { return .skill(skill) }
+        if let word = VoiceAgent.respelling(order) { return .respell(word) }
         let sendWords = ["envialo", "mandalo", "enviar", "envia", "mandar", "manda", "enviaselo", "mandaselo", "dale enviar", "si envialo",
                          "si mandalo", "ya envialo", "ya mandalo", "envialo ya", "mandalo ya", "si enviar", "envia el mensaje", "manda el mensaje",
                          "envialo por favor", "mandalo por favor", "hazlo", "si hazlo", "dale"]
         if sendWords.contains(t), VoiceAgent.unsent, let last = VoiceAgent.last, ["whatsapp", "mensaje"].contains(last.action.kind),
            Date().timeIntervalSince(last.at) < 600 { return .send }
+        if VoiceAgent.unfinished(order) { return .unfinished(order) }
         if let fixed = correction(order) { return .correct(fixed) }
         if let (key, value) = preference(order) { return .pref(key, value) }
         if let fact = Aliases.fact(in: order) { return .person(fact) }
@@ -374,9 +504,18 @@ enum Quick {
         if let fact = rest(["recuerda que", "acuerdate que", "acuerdate de que", "guarda que", "anota que"]) { return .remember(fact) }
         if let what = rest(["olvida que", "olvida lo de", "olvida"]) { return .forget(what) }
         if ["que recuerdas", "que sabes de mi", "que te acuerdas", "muestrame tu memoria"].contains(where: { t.hasPrefix($0) }) { return .recall }
-        let agenda = ["que tengo", "tengo algo", "mi agenda", "mis eventos", "mi calendario", "que hay en mi calendario", "muestrame mi agenda",
-                      "como esta mi dia", "que pendientes tengo"]
-        if agenda.contains(where: { t.hasPrefix($0) || t.contains(" " + $0) }) {
+        let pageCues = ["que pagina", "ultima pagina", "en que pagina", "que pestana", "ultima pestana", "que tengo abierto en", "que estoy viendo en",
+                        "que tengo en google", "que tengo en chrome", "que tengo en safari", "que tengo en el navegador", "que pagina tengo",
+                        "que tengo abierto", "que estoy viendo", "donde estoy en internet"]
+        if pageCues.contains(where: { t.hasPrefix($0) || t.contains(" " + $0) || t.hasPrefix("cual es la " + $0.replacingOccurrences(of: "que ", with: "")) })
+            || (t.contains("pagina") || t.contains("pestana")) && ["tengo abiert", "estoy viendo", "ultima", "abierta", "abierto"].contains(where: { t.contains($0) }) {
+            return .page
+        }
+        let agenda = ["mi agenda", "mis eventos", "mi calendario", "que hay en mi calendario", "muestrame mi agenda", "como esta mi dia",
+                      "que pendientes tengo", "tengo reuniones", "tengo juntas", "tengo citas"]
+        let loose = ["que tengo", "tengo algo", "que hay"]
+        if agenda.contains(where: { t.hasPrefix($0) || t.contains(" " + $0) })
+            || (loose.contains(where: { t.hasPrefix($0) }) && VoiceAgent.saysDay(t)) {
             return .agenda(VoiceAgent.date(in: order) ?? Date())
         }
         let awake = ["no dejes dormir", "no dejes que se duerma", "no dejes que la mac se duerma", "manten la mac despierta",
@@ -410,7 +549,10 @@ enum Quick {
     private static func answers(_ t: String, _ pending: VoiceAgent.Pending) -> Bool {
         let first = t.split(separator: " ").first.map(String.init) ?? ""
         switch pending {
-        case .confirm: return yes.contains(first) || no.contains(first) || yes.contains(t)
+        case .outgoing:
+            let send = ["envialo", "mandalo", "enviar", "envia", "manda", "mandar", "enviaselo", "mandaselo", "hazlo", "adelante", "perfecto", "cancela", "cancelar"]
+            return yes.contains(first) || no.contains(first) || send.contains(first) || yes.contains(t)
+        case .partial: return true
         case .who:
             if t.filter(\.isNumber).count >= 7 { return true }
             let orders = ["abre", "pon", "ponme", "manda", "mandale", "busca", "investiga", "crea", "hazme", "haz", "recuerdame", "dime", "que", "como"]
@@ -534,19 +676,32 @@ enum Quick {
             guard let pending = VoiceAgent.pending else { return true }
             VoiceAgent.pending = nil
             switch pending {
-            case .confirm(let action, let person, _):
-                let first = VoiceAgent.fold(r).split(separator: " ").first.map(String.init) ?? ""
-                if no.contains(first) {
+            case .outgoing:
+                let words = VoiceAgent.fold(r).split(separator: " ").map(String.init)
+                if let first = words.first, no.contains(first) || first.hasPrefix("cancel") {
+                    guard let action = Hands.outgoing?.action else { return true }
+                    Hands.outgoing = nil
+                    // «no, es Joe» already says who it was.
+                    let rest = words.dropFirst().filter { !["es", "era", "a", "para", "se", "llama", "otro", "otra", "no"].contains($0) }
+                    if !rest.isEmpty, !first.hasPrefix("cancel") {
+                        var fixed = action
+                        fixed.to = rest.joined(separator: " ").capitalized
+                        await Hands.sendMessage(fixed)
+                        return true
+                    }
                     VoiceAgent.pending = .who(action, Date())
-                    let ask = "Va. ¿Cómo se llama «\(action.to)» en tus contactos, o cuál es su número?"
-                    a.finish(.answer(ask), say: ask, linger: 25, talk: true, ask: true, record: false)
+                    let ask = "Va, no lo envío. Si era otra persona, dime cómo la tienes guardada o su número."
+                    a.finish(.answer(ask), say: ask, linger: 20, talk: true, ask: true, record: false)
                     return true
                 }
-                Aliases.learn(action.to, name: person.name, email: person.email, phone: person.phone)
-                a.step("person.crop.circle.badge.checkmark", "Listo, «\(action.to)» es \(person.name)")
-                await Hands.sendMessage(action)
+                await Hands.sendOutgoing()
+            case .partial(let start, _):
+                let whole = start + " " + r
+                if await handle(whole) { return true }
+                await VoiceAgent.execute(whole, context: .capture())
             case .who(let action, _):
                 let digits = r.filter(\.isNumber)
+                let r = VoiceAgent.named(r)
                 if digits.count >= 7 {
                     Aliases.learn(action.to, phone: digits)
                     a.step("person.crop.circle.badge.checkmark", "Guardé el número de \(action.to)")
@@ -559,6 +714,47 @@ enum Quick {
                 }
                 await Hands.sendMessage(action)
             }
+        case .page:
+            a.step("safari", "Viendo qué tienes abierto en el navegador…")
+            guard let tab = Page.tab() else {
+                a.fail("No veo ningún navegador abierto, o falta permiso para leerlo (Privacidad → Automatización)")
+                return true
+            }
+            let host = tab.url.host()?.replacingOccurrences(of: "www.", with: "") ?? tab.url.absoluteString
+            let title = tab.title.isEmpty ? host : tab.title
+            let app = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == tab.bundleID }?.localizedName ?? "el navegador"
+            let hit = Assistant.WebHit(title: title, url: tab.url, snippet: "Pestaña activa en \(app)")
+            VoiceAgent.last = (VoiceAgent.Action(kind: "pagina", order: order), Date(), nil)
+            a.finish(.preview(label: "Abierta en \(app)", symbol: "safari", chosen: hit, others: []),
+                     say: "Tienes abierta «\(title)», en \(host). Si quieres, te la resumo.", linger: 15, talk: true)
+        case .respell(let word):
+            Memory.learnWord(word)
+            guard let last = VoiceAgent.last, Date().timeIntervalSince(last.at) < 600 else {
+                a.finish(.done(symbol: "character.book.closed", title: "Aprendí «\(word)»", detail: "La próxima vez lo escucho bien", bundleID: nil),
+                         say: "Anotado: \(word). ¿Qué hago con eso?", linger: 8, talk: true)
+                return true
+            }
+            var redo = last.action
+            let fields = ["whatsapp", "mensaje", "correo"].contains(redo.kind) ? [\VoiceAgent.Action.to] : [\VoiceAgent.Action.text, \VoiceAgent.Action.to]
+            var changed = false
+            for field in fields where !redo[keyPath: field].isEmpty {
+                if let fixed = VoiceAgent.respell(redo[keyPath: field], with: word) { redo[keyPath: field] = fixed; changed = true; break }
+            }
+            if !changed, redo.kind == "perfil" || redo.kind == "buscar_web" || redo.kind == "video" {
+                redo.text = (redo.text.split(separator: " ").dropLast().joined(separator: " ") + " " + word).trimmingCharacters(in: .whitespaces)
+                changed = true
+            }
+            guard changed else {
+                a.finish(.done(symbol: "character.book.closed", title: "Aprendí «\(word)»", detail: "", bundleID: nil),
+                         say: "Anotado: \(word).", linger: 5)
+                return true
+            }
+            a.step("character.book.closed", "Corregido: «\(word)»")
+            await Hands.perform(redo)
+        case .unfinished(let said):
+            VoiceAgent.pending = .partial(said, Date())
+            let ask = "Te escuché «\(said)». ¿Y luego?"
+            a.finish(.answer(ask), say: "¿Y luego?", linger: 20, talk: true, ask: true, record: false)
         case .history:
             let done = TaskLog.shared.entries.filter { Calendar.current.isDateInToday($0.started) && $0.status != .running }
             guard !done.isEmpty else {
@@ -671,6 +867,9 @@ enum Rules {
 
     static func plan(_ order: String, context: VoiceAgent.Context) -> [VoiceAgent.Action]? {
         let f = VoiceAgent.fold(order)
+        let whole = order.trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!¡ "))
+        let wholeF = VoiceAgent.fold(whole)
+        if let one = profile(whole, wholeF) ?? video(whole, wholeF) { return [one] }
         let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica",
                      "hazlo", "formal", "mas corto", "mas largo", "amable", "profesional", "ortografia", "mejor", "entend", "entiend"]
         let pointing = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "portapapeles", "hazlo", "texto", "parrafo", "resumelo", "traducelo", "corrigelo",
@@ -793,6 +992,8 @@ enum Rules {
             a.name = a.name.trimmingCharacters(in: CharacterSet(charactersIn: " ,.«»\"'"))
             return a
         }
+        if let profile = profile(o, f) { return profile }
+        if let video = video(o, f) { return video }
         if let reply = reply(o, f, context: context) { return reply }
         if let message = message(o, f, context: context) { return message }
         if ["organiza mi dia", "organizame el dia", "organiza mi semana", "organiza mi agenda", "planea mi dia", "planeame el dia", "como organizo mi dia",
@@ -833,6 +1034,15 @@ enum Rules {
             a.kind = "evento"; a.when = when; a.text = capitalized(title.isEmpty ? "Evento" : title)
             return a
         }
+        // «pon Bad Bunny», «ponme algo de rock»: short, no date, nothing else it could be.
+        if let r = rest(["pon", "ponme", "ponle", "reproduceme", "toca"]), r.split(separator: " ").count <= 6, dateText(r) == nil,
+           !["temporizador", "alarma", "timer", "recordatorio", "luz", "volumen", "brillo", "modo", "que ", "nota", "pantalla"]
+            .contains(where: { f.contains($0) }) {
+            a.kind = "musica"
+            a.text = r.replacingOccurrences(of: #"(?i)^(algo de|musica de|m[uú]sica de|canciones de)\s+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)\s+(en|por|con) (spotify|youtube( music)?|apple music)$"#, with: "", options: .regularExpression)
+            return a
+        }
         let files = ["busca el archivo", "busca los archivos", "busca mis archivos de", "busca mis archivos", "busca el documento", "busca el pdf",
                      "encuentra el archivo", "encuentra el documento"]
         if let r = rest(files) { a.kind = "buscar_archivo"; a.name = r; return a }
@@ -865,6 +1075,58 @@ enum Rules {
         return nil
     }
 
+    /// The words a regex group matched, in their original spelling and accents.
+    private static func group(_ m: NSTextCheckingResult, _ i: Int, _ o: String, _ f: String) -> String? {
+        guard m.range(at: i).location != NSNotFound, let r = Range(m.range(at: i), in: f) else { return nil }
+        let start = f.distance(from: f.startIndex, to: r.lowerBound), length = f.distance(from: r.lowerBound, to: r.upperBound)
+        let text = o.count == f.count ? String(o.dropFirst(start).prefix(length)) : String(f[r])
+        let clean = text.trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:¿?¡!«»\"'"))
+        return clean.isEmpty ? nil : clean
+    }
+
+    private static func match(_ pattern: String, _ f: String) -> NSTextCheckingResult? {
+        (try? NSRegularExpression(pattern: pattern))?.firstMatch(in: f, range: NSRange(f.startIndex..., in: f))
+    }
+
+    static let profileSites = ["linkedin": "LinkedIn", "linked in": "LinkedIn", "instagram": "Instagram", "insta": "Instagram",
+                               "twitter": "X", "x": "X", "tiktok": "TikTok", "tik tok": "TikTok", "facebook": "Facebook", "face": "Facebook",
+                               "github": "GitHub", "git hub": "GitHub", "threads": "Threads"]
+
+    /// «busca a Samuel Nakach en LinkedIn», «el Instagram de Bad Bunny», «encuéntrame el perfil de Ana en TikTok».
+    private static func profile(_ o: String, _ f: String) -> VoiceAgent.Action? {
+        let sites = profileSites.keys.sorted { $0.count > $1.count }.joined(separator: "|")
+        let verbs = "busca|buscame|buscar|encuentra|encuentrame|muestrame|ensename|abre|abreme|pon|ve|checa|dame"
+        var a = VoiceAgent.Action(kind: "perfil", order: o)
+        if let m = match(#"^(?:\#(verbs))\s+(?:a\s+|el perfil de\s+|la cuenta de\s+|el usuario de\s+)?(.+?)\s+(?:en|de)\s+(\#(sites))$"#, f),
+           let who = group(m, 1, o, f), let site = group(m, 2, o, f) {
+            a.text = who; a.name = profileSites[VoiceAgent.fold(site)] ?? "LinkedIn"; return a
+        }
+        if let m = match(#"^(?:(?:\#(verbs))\s+)?(?:el|su)\s+(?:perfil de\s+|cuenta de\s+)?(\#(sites))\s+de\s+(.+)$"#, f),
+           let site = group(m, 1, o, f), let who = group(m, 2, o, f) {
+            a.text = who; a.name = profileSites[VoiceAgent.fold(site)] ?? "LinkedIn"; return a
+        }
+        return nil
+    }
+
+    /// «entra a YouTube y busca…», «ponme un video de…», «busca en YouTube…», «quiero ver el tráiler de…».
+    private static func video(_ o: String, _ f: String) -> VoiceAgent.Action? {
+        let patterns = [
+            #"^(?:entra a|entra en|abre|abreme|ve a|vete a|metete a|metete en)\s+youtube\s+(?:y\s+)?(?:busca|buscame|pon|ponme|reproduce|ensename|muestrame)?\s*(?:un video de\s+|el video de\s+|videos de\s+)?(.+)$"#,
+            #"^(?:busca|buscame|pon|ponme|reproduce|ensename|muestrame|abre)\s+en\s+youtube\s+(?:un video de\s+|el video de\s+|videos de\s+)?(.+)$"#,
+            #"^(?:busca|buscame|pon|ponme|reproduce|ensename|muestrame|abre|abreme)\s+(?:el video de\s+|un video de\s+|videos de\s+)?(.+?)\s+en\s+youtube$"#,
+            #"^(?:pon|ponme|ensename|muestrame|reproduce|busca|buscame|abre|abreme|quiero ver|dame|pasame)\s+(?:un|el|unos|los|algun|este)\s+(?:video|videos|clip|trailer|trailers|tutorial|tutoriales)\s+(?:de|sobre|del|acerca de|donde|que|con|para)\s+(.+)$"#,
+            #"^(?:quiero ver|ensename|muestrame|pon|ponme)\s+(?:el|un)\s+(trailer\s+de\s+.+|tutorial\s+de\s+.+|resumen\s+de[l]?\s+.+|gol\s+de\s+.+|goles\s+de[l]?\s+.+)$"#,
+        ]
+        for p in patterns {
+            guard let m = match(p, f), var q = group(m, 1, o, f) else { continue }
+            for kind in ["trailer", "tutorial"] where f.contains(kind) && !VoiceAgent.fold(q).contains(kind) { q = kind + " " + q }
+            var a = VoiceAgent.Action(kind: "video", order: o)
+            a.text = q
+            return a
+        }
+        return nil
+    }
+
     /// «mándale un correo a Ana diciendo que llego tarde», «dile a mi mamá por WhatsApp que ya voy».
     /// In WhatsApp, Slack or any chat: «respóndele que ya voy» or «dile que sí» writes it in the chat that's open.
     private static func reply(_ o: String, _ f: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
@@ -893,6 +1155,16 @@ enum Rules {
     }
 
     private static func message(_ o: String, _ f: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
+        // «manda mensaje de hola a mamá»: what to say comes before who.
+        let viaAny = #"(?i)\s+(por|en|con|v[ií]a|desde)\s+(whatsapp|wasap|guasap|mensaje|imessage|sms)\b"#
+        let bareO = o.replacingOccurrences(of: viaAny, with: "", options: .regularExpression)
+        let bareF = f.replacingOccurrences(of: viaAny, with: "", options: .regularExpression)
+        if let m = match(#"^(?:mandale|manda|mandame|enviale|envia|escribele|escribe|hazle)\s+(?:un|una|el)?\s*(whatsapp|wasap|guasap|mensajito|mensaje|msj|sms|imessage)\s+(?:de|que diga|diciendo)\s+(.+?)\s+(?:a|para)\s+((?:mi\s+)?\S+(?:\s+\S+)?)$"#, bareF),
+           let kind = group(m, 1, bareO, bareF), let said = group(m, 2, bareO, bareF), let who = group(m, 3, bareO, bareF) {
+            let via = f.contains("whats") || f.contains("wasap") || f.contains("guasap") ? " por whatsapp" : ""
+            let rebuilt = "manda \(kind) a \(who)\(via) diciendo \(said)"
+            return message(rebuilt, VoiceAgent.fold(rebuilt), context: context)
+        }
         let pattern = #"^(?:mandale|manda|mandame|enviale|envia|escribele|escribe|hazle)\s+(?:un|una)?\s*(correo|mail|email|e-mail|whatsapp|wasap|whats|guasap|mensajito|mensaje|msj|sms|imessage)\s+(?:por whatsapp\s+)?(?:a|para)\s+"#
         var kindWord = ""
         var restStart: Int?
@@ -1002,7 +1274,8 @@ enum Rules {
             case "evento" where s.date == nil:
                 continue
             case "agenda":
-                guard ["agenda", "calendario", "tengo", "eventos", "pendientes", "mi dia"].contains(where: { f.contains($0) }) else { continue }
+                guard ["agenda", "calendario", "eventos", "pendientes", "mi dia", "reunion", "junta", "citas"].contains(where: { f.contains($0) })
+                        || (f.contains("tengo") && VoiceAgent.saysDay(f)) else { continue }
             case "abrir_app":
                 let name = VoiceAgent.fold(s.name.isEmpty ? s.text : s.name)
                 if name.isEmpty || !f.contains(name.split(separator: " ").first.map(String.init) ?? name) { continue }
@@ -1196,7 +1469,10 @@ private enum Brain {
         - responder: texto = tu respuesta breve y clara. Para explicar, resumir o traducir el texto seleccionado, o saludar.
         - recordar: texto = el dato que quiere que recuerdes.
         - agenda: cuando = el día que quiere revisar.
-        - musica: texto = qué quiere escuchar (artista, canción o estilo).
+        - musica: texto = qué quiere escuchar (artista, canción o estilo). Se reproduce solo.
+        - video: texto = qué video buscar en YouTube; se reproduce el mejor resultado. Para «ponme/enséñame un video de…», «busca en YouTube…».
+        - perfil: texto = nombre de la persona; nombre = la red (LinkedIn, Instagram, X, TikTok, Facebook, GitHub). Para encontrar la cuenta de alguien.
+        - pagina: para preguntas sobre la página o pestaña que tiene abierta en el navegador.
         - investigar: texto = el tema. Para investigar, comparar o averiguar algo a fondo con varias fuentes.
         - juego: texto = el juego que pide (minijuegos, juegos sencillos para jugar en la Mac).
         - documento: texto = lo que debe tener el documento (cartas, guiones, planes, reportes, listas largas).
@@ -1207,7 +1483,9 @@ private enum Brain {
         Ejemplos:
         «mándale un correo a Ana diciendo que llego tarde» → correo, para «Ana», asunto «Llego un poco tarde», texto «Hola Ana:\\n\\nTe aviso que voy a llegar un poco tarde. Una disculpa por el retraso.\\n\\nSaludos».
         «pon una reunión con Luis mañana a las 5 y abre Cursor» → evento, texto «Reunión con Luis», cuando «mañana a las 5»; abrir_app, nombre «Cursor».
-        «busca su LinkedIn» (bajo el cursor: Kai Brokering) → buscar_web, texto «Kai Brokering LinkedIn».
+        «busca su LinkedIn» (bajo el cursor: Kai Brokering) → perfil, texto «Kai Brokering», nombre «LinkedIn».
+        «entra a YouTube y busca cómo pasó el accidente de Checo» → video, texto «cómo pasó el accidente de Checo».
+        «¿cuál es la última página que tengo en Google?» → pagina.
         «recuérdame sacar la ropa en 20 minutos» → recordatorio, texto «Sacar la ropa», minutos 20.
         «¿cuánto cuesta el iPhone 17?» → buscar_web, texto «precio iPhone 17 México».
         No inventes correos ni teléfonos: si no los sabes, pon el nombre en «para».
@@ -1277,8 +1555,9 @@ private enum Brain {
     }
 
     /// «resúmelo», «tradúcelo al inglés», «¿qué significa esto?» over the text you selected.
-    static func transform(_ order: String, text: String, onPartial: ((String) -> Void)? = nil) async throws -> String {
-        let session = LanguageModelSession(instructions: """
+    static func transform(_ order: String, text: String, onStep: ((String) -> Void)? = nil,
+                          onPartial: ((String) -> Void)? = nil) async throws -> String {
+        let instructions = """
         Haces lo que el usuario pide con el texto que te da: resumir, traducir, explicar, corregir o mejorar. \
         La orden viene de un dictado y puede tener errores («mejores de texto» = «mejora el texto»): entiende la intención. \
         Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. \
@@ -1287,8 +1566,59 @@ private enum Brain {
         Si pide corregir o mejorar, devuelve solo el texto nuevo completo, con el mismo sentido. Nunca uses marcadores como [nombre]. \
         Si el texto es un prompt para una IA y pide mejorarlo, reescríbelo como un prompt claro con: rol, objetivo, contexto, \
         pasos o requisitos, formato de respuesta y restricciones; conserva la intención y el idioma del original.
-        """)
-        return try await stream(session, "Pide: \(order)\nTexto:\n\(text.prefix(2800))", options: options, onPartial: onPartial)
+        """
+        let parts = chunks(text, size: 2600, limit: 8)
+        guard parts.count > 1 else {
+            return try await stream(LanguageModelSession(instructions: instructions), "Pide: \(order)\nTexto:\n\(text)", options: options, onPartial: onPartial)
+        }
+        // The model sees about 3000 characters at a time: long texts go part by part so nothing after the first page is lost.
+        let f = VoiceAgent.fold(order)
+        if ["traduc", "corrig", "corrige", "mejora", "reescrib", "ortograf", "parafrase"].contains(where: { f.contains($0) }) {
+            var out: [String] = []
+            for (i, part) in parts.enumerated() {
+                onStep?("Parte \(i + 1) de \(parts.count)…")
+                let done = try await stream(LanguageModelSession(instructions: instructions),
+                                            "Pide: \(order)\nEs la parte \(i + 1) de \(parts.count) de un texto largo: devuelve solo esta parte.\nTexto:\n\(part)",
+                                            options: options, onPartial: { p in onPartial?((out + [p]).joined(separator: "\n\n")) })
+                out.append(done)
+            }
+            return out.joined(separator: "\n\n")
+        }
+        var notes: [String] = []
+        for (i, part) in parts.enumerated() {
+            onStep?("Leyendo parte \(i + 1) de \(parts.count)…")
+            let reader = LanguageModelSession(instructions: """
+            Tomas notas de una parte de un texto largo, en español: de 3 a 6 frases con las ideas, hechos, nombres, fechas y cifras \
+            importantes de esta parte. Sin introducciones.
+            """)
+            notes.append(try await reader.respond(to: part, options: GenerationOptions(temperature: 0.2, maximumResponseTokens: 260)).content)
+        }
+        onStep?("Juntando las \(parts.count) partes…")
+        let all = notes.enumerated().map { "Parte \($0.offset + 1): \($0.element)" }.joined(separator: "\n")
+        return try await stream(LanguageModelSession(instructions: instructions),
+                                "Pide: \(order)\nEl texto es largo; estas son notas fieles de todas sus partes, en orden:\n\(all)",
+                                options: options, onPartial: onPartial)
+    }
+
+    /// Pieces of about `size` characters that end at a paragraph or sentence.
+    static func chunks(_ text: String, size: Int, limit: Int) -> [String] {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.count > size + size / 5 else { return [t] }
+        var out: [String] = [], current = ""
+        let pieces = t.components(separatedBy: "\n").flatMap { line -> [String] in
+            guard line.count > size else { return [line] }
+            return line.replacingOccurrences(of: ". ", with: ".\u{1}").components(separatedBy: "\u{1}")
+        }
+        for p in pieces {
+            if current.count + p.count > size, !current.isEmpty {
+                out.append(current)
+                current = ""
+                if out.count == limit { break }
+            }
+            current += (current.isEmpty ? "" : "\n") + String(p.prefix(size))
+        }
+        if !current.isEmpty, out.count < limit { out.append(current) }
+        return out
     }
 
     private static var chatSession: (session: LanguageModelSession, at: Date)?
@@ -1539,7 +1869,8 @@ enum Hands {
             if fits[key]?.contains(s.kind) == true { Habits.set(key, value) }
         }
         await act(s)
-        guard ["correo", "whatsapp", "mensaje", "musica", "evento", "recordatorio"].contains(s.kind), a.phase != .failed else { return }
+        guard ["correo", "whatsapp", "mensaje", "musica", "evento", "recordatorio", "buscar_web", "video", "perfil", "investigar"].contains(s.kind),
+              a.phase != .failed else { return }
         var event: String?
         if case .event(let e) = a.card { event = e.id }
         VoiceAgent.last = (s, Date(), event)
@@ -1644,18 +1975,55 @@ enum Hands {
             let said = Habits.mentioned(in: s.order).flatMap { $0.0 == .music ? $0.1 : nil }
             let app = [s.name, said, Habits.get(.music)].compactMap { $0 }.first { !$0.isEmpty }
                 ?? (VoiceCommand.findApp("Spotify") != nil ? "spotify" : "youtube")
-            let q = s.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s.text
+            let what = s.text.isEmpty ? s.order : s.text
+            let q = what.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? what
+            a.step("music.note", "Buscando «\(what)» en \(Habits.name(app))…")
+            if app == "spotify", let track = await SpotifyTrack.find(what) {
+                a.step("play.fill", "Poniendo «\(track.title)»…")
+                let script = "tell application \"Spotify\"\nactivate\nplay track \"\(track.uri)\"\nend tell"
+                var error: NSDictionary?
+                NSAppleScript(source: script)?.executeAndReturnError(&error)
+                if error == nil || NSWorkspace.shared.open(URL(string: track.uri)!) {
+                    return a.finish(.done(symbol: "play.circle.fill", title: track.title, detail: "Sonando en Spotify", bundleID: "com.spotify.client"),
+                                    say: "Te pongo \(track.title).", linger: 5)
+                }
+            }
+            if app != "spotify" && app != "applemusic", let song = await YouTube.search(what + " audio").first,
+               let id = URLComponents(url: song.url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "v" })?.value,
+               let play = URL(string: "https://music.youtube.com/watch?v=\(id)"), NSWorkspace.shared.open(play) {
+                return a.finish(.preview(label: "Sonando en YouTube Music", symbol: "music.note", chosen: song, others: []),
+                                say: "Te pongo \(song.title).", linger: 8)
+            }
             let url: URL?
             switch app {
             case "spotify": url = URL(string: "spotify:search:\(q)")
             case "applemusic": url = URL(string: "music://music.apple.com/search?term=\(q)")
             default: url = URL(string: "https://music.youtube.com/search?q=\(q)")
             }
-            a.step("music.note", "Buscando «\(s.text)» en \(Habits.name(app))…")
             guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir \(Habits.name(app))") }
             let bundle = ["spotify": "com.spotify.client", "applemusic": "com.apple.Music"][app]
-            a.finish(.done(symbol: "music.note", title: "Abrí \(Habits.name(app))", detail: s.text, bundleID: bundle),
+            a.finish(.done(symbol: "music.note", title: "Abrí \(Habits.name(app))", detail: what, bundleID: bundle),
                      say: "Listo, está en \(Habits.name(app)).", linger: 4)
+        case "video":
+            let what = s.text.isEmpty ? s.order : s.text
+            a.step("play.rectangle", "Buscando «\(what)» en YouTube…")
+            let videos = await YouTube.search(what)
+            guard let best = Hands.bestVideo(videos, for: what) else {
+                var c = URLComponents(string: "https://www.youtube.com/results")!
+                c.queryItems = [URLQueryItem(name: "search_query", value: what)]
+                if let url = c.url { NSWorkspace.shared.open(url) }
+                return a.finish(.done(symbol: "play.rectangle", title: "Abrí YouTube", detail: what, bundleID: nil),
+                                say: "No pude elegir un video; te dejé la búsqueda en YouTube.", linger: 5)
+            }
+            a.step("play.rectangle.fill", "Poniendo «\(best.title)»…")
+            NSWorkspace.shared.open(best.url)
+            a.finish(.preview(label: "Reproduciendo en YouTube", symbol: "play.rectangle.fill", chosen: best,
+                              others: videos.filter { $0.url != best.url }),
+                     say: "Te pongo «\(best.title)»\(best.snippet.isEmpty ? "" : ", de \(best.snippet)"). Abajo hay otros por si no era.", linger: 20)
+        case "perfil":
+            await findProfile(s)
+        case "pagina":
+            _ = await Quick.handle("qué página tengo abierta")
         case "transformar":
             #if canImport(FoundationModels)
             if #available(macOS 26, *), VoiceAgent.available {
@@ -1669,7 +2037,8 @@ enum Hands {
                 } else {
                     a.step("text.viewfinder", replace ? "Reescribiendo tu texto…" : s.name.isEmpty && s.text.count > 0 ? "Leyendo tu texto…" : "Leyendo…")
                 }
-                let answer = (try? await Brain.transform(s.order, text: text, onPartial: replace ? nil : { a.stream($0) })) ?? ""
+                let answer = (try? await Brain.transform(s.order, text: text, onStep: { a.step("text.viewfinder", $0) },
+                                                         onPartial: replace ? nil : { a.stream($0) })) ?? ""
                 guard !answer.isEmpty else { return a.fail("No pude con ese texto") }
                 if replace {
                     if s.name == "reemplazar_todo" { VoiceKey.selectAllInField() }
@@ -1717,7 +2086,7 @@ enum Hands {
                                         say: "Listo.", linger: 4)
                     }
                     a.finish(.answer(answer), say: spoken(answer, fallback: "Aquí lo tienes."),
-                             linger: max(12, min(40, Double(answer.count) / 8)), talk: true, record: s.kind == "organizar")
+                             linger: max(12, min(40, Double(answer.count) / 8)), talk: true)
                 } catch {
                     a.fail("No pude responder: \(error.localizedDescription)")
                 }
@@ -1989,27 +2358,96 @@ enum Hands {
         return search.hits.prefix(6).map(\.url)
     }
 
-    /// Finds the person, opens their chat with the message and sends it. Without their number it leaves it ready and says why.
+    /// The result that has most of your words in its title, and among equals the one YouTube ranked higher.
+    static func bestVideo(_ videos: [Assistant.WebHit], for query: String) -> Assistant.WebHit? {
+        let words = Set(People.fold(query).split(separator: " ").map(String.init).filter { $0.count > 2 })
+        return videos.enumerated().max { l, r in
+            func score(_ e: (offset: Int, element: Assistant.WebHit)) -> Int {
+                let title = Set(People.fold(e.element.title + " " + e.element.snippet).split(separator: " ").map(String.init))
+                return words.intersection(title).count * 10 - e.offset * 3
+            }
+            return score(l) < score(r)
+        }?.element
+    }
+
+    /// «busca a Samuel Nakach en LinkedIn»: the profile itself (not posts), opened, with the other matches under it.
+    private static func findProfile(_ s: VoiceAgent.Action) async {
+        let who = s.text.trimmingCharacters(in: .whitespaces)
+        let network = Rules.profileSites[VoiceAgent.fold(s.name)] ?? (s.name.isEmpty ? "LinkedIn" : s.name)
+        guard !who.isEmpty else { return a.fail("¿A quién busco en \(network)?") }
+        let domains = ["LinkedIn": ("linkedin.com/in", "linkedin.com"), "Instagram": ("instagram.com", "instagram.com"), "X": ("x.com", "x.com"),
+                       "TikTok": ("tiktok.com", "tiktok.com"), "Facebook": ("facebook.com", "facebook.com"), "GitHub": ("github.com", "github.com"),
+                       "Threads": ("threads.net", "threads.net")]
+        let (site, domain) = domains[network] ?? ("linkedin.com/in", "linkedin.com")
+        a.step("person.crop.square", "Buscando a \(who) en \(network)…")
+        var hits = await WebSearch.search("\(who) site:\(site)").filter { $0.host.contains(domain) }
+        if hits.isEmpty, network == "X" { hits = await WebSearch.search("\(who) site:twitter.com").filter { $0.host.contains("twitter.com") } }
+        if hits.isEmpty { hits = await WebSearch.search("\(who) \(network)").filter { $0.host.contains(domain) } }
+        let profiles = hits.filter { profile($0.url, network) }
+        let ranked = (profiles.isEmpty ? hits : profiles).enumerated()
+            .map { (hit: $0.element, score: People.score(person($0.element.title), for: who) * 10 - $0.offset) }
+            .sorted { $0.score > $1.score }.map(\.hit)
+        guard let best = ranked.first else {
+            return a.fail("No encontré a \(who) en \(network). Si me deletreas el apellido, lo busco otra vez.")
+        }
+        NSWorkspace.shared.open(best.url)
+        let name = person(best.title)
+        a.finish(.preview(label: "Perfil en \(network)", symbol: "person.crop.square", chosen: best, others: Array(ranked.dropFirst())),
+                 say: "Encontré a \(name.isEmpty ? who : name) en \(network) y te lo abrí. Abajo hay otros por si no es.", linger: 25)
+    }
+
+    /// «Samuel Nakach - Founder - Acme | LinkedIn» → «Samuel Nakach».
+    private static func person(_ title: String) -> String {
+        let cut = title.components(separatedBy: CharacterSet(charactersIn: "|•–—")).first ?? title
+        return (cut.components(separatedBy: " - ").first ?? cut)
+            .replacingOccurrences(of: #"\s*\(@[^)]*\).*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func profile(_ url: URL, _ network: String) -> Bool {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        switch network {
+        case "LinkedIn": return parts.first == "in"
+        case "TikTok": return parts.count == 1 && parts[0].hasPrefix("@")
+        case "Facebook": return parts.count == 1 || parts.first == "profile.php"
+        default:
+            let posts = ["p", "reel", "reels", "explore", "status", "search", "hashtag", "stories", "tv", "i", "topics"]
+            return parts.count == 1 && !posts.contains(parts[0])
+        }
+    }
+
+    /// A message found and written, waiting for your OK on the card.
+    struct Outgoing {
+        let action: VoiceAgent.Action
+        let name: String
+        let phone: String?
+        let email: String?
+        /// What you called them («mamá»), saved as this person once you send.
+        let learn: String?
+    }
+    static var outgoing: Outgoing?
+
+    /// Finds the person and writes the message, then shows it with Enviar / Cancelar: nothing goes out until you say so.
     static func sendMessage(_ s: VoiceAgent.Action) async {
         VoiceAgent.unsent = false
+        outgoing = nil
         let whatsapp = s.kind == "whatsapp"
         var name = s.to
         var phone: String? = s.to.filter(\.isNumber).count >= 8 ? s.to : nil
         var email: String? = s.to.contains("@") ? s.to : nil
+        var learn: String?
+        var others: [String] = []
         if phone == nil, email == nil, !s.to.isEmpty {
-            a.step("person.crop.circle", "Buscando a \(s.to) en tus contactos…")
-            let found = await People.find(s.to)
-            if let p = found, p.guessed {
-                VoiceAgent.pending = .confirm(s, p, Date())
-                return a.finish(.answer("¿Te refieres a \(p.name)?"), say: "¿Te refieres a \(p.name)?", linger: 20, talk: true, ask: true)
-            }
-            if let p = found {
+            a.step("person.crop.circle", "Buscando a \(s.to) en tus contactos y WhatsApp…")
+            if let p = await People.find(s.to) {
                 name = p.name
                 phone = p.phone
                 email = p.email
+                others = p.others
+                if Aliases.key(p.name) != Aliases.key(s.to) { learn = s.to }
             } else if Aliases.find(s.to) == nil {
                 VoiceAgent.pending = .who(s, Date())
-                let ask = "No tengo guardado a «\(s.to)». ¿Cómo se llama en tus contactos, o cuál es su número?"
+                let ask = "No encontré a «\(s.to)» ni en Contactos ni en WhatsApp. ¿Cómo lo tienes guardado, o cuál es su número?"
                 return a.finish(.answer(ask), say: ask, linger: 25, talk: true, ask: true)
             }
         }
@@ -2017,15 +2455,44 @@ enum Hands {
         guard !s.text.isEmpty else { return a.fail("¿Qué le digo a \(name)? Dime «dile a \(name) que …»") }
         var s = s
         #if canImport(FoundationModels)
-        if #available(macOS 26, *), VoiceAgent.available, s.text.split(separator: " ").count > 1 {
+        if #available(macOS 26, *), VoiceAgent.available, s.text.split(separator: " ").count > 2 {
             a.step("text.bubble", "Escribiendo el mensaje…")
             if let better = await Brain.message(s.text, to: name, within: 12) { s.text = better }
         }
         #endif
-        let auto = AppSettings.shared.assistantAutoSend
+        let app = whatsapp ? "WhatsApp" : "Mensajes"
+        let bundle = whatsapp ? "net.whatsapp.WhatsApp" : "com.apple.MobileSMS"
+        let ready = Outgoing(action: s, name: name, phone: phone, email: email, learn: learn)
+        guard AppSettings.shared.assistantAskBeforeSend else { return await deliver(ready) }
+        outgoing = ready
+        VoiceAgent.pending = .outgoing(Date())
+        var say = "¿Le mando a \(name): «\(s.text)»?"
+        if !others.isEmpty { say = "Hay más de uno: elegí a \(name), también está \(others.joined(separator: " y ")). " + say }
+        a.finish(.outgoing(Assistant.Outgoing(app: app, bundleID: bundle, to: name, handle: phone ?? email ?? "", text: s.text)),
+                 say: say, linger: 60, talk: true, ask: true)
+    }
+
+    static func cancelOutgoing() {
+        outgoing = nil
+        if case .outgoing = VoiceAgent.pending { VoiceAgent.pending = nil }
+        a.finish(.done(symbol: "xmark.circle", title: "No lo envié", detail: "", bundleID: nil), linger: 2, record: false)
+    }
+
+    static func sendOutgoing() async {
+        guard let ready = outgoing else { return }
+        outgoing = nil
+        if case .outgoing = VoiceAgent.pending { VoiceAgent.pending = nil }
+        if let alias = ready.learn { Aliases.learn(alias, name: ready.name, email: ready.email, phone: ready.phone) }
+        await deliver(ready)
+    }
+
+    private static func deliver(_ ready: Outgoing) async {
+        let s = ready.action, name = ready.name, phone = ready.phone, email = ready.email
+        let whatsapp = s.kind == "whatsapp"
         let app = whatsapp ? "WhatsApp" : "Mensajes"
         let bundle = whatsapp ? "net.whatsapp.WhatsApp" : "com.apple.MobileSMS"
         let sent = Assistant.Card.done(symbol: "checkmark.message.fill", title: "Le mandé el mensaje a \(name) por \(app)", detail: s.text, bundleID: bundle)
+        let auto = true
 
         if !whatsapp, auto, let handle = phone ?? email {
             a.step("message.fill", "Mandándole el mensaje a \(name)…")

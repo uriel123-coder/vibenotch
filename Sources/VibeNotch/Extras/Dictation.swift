@@ -26,6 +26,11 @@ final class Dictation: ObservableObject {
     private var endpoint: DispatchWorkItem?
     private var committed = ""
     private var segment = ""
+    private var recognizer: SFSpeechRecognizer?
+    private var onDevice = true
+    private var piece = 0
+    private var restarts = 0
+    private let box = RequestBox()
 
     var active: Bool { phase != .idle }
 
@@ -123,29 +128,41 @@ final class Dictation: ObservableObject {
             throw DictationError(why: "El reconocimiento de voz no está disponible para \(Self.locale.identifier)")
         }
         generation += 1
-        let gen = generation
         committed = ""
         segment = ""
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        if #available(macOS 13, *) { req.addsPunctuation = true }
-        req.contextualStrings = Memory.vocabulary()
+        restarts = 0
+        // Apple's servers get names and long sentences right far more often; the Mac's own model is the fallback.
+        onDevice = recognizer.supportsOnDeviceRecognition && !(mode == .assistant && AppSettings.shared.assistantPreciseSpeech)
+        self.recognizer = recognizer
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { throw DictationError(why: "No encontré un micrófono") }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(req))
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(box))
         engine.prepare()
         try engine.start()
 
         self.engine = engine
-        request = req
-        task = recognizer.recognitionTask(with: req, resultHandler: Self.handler(gen))
+        listen()
         startedAt = Date()
         phase = .recording
-        if mode == .assistant { stopAfterSilence(Assistant.shared.followUp ? 5 : 8) }
+        if mode == .assistant { stopAfterSilence(Assistant.shared.followUp ? 6 : 9) }
+    }
+
+    /// A fresh recognition on the same mic: at the start, and again whenever the recognizer gives up mid-sentence.
+    private func listen() {
+        guard let recognizer else { return }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if onDevice { req.requiresOnDeviceRecognition = true }
+        if #available(macOS 13, *) { req.addsPunctuation = true }
+        req.contextualStrings = Memory.vocabulary()
+        piece += 1
+        task?.cancel()
+        request = req
+        box.request = req
+        task = recognizer.recognitionTask(with: req, resultHandler: Self.handler(generation, piece))
     }
 
     /// Talking to the assistant ends on its own when you pause, like Siri.
@@ -162,9 +179,9 @@ final class Dictation: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest) -> AVAudioNodeTapBlock {
+    nonisolated private static func tap(_ box: RequestBox) -> AVAudioNodeTapBlock {
         { buffer, _ in
-            req.append(buffer)
+            box.request?.append(buffer)
             guard let data = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
             var sum: Float = 0
             for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] }
@@ -174,19 +191,19 @@ final class Dictation: ObservableObject {
         }
     }
 
-    nonisolated private static func handler(_ gen: Int) -> (SFSpeechRecognitionResult?, Error?) -> Void {
+    nonisolated private static func handler(_ gen: Int, _ piece: Int) -> (SFSpeechRecognitionResult?, Error?) -> Void {
         { result, error in
             let text = result?.bestTranscription.formattedString
             let final = result?.isFinal ?? false
             let failed = error != nil
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { Dictation.shared.update(text, final: final, failed: failed, gen: gen) }
+                MainActor.assumeIsolated { Dictation.shared.update(text, final: final, failed: failed, gen: gen, piece: piece) }
             }
         }
     }
 
-    private func update(_ text: String?, final: Bool, failed: Bool, gen: Int) {
-        guard gen == generation, phase == .recording || phase == .finishing else { return }
+    private func update(_ text: String?, final: Bool, failed: Bool, gen: Int, piece: Int) {
+        guard gen == generation, piece == self.piece, phase == .recording || phase == .finishing else { return }
         if let text, !text.isEmpty {
             // On-device recognition starts over after a pause and reports only the new words: keep what came before.
             if segment.count > 12, text.count < segment.count / 2 {
@@ -196,10 +213,18 @@ final class Dictation: ObservableObject {
             transcript = (committed + " " + text).trimmingCharacters(in: .whitespaces)
             // Room to think mid-sentence; a little more when it's barely started.
             let words = transcript.split(separator: " ").count
-            if mode == .assistant && phase == .recording { stopAfterSilence(words < 4 ? 3 : 2.2) }
+            if mode == .assistant && phase == .recording { stopAfterSilence(words < 4 ? 3.2 : 2.4) }
         }
-        // Server recognition stops on its own after about a minute; keep what was said.
-        if final || failed { save() }
+        guard final || failed else { return }
+        // The recognizer ended while you're still talking (a pause, «no speech», the server's minute): keep the words and listen on.
+        if phase == .recording, restarts < 6 {
+            restarts += 1
+            if failed && !onDevice && (text ?? "").isEmpty, recognizer?.supportsOnDeviceRecognition == true { onDevice = true }
+            committed = transcript
+            segment = ""
+            return listen()
+        }
+        save()
     }
 
     private func save() {
@@ -249,6 +274,7 @@ final class Dictation: ObservableObject {
         task?.cancel()
         task = nil
         request = nil
+        box.request = nil
         generation += 1
     }
 
@@ -266,6 +292,16 @@ final class Dictation: ObservableObject {
                 if let result, result.isFinal { print("Texto: \(result.bestTranscription.formattedString)"); exit(0) }
             }
         }
+    }
+}
+
+/// The mic's audio thread hands buffers to whichever recognition is current.
+private final class RequestBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: SFSpeechAudioBufferRecognitionRequest?
+    var request: SFSpeechAudioBufferRecognitionRequest? {
+        get { lock.withLock { current } }
+        set { lock.withLock { current = newValue } }
     }
 }
 

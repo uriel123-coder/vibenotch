@@ -174,6 +174,42 @@ private struct CardView: View {
                 }
                 if let answer { AnswerText(text: answer, live: live, writing: writing) }
                 VStack(spacing: 2) { ForEach(hits.prefix(answer == nil ? 4 : 3)) { WebRow(hit: $0) } }
+            case let .preview(label, symbol, chosen, others):
+                Header(symbol: symbol, title: label) {
+                    Link("Abrir", destination: chosen.url).font(.system(size: 10.5, weight: .semibold))
+                }
+                Button { NSWorkspace.shared.open(chosen.url) } label: {
+                    HStack(spacing: 10) {
+                        Thumb(url: chosen.image, symbol: symbol, width: 112, height: 63)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(chosen.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(2)
+                            Text(chosen.snippet.isEmpty ? chosen.host : "\(chosen.host) · \(chosen.snippet)")
+                                .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !others.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach(others.prefix(3)) { hit in
+                            Button { NSWorkspace.shared.open(hit.url) } label: {
+                                HStack(spacing: 8) {
+                                    if hit.image != nil { Thumb(url: hit.image, symbol: symbol, width: 52, height: 30) }
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(hit.title).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                                        Text(hit.host).font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.vertical, 3).padding(.horizontal, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             case .event(let event):
                 EventCard(event: event)
             case let .document(url, title, preview, edited):
@@ -239,6 +275,24 @@ private struct CardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Ya está abierto en \(app): revísalo y dale enviar.")
                     .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.4))
+            case .outgoing(let o):
+                HStack(spacing: 8) {
+                    if let icon = AppLookup.icon(o.bundleID) { Image(nsImage: icon).resizable().frame(width: 18, height: 18) }
+                    Text("\(o.app) · ¿lo envío?").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                    Spacer()
+                }
+                Field(label: "Para", value: o.handle.isEmpty ? o.to : "\(o.to) · \(o.handle)")
+                Text(o.text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    PillButton(title: "Cancelar", primary: false) { Hands.cancelOutgoing() }
+                    PillButton(title: "Enviar", primary: true) { Task { await Hands.sendOutgoing() } }
+                    Spacer()
+                    Text("o di «sí»").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.4))
+                }
             case let .done(symbol, title, detail, bundleID):
                 HStack(spacing: 10) {
                     if let bundleID, let icon = AppLookup.icon(bundleID) {
@@ -537,6 +591,24 @@ private struct Typewriter: View {
                 }
             }
             .onChange(of: text) { start = Date() }
+    }
+}
+
+private struct Thumb: View {
+    let url: URL?
+    let symbol: String
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        AsyncImage(url: url) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: {
+            Image(systemName: symbol).font(.system(size: height * 0.4)).foregroundStyle(.white.opacity(0.5))
+        }
+        .frame(width: width, height: height)
+        .background(.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

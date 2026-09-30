@@ -388,6 +388,25 @@ enum Snapshot {
                    Skills.Skill(name: "modo trabajo", orders: "abre Cursor y abre Slack y pon música lo-fi"),
                ]))
         await shot("\(prefix)-12j-asistente-habilidad", panel, dir, height: 280)
+
+        a.demo(.listening, heard: "Manda mensaje de hola a mamá", status: "¿Le mando a Mamá: «Hola, ma. ¿Cómo estás?»?",
+               steps: [Step(symbol: "person.crop.circle", text: "Buscando a mamá en tus contactos y WhatsApp…", finished: true),
+                       Step(symbol: "text.bubble", text: "Escribiendo el mensaje…", finished: true)],
+               card: .outgoing(Assistant.Outgoing(app: "WhatsApp", bundleID: "net.whatsapp.WhatsApp", to: "Mamá", handle: "+52 55 1234 5678",
+                                                  text: "Hola, ma. ¿Cómo estás?")), followUp: true)
+        await shot("\(prefix)-12k-asistente-enviar", panel, dir, height: 330)
+
+        let clips = [
+            Assistant.WebHit(title: "Así fue el accidente de Checo Pérez en Bakú | Resumen", url: URL(string: "https://www.youtube.com/watch?v=gPWjIYroADw")!,
+                             snippet: "F1 en Español", image: URL(string: "https://i.ytimg.com/vi/gPWjIYroADw/mqdefault.jpg")),
+            Assistant.WebHit(title: "Checo y Sainz: el choque explicado vuelta por vuelta", url: URL(string: "https://www.youtube.com/watch?v=FA1sR2SZAlY")!,
+                             snippet: "Tierra MotorSport", image: URL(string: "https://i.ytimg.com/vi/FA1sR2SZAlY/mqdefault.jpg")),
+        ]
+        a.demo(.done, heard: "Entra a YouTube y busca cómo pasó el accidente de Checo", status: "Te pongo «Así fue el accidente de Checo Pérez en Bakú».",
+               steps: [Step(symbol: "play.rectangle", text: "Buscando en YouTube…", finished: true)],
+               card: .preview(label: "Reproduciendo en YouTube", symbol: "play.rectangle.fill", chosen: clips[0], others: [clips[1]]))
+        try? await Task.sleep(for: .seconds(2))
+        await shot("\(prefix)-12l-asistente-video", panel, dir, height: 360)
         a.dismiss()
     }
 

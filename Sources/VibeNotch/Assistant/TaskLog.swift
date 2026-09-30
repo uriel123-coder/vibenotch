@@ -106,6 +106,11 @@ final class TaskLog: ObservableObject {
             return ("Archivos «\(query)»\n" + urls.map { "• \($0.lastPathComponent)" }.joined(separator: "\n"), urls.first, nil, "doc.text.magnifyingglass")
         case let .draft(app, bundleID, to, subject, body)?:
             return ("\(app)\(to.isEmpty ? "" : " · para \(to)")\(subject.isEmpty ? "" : "\nAsunto: \(subject)")\n\n\(body)", nil, bundleID.isEmpty ? nil : bundleID, "envelope")
+        case let .preview(label, symbol, chosen, others)?:
+            let list = others.prefix(3).map { "• \($0.title) — \($0.host)" }.joined(separator: "\n")
+            return (["\(label): \(chosen.title)", list].filter { !$0.isEmpty }.joined(separator: "\n\n"), chosen.url, nil, symbol)
+        case .outgoing(let o)?:
+            return ("\(o.app) · para \(o.to)\n\n\(o.text)", nil, o.bundleID, "paperplane")
         case let .done(symbol, title, detail, bundleID)?:
             return ([title, detail].filter { !$0.isEmpty }.joined(separator: "\n"), nil, bundleID, symbol)
         case let .memory(saved, all)?:

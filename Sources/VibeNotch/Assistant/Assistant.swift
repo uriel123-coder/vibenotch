@@ -29,6 +29,7 @@ final class Assistant: ObservableObject {
         let title: String
         let url: URL
         let snippet: String
+        var image: URL? = nil
         var host: String { url.host()?.replacingOccurrences(of: "www.", with: "") ?? "" }
     }
 
@@ -60,6 +61,19 @@ final class Assistant: ObservableObject {
         case memory(saved: String?, all: [String])
         case document(url: URL, title: String, preview: String, edited: Bool)
         case skills(saved: String?, all: [Skills.Skill])
+        /// A message ready to go that waits for your OK: Enviar, «sí» or «envíalo».
+        case outgoing(Outgoing)
+        /// What it picked and opened (a video, a profile), with the other results in case it's not the one.
+        case preview(label: String, symbol: String, chosen: WebHit, others: [WebHit])
+    }
+
+    struct Outgoing: Equatable {
+        let app: String
+        let bundleID: String
+        let to: String
+        /// The number or chat it goes to, so you can see it's the right person.
+        let handle: String
+        let text: String
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -318,6 +332,8 @@ final class Assistant: ObservableObject {
         case .events(_, let rows)?: h += 44 + CGFloat(max(1, min(rows.count, 6))) * 30
         case .files(_, let urls)?: h += 44 + CGFloat(max(1, min(urls.count, 6))) * 28
         case .draft(_, _, _, _, let body)?: h += 118 + min(90, lines(body, 15))
+        case .outgoing(let o)?: h += 128 + min(90, lines(o.text, 15))
+        case .preview(_, _, _, let others)?: h += 36 + 76 + CGFloat(min(others.count, 3)) * 44
         case .done?: h += 58
         case .memory(_, let all)?: h += 44 + CGFloat(max(1, min(all.count, 6))) * 22
         case .event?: h += 200
@@ -602,6 +618,14 @@ enum Memory {
         }
         return Array(Set(custom + fromFacts + People.names)).prefix(200).map { $0 }
     }
+
+    /// «Nakach se escribe n-a-k-a-c-h»: the recognizer gets it right from then on.
+    static func learnWord(_ word: String) {
+        let words = AppSettings.shared.voiceWords.split(whereSeparator: { $0 == "," || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !words.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) else { return }
+        AppSettings.shared.voiceWords = (words + [word]).joined(separator: ", ")
+    }
 }
 
 // MARK: - What it learns about how you do things
@@ -729,19 +753,27 @@ enum People {
         let name: String
         let email: String?
         let phone: String?
-        /// Found by a nickname guess («mamá» → «Mami Laura»), worth confirming once.
+        /// Not exactly what you said («mamá» → «Mami Laura»): the send card shows it so you can check.
         var guessed = false
+        /// Others who fit about as well.
+        var others: [String] = []
     }
 
     static func loadNames() {
-        guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else { return }
+        let contacts = CNContactStore.authorizationStatus(for: .contacts) == .authorized
         DispatchQueue.global(qos: .utility).async {
-            let store = CNContactStore()
-            let req = CNContactFetchRequest(keysToFetch: [CNContactGivenNameKey, CNContactFamilyNameKey] as [CNKeyDescriptor])
             var found: [String] = []
-            try? store.enumerateContacts(with: req) { c, stop in
-                for n in [c.givenName, c.familyName] where n.count > 2 { found.append(n) }
-                if found.count > 400 { stop.pointee = true }
+            if contacts {
+                let req = CNContactFetchRequest(keysToFetch: [CNContactGivenNameKey, CNContactFamilyNameKey] as [CNKeyDescriptor])
+                try? CNContactStore().enumerateContacts(with: req) { c, stop in
+                    for n in [c.givenName, c.familyName] where n.count > 2 { found.append(n) }
+                    if found.count > 400 { stop.pointee = true }
+                }
+            }
+            // Recent WhatsApp chats first: those are the names you'll say.
+            let chats = WhatsAppPeople.all().sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }.prefix(80)
+            for e in chats {
+                for n in e.name.split(separator: " ").map(String.init) where n.count > 2 && n.first?.isLetter == true { found.append(n) }
             }
             DispatchQueue.main.async { MainActor.assumeIsolated { People.names = Array(Set(found)) } }
         }
@@ -759,39 +791,96 @@ enum People {
         return await contact(q)
     }
 
-    private static func contact(_ q: String) async -> Person? {
+    private struct Candidate {
+        let name: String
+        let email: String?
+        let phone: String?
+        var score: Int
+    }
+
+    /// Everyone in Contacts and in WhatsApp gets a score and the best one wins: «Joe» beats «Joel», «Mamá» beats «Mamá de Ana».
+    private static func contact(_ spoken: String) async -> Person? {
+        let q = Aliases.key(spoken)
         guard q.count >= 2, !q.contains("@"), q.filter(\.isNumber).count < 7 else { return nil }
         let store = CNContactStore()
-        if CNContactStore.authorizationStatus(for: .contacts) != .authorized {
-            guard (try? await store.requestAccess(for: .contacts)) == true else { return nil }
-            loadNames()
+        var allowed = CNContactStore.authorizationStatus(for: .contacts) == .authorized
+        if !allowed, CNContactStore.authorizationStatus(for: .contacts) == .notDetermined {
+            allowed = (try? await store.requestAccess(for: .contacts)) == true
+            if allowed { loadNames() }
         }
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey,
                     CNContactPhoneNumbersKey] as [CNKeyDescriptor]
         return await Task.detached(priority: .userInitiated) { () -> Person? in
-            func fold(_ s: String) -> String {
-                s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
-                    .filter { $0.isLetter || $0 == " " }.trimmingCharacters(in: .whitespaces)
-            }
-            var matches = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: q), keysToFetch: keys)) ?? []
-            let guessed = matches.isEmpty
-            if matches.isEmpty {
-                // «mamá» saved as «Mamá ❤️», «Mami» or «Mamá Laura».
-                let variants: [String: [String]] = ["mama": ["mami", "ma"], "papa": ["papi", "pa"], "abuela": ["abue", "abuelita"],
-                                                    "abuelo": ["abue", "abuelito"], "hermana": ["hermanita", "sis"], "hermano": ["hermanito", "bro"]]
-                let wanted = [fold(q)] + (variants[fold(q)] ?? [])
+            var found: [Candidate] = []
+            if allowed {
                 try? store.enumerateContacts(with: CNContactFetchRequest(keysToFetch: keys)) { c, _ in
-                    let full = fold([c.givenName, c.familyName, c.nickname].joined(separator: " "))
-                    let words = full.split(separator: " ").map(String.init)
-                    if wanted.contains(where: { w in words.contains(w) || (w.count > 3 && full.hasPrefix(w)) }) { matches.append(c) }
+                    let name = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
+                    let s = max(score(name, for: q), score(c.nickname, for: q), score(c.givenName, for: q) - 12)
+                    guard s > 0 else { return }
+                    let mobile = c.phoneNumbers.first { [CNLabelPhoneNumberMobile, CNLabelPhoneNumberiPhone].contains($0.label ?? "") }
+                        ?? c.phoneNumbers.first
+                    found.append(Candidate(name: name.isEmpty ? c.nickname : name, email: c.emailAddresses.first.map { String($0.value) },
+                                           phone: mobile?.value.stringValue, score: s + (mobile == nil ? 0 : 3)))
                 }
             }
-            guard let c = matches.first(where: { !$0.phoneNumbers.isEmpty }) ?? matches.first else { return nil }
-            let name = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
-            let mobile = c.phoneNumbers.first { [CNLabelPhoneNumberMobile, CNLabelPhoneNumberiPhone].contains($0.label ?? "") } ?? c.phoneNumbers.first
-            return Person(name: name.isEmpty ? q : name, email: c.emailAddresses.first.map { String($0.value) },
-                          phone: mobile?.value.stringValue, guessed: guessed && fold(name) != fold(q))
+            for e in WhatsAppPeople.all() {
+                var s = score(e.name, for: q)
+                guard s > 0 else { continue }
+                if let last = e.last { s += last.timeIntervalSinceNow > -7 * 86400 ? 8 : last.timeIntervalSinceNow > -60 * 86400 ? 4 : 0 }
+                let tail = String(e.phone.suffix(10))
+                if let i = found.firstIndex(where: { String(($0.phone ?? "").filter(\.isNumber).suffix(10)) == tail }) {
+                    found[i].score = max(found[i].score, s)
+                } else {
+                    found.append(Candidate(name: e.name, email: nil, phone: "+" + e.phone, score: s))
+                }
+            }
+            found.sort { $0.score != $1.score ? $0.score > $1.score : $0.name.count < $1.name.count }
+            guard let best = found.first else { return nil }
+            let others = found.dropFirst().filter { $0.score >= best.score - 5 && fold($0.name) != fold(best.name) }.prefix(2).map(\.name)
+            return Person(name: best.name, email: best.email, phone: best.phone, guessed: best.score < 85, others: Array(others))
         }.value
+    }
+
+    nonisolated static func fold(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+            .map { $0.isLetter ? $0 : " " }.split(separator: " ").map { String($0) }.joined(separator: " ")
+    }
+
+    /// 100 is exactly the name; «Joe» for «Joe Smith» is high, «Joe» for «Joel» low, «Mamá de Ana» for «mamá» lower still.
+    nonisolated static func score(_ name: String, for query: String) -> Int {
+        let n = fold(name), q = fold(query)
+        guard n.count >= 2, q.count >= 2 else { return 0 }
+        let nw = n.split(separator: " ").map(String.init), qw = q.split(separator: " ").map(String.init)
+        let family: [String: [String]] = ["mama": ["mami", "ma", "madre", "mom", "mother", "jefa"], "papa": ["papi", "pa", "padre", "dad", "jefe"],
+                                          "abuela": ["abue", "abuelita", "abu", "lita"], "abuelo": ["abue", "abuelito", "abu", "lito"],
+                                          "hermana": ["hermanita", "sis", "mana"], "hermano": ["hermanito", "bro", "mano"]]
+        var s: Int
+        if n == q { s = 100 }
+        else if nw.starts(with: qw) { s = 88 - 4 * (nw.count - qw.count) }
+        else if qw.allSatisfy(nw.contains) { s = 72 - 4 * (nw.count - qw.count) }
+        else if qw.count == 1, let alt = family[q], nw.contains(where: alt.contains) { s = 64 - 4 * (nw.count - 1) }
+        else if qw.allSatisfy({ w in w.count >= 3 && nw.contains { $0.count > w.count && $0.hasPrefix(w) } }) { s = 45 }
+        else if qw.allSatisfy({ w in w.count >= 4 && nw.contains { distance($0, w) <= 1 } }) { s = 40 }
+        else { return 0 }
+        if nw.contains("de"), !qw.contains("de") { s -= 30 }
+        return max(1, s)
+    }
+
+    nonisolated static func distance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        guard !a.isEmpty else { return b.count }
+        guard !b.isEmpty else { return a.count }
+        var row = Array(0...b.count)
+        for i in 1...a.count {
+            var prev = row[0]
+            row[0] = i
+            for j in 1...b.count {
+                let old = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] == b[j - 1] ? 0 : 1))
+                prev = old
+            }
+        }
+        return row[b.count]
     }
 }
 
@@ -838,20 +927,83 @@ enum WebSearch {
     }
 }
 
+/// Real videos from YouTube's results page, so «ponme un video de…» plays the best match instead of leaving a search open.
+enum YouTube {
+    static func search(_ query: String) async -> [Assistant.WebHit] {
+        var c = URLComponents(string: "https://www.youtube.com/results")!
+        c.queryItems = [URLQueryItem(name: "search_query", value: query), URLQueryItem(name: "hl", value: "es")]
+        guard let url = c.url else { return [] }
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                     forHTTPHeaderField: "User-Agent")
+        req.setValue("es-MX,es;q=0.9", forHTTPHeaderField: "Accept-Language")
+        req.setValue("CONSENT=YES+1", forHTTPHeaderField: "Cookie")
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return [] }
+        return parse(String(decoding: data, as: UTF8.self))
+    }
+
+    static func parse(_ html: String) -> [Assistant.WebHit] {
+        let pattern = #""videoRenderer":\{"videoId":"([\w-]{11})".{0,4000}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"(.{0,3000}?"ownerText":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)")?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators) else { return [] }
+        var hits: [Assistant.WebHit] = []
+        for m in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            guard let r1 = Range(m.range(at: 1), in: html), let r2 = Range(m.range(at: 2), in: html) else { continue }
+            let id = String(html[r1])
+            guard !hits.contains(where: { $0.url.absoluteString.hasSuffix(id) }),
+                  let url = URL(string: "https://www.youtube.com/watch?v=\(id)") else { continue }
+            let channel = Range(m.range(at: 4), in: html).map { unescape(String(html[$0])) } ?? ""
+            hits.append(Assistant.WebHit(title: unescape(String(html[r2])), url: url, snippet: channel,
+                                         image: URL(string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg")))
+            if hits.count == 6 { break }
+        }
+        return hits
+    }
+
+    private static func unescape(_ s: String) -> String {
+        (try? JSONDecoder().decode(String.self, from: Data("\"\(s)\"".utf8))) ?? s
+    }
+}
+
+/// «pon Bad Bunny en Spotify»: finds a real track so Spotify plays it, not just a search.
+enum SpotifyTrack {
+    static func find(_ query: String) async -> (uri: String, title: String)? {
+        for hit in await WebSearch.search("\(query) site:open.spotify.com") {
+            let parts = hit.url.pathComponents
+            guard hit.host.contains("spotify.com"), let i = parts.firstIndex(where: { ["track", "playlist", "album", "artist"].contains($0) }),
+                  i + 1 < parts.count else { continue }
+            let title = hit.title.replacingOccurrences(of: #"\s*[|\-–]\s*Spotify.*$"#, with: "", options: .regularExpression)
+            return ("spotify:\(parts[i]):\(parts[i + 1])", title)
+        }
+        return nil
+    }
+}
+
 /// The page open in your browser, as text: «resume esta página» with nothing selected.
 @MainActor
 enum Page {
+    static let browsers = ["com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser", "com.brave.Browser",
+                           "com.microsoft.edgemac", "company.thebrowser.dia", "com.operasoftware.Opera", "com.vivaldi.Vivaldi"]
+
+    /// The tab you're looking at: the browser in front, or else the open one (Chrome first, since «Google» usually means it).
+    static func tab() -> (title: String, url: URL, bundleID: String)? {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        for id in ([front] + browsers).filter({ browsers.contains($0) && running.contains($0) }) {
+            let script = id == "com.apple.Safari"
+                ? "tell application id \"\(id)\" to return (URL of front document) & linefeed & (name of front document)"
+                : "tell application id \"\(id)\" to return (URL of active tab of front window) & linefeed & (title of active tab of front window)"
+            var error: NSDictionary?
+            guard let out = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue, error == nil else { continue }
+            let parts = out.components(separatedBy: "\n")
+            guard let url = URL(string: parts.first ?? ""), url.scheme != nil else { continue }
+            return (parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces), url, id)
+        }
+        return nil
+    }
+
     static func current() async -> (title: String, text: String)? {
-        guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return nil }
-        let script = id == "com.apple.Safari"
-            ? "tell application id \"\(id)\" to return (URL of front document) & linefeed & (name of front document)"
-            : "tell application id \"\(id)\" to return (URL of active tab of front window) & linefeed & (title of active tab of front window)"
-        var error: NSDictionary?
-        guard let out = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue, error == nil else { return nil }
-        let parts = out.components(separatedBy: "\n")
-        guard let url = URL(string: parts.first ?? ""), url.scheme?.hasPrefix("http") == true,
-              let text = await read(url, timeout: 10) else { return nil }
-        return (parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces), text)
+        guard let tab = tab(), tab.url.scheme?.hasPrefix("http") == true, let text = await read(tab.url, timeout: 10) else { return nil }
+        return (tab.title, text)
     }
 
     /// Any page's readable text, or nil when it's empty, blocked or too slow.
@@ -884,7 +1036,7 @@ enum Page {
             return t.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
         }
         let text = blocks.map(clean).filter { $0.count > 30 }.joined(separator: "\n")
-        return String((text.isEmpty ? clean(h) : text).prefix(6000))
+        return String((text.isEmpty ? clean(h) : text).prefix(24000))
     }
 }
 
