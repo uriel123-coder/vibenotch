@@ -54,12 +54,13 @@ Si ya la tienes, el mismo comando la actualiza sin perder tus ajustes ni tus not
 
 ## ¿Qué hace?
 
-VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Tiene 6 pestañas:
+VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Con notch, las pestañas se reparten a los dos lados de la cámara para que ninguna quede tapada. Tiene 7 pestañas:
 
 ### ✨ Agentes: ve lo que hace tu IA sin cambiar de ventana
 
 - **Claude Code, app de Claude, Codex y Cursor** en un solo lugar: qué proyecto, qué está haciendo ("Editando NotchView.swift", "Ejecutando npm test") y si ya terminó.
 - **Responde preguntas desde el notch**: cuando Claude Code te hace preguntas de opción múltiple (o varias a la vez), aparecen ahí mismo. Tocas la opción, escribes "Otra respuesta" o eliges responder en la terminal.
+- **Sin bloquear la terminal**: las preguntas y permisos salen a la vez en el notch y en la terminal. Contesta donde quieras; si contestas en el notch, VibeNotch va a esa pestaña de Terminal o iTerm y elige la opción por ti (la primera vez macOS te pide permiso para controlar Terminal). Si prefieres que la terminal espere tu respuesta en el notch, actívalo en Ajustes.
 - **Aprueba planes**: cuando Claude termina de planear, lees el plan y eliges **Aprobar** o **Seguir planeando**.
 - **Permisos desde el notch**: cuando Claude Code pide permiso para correr un comando, respondes **Permitir** o **Rechazar** sin ir a la terminal.
 - **Terminó, y qué hizo**: al acabar ves una palomita, el resumen de lo que respondió y cuánto tardó ("Listo: el formulario ya valida el correo · tardó 3 min"), con su sonido.
@@ -190,6 +191,11 @@ Presiona **⌃⌥J** (o mantén ⌥ derecha y empieza con **«oye…»** / **«J
 - **Corrígelo y lo rehace**: justo después de algo, «no, por WhatsApp», «no, era para Laura», «mejor a las 6» (quita el evento anterior y crea el nuevo) o «mejor en Spotify». Y se queda con la corrección.
 - **Contesta en el chat abierto**: en WhatsApp, Mensajes, Slack o Telegram, «respóndele que ya voy en camino» lo escribe ahí mismo.
 - **Sin seleccionar nada**: «corrige esto» toma el texto del campo donde escribes y lo reemplaza; en el navegador «resume esta página» lee la página abierta.
+- **Varias cosas a la vez**: mientras trabaja en algo, pídele otra cosa. La primera sigue en segundo plano (la ves en la pestaña Jarvis) y te avisa cuando termina.
+- **Investigar**: «investiga los mejores celulares de 2026» lee las primeras páginas (no solo los títulos), te da la conclusión y los puntos clave, y te deja las fuentes.
+- **Minijuegos**: «hazme un juego de la serpiente» lo programa, lo guarda en Documentos › VibeNotch Juegos y lo abre para que juegues.
+- **Mejorar prompts**: selecciona un prompt y di «mejora este prompt»; lo reescribe con rol, objetivo, contexto, formato y restricciones.
+- **Controla VibeNotch**: «abre el portapapeles», «muéstrame mis tareas», «no dejes dormir la Mac» / «ya deja dormir la Mac».
 - **Tus propias habilidades**: «cuando diga modo trabajo, abre Cursor y Slack y pon música lo-fi». Después solo di «modo trabajo». También: «crea una rutina llamada buenos días que me diga mi agenda y abra el correo», «¿qué habilidades tengo?», «borra la habilidad modo trabajo».
 
 Con **⌃⌥J** no tienes que volver a presionar nada: deja de escuchar solo cuando haces una pausa, como Siri. Mientras escucha o trabaja, el borde del notch brilla.

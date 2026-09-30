@@ -29,6 +29,22 @@ final class KeepAwake: ObservableObject {
     /// Screenshots show the indicator without taking a real power assertion.
     func demo() { active = true }
 
+    private var asked: IOPMAssertionID = 0
+    /// You asked for it («no dejes dormir la Mac»): held until you say otherwise or quit the app.
+    private(set) var byYou = false
+
+    func hold(_ on: Bool) {
+        guard on != byYou else { return }
+        if on {
+            byYou = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                "VibeNotch: lo pediste" as CFString, &asked) == kIOReturnSuccess
+        } else {
+            IOPMAssertionRelease(asked)
+            byYou = false
+        }
+        active = held != nil || byYou
+    }
+
     private func apply(working: Bool, screen: Bool) {
         let want = working ? (screen ? kIOPMAssertionTypePreventUserIdleDisplaySleep : kIOPMAssertionTypePreventUserIdleSystemSleep) : nil
         guard want != held else { return }
@@ -40,6 +56,6 @@ final class KeepAwake: ObservableObject {
                                                  "VibeNotch: agente trabajando" as CFString, &assertion) == kIOReturnSuccess {
             held = want
         }
-        active = held != nil
+        active = held != nil || byYou
     }
 }

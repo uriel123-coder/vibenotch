@@ -73,6 +73,13 @@ enum Claude {
         let transcript = b.str("transcript_path")
         let cwd = b.str("cwd") ?? b.obj("workspace")?.str("current_dir")
         defer { store.setCwd(id, cwd) }
+        let tool = b.str("tool_name") ?? ""
+        if ["PostToolUse", "Stop", "UserPromptSubmit", "StopFailure", "SessionEnd"].contains(evt)
+            || (evt == "PreToolUse" && tool != "AskUserQuestion" && tool != "ExitPlanMode") {
+            store.dropPassiveAsks(id)
+        }
+        let passive = !AppSettings.shared.holdAgentPrompts
+        let where_ = TerminalBridge.Place(tty: b.str("_tty"), term: b.str("_term"))
 
         switch evt {
         case "statusline":
@@ -102,10 +109,11 @@ enum Claude {
                 $0.activity = "Te hizo una pregunta"
             }
             let ask = PermissionAsk(kind: .claude, sessionID: id, project: project ?? "Claude", tool: "Pregunta",
-                                    detail: questions[0].question, style: .questions(questions)) { decision in
+                                    detail: questions[0].question, style: .questions(questions), passive: passive) { decision in
+                if passive { return TerminalBridge.answer(decision, questions: questions, at: where_) }
                 reply.send(preToolJSON(decision, input: input))
             }
-            reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } }
+            if passive { reply.send("") } else { reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } } }
             store.addAsk(ask)
             return
         case "ExitPlanMode":
@@ -117,10 +125,11 @@ enum Claude {
                 $0.activity = "Espera que apruebes el plan"
             }
             let ask = PermissionAsk(kind: .claude, sessionID: id, project: project ?? "Claude", tool: "Plan",
-                                    detail: plan, style: .plan(plan)) { decision in
+                                    detail: plan, style: .plan(plan), passive: passive) { decision in
+                if passive { return TerminalBridge.answer(decision, questions: [], at: where_) }
                 reply.send(preToolJSON(decision, input: input))
             }
-            reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } }
+            if passive { reply.send("") } else { reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } } }
             store.addAsk(ask)
             return
         case "PostToolUse":
@@ -133,10 +142,11 @@ enum Claude {
                 $0.activity = "Pide permiso · \(tool)"
             }
             let ask = PermissionAsk(kind: .claude, sessionID: id, project: project ?? "Claude", tool: tool,
-                                    detail: d.detail.isEmpty ? d.short : d.detail) { decision in
+                                    detail: d.detail.isEmpty ? d.short : d.detail, passive: passive) { decision in
+                if passive { return TerminalBridge.answer(decision, questions: [], at: where_) }
                 reply.send(permissionJSON(decision))
             }
-            reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } }
+            if passive { reply.send("") } else { reply.onGone = { MainActor.assumeIsolated { AgentStore.shared.dropAsk(ask.id) } } }
             store.addAsk(ask)
             return
         case "Notification":

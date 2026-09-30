@@ -16,9 +16,12 @@ enum HookInstaller {
     fallback() { if [ "$SRC" = cursor ] && [ "$EVT" = beforeSubmitPrompt ]; then echo '{"continue":true}'; fi; }
     [ -f "$CONF" ] || { fallback; exit 0; }
     read -r PORT TOKEN < "$CONF"
+    # The terminal tab this agent runs in, so an answer given in the notch can be typed there.
+    TTY=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')
+    TERMP=$(printf '%s' "$TERM_PROGRAM" | tr -cd '[:alnum:]._-')
     post() {
       printf '%s' "$INPUT" | curl -s --max-time "$1" -H "X-Token: $TOKEN" -H 'Content-Type: application/json' \\
-        --data-binary @- "http://127.0.0.1:$PORT/hook?src=$SRC&evt=$EVT" 2>/dev/null
+        --data-binary @- "http://127.0.0.1:$PORT/hook?src=$SRC&evt=$EVT&tty=$TTY&term=$TERMP" 2>/dev/null
     }
     case "$SRC:$EVT" in
       claude:PermissionRequest|claude:AskUserQuestion|claude:ExitPlanMode) post 290 ;;

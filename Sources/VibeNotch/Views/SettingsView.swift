@@ -267,6 +267,7 @@ private struct AgentsPage: View {
 
             Section("Qué hace VibeNotch") {
                 Toggle("Responder preguntas y aprobar planes desde el notch", isOn: $s.answerQuestions)
+                Toggle("Esperar mi respuesta en el notch antes de mostrar la pregunta en la terminal", isOn: $s.holdAgentPrompts)
                 Toggle("Mostrar el resumen de la respuesta al terminar", isOn: $s.showSummaries)
                 Picker("Quitar los terminados de la lista", selection: $s.doneLinger) {
                     ForEach(AppSettings.lingerOptions, id: \.0) { Text($0.1).tag($0.0) }

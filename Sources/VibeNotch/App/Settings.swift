@@ -52,6 +52,7 @@ final class AppSettings: ObservableObject {
     @Published var islandHandle: Bool { didSet { store(islandHandle, forKey: "islandHandle") } }
     @Published var dropHint: Bool { didSet { store(dropHint, forKey: "dropHint") } }
     @Published var answerQuestions: Bool { didSet { store(answerQuestions, forKey: "answerQuestions") } }
+    @Published var holdAgentPrompts: Bool { didSet { store(holdAgentPrompts, forKey: "holdAgentPrompts") } }
     @Published var followClaudeApp: Bool { didSet { store(followClaudeApp, forKey: "followClaudeApp") } }
     @Published var showSummaries: Bool { didSet { store(showSummaries, forKey: "showSummaries") } }
     @Published var historySize: Int { didSet { store(historySize, forKey: "historySize") } }
@@ -103,6 +104,7 @@ final class AppSettings: ObservableObject {
         islandHandle = d.object(forKey: "islandHandle") as? Bool ?? true
         dropHint = d.object(forKey: "dropHint") as? Bool ?? true
         answerQuestions = d.object(forKey: "answerQuestions") as? Bool ?? true
+        holdAgentPrompts = d.object(forKey: "holdAgentPrompts") as? Bool ?? false
         followClaudeApp = d.object(forKey: "followClaudeApp") as? Bool ?? true
         showSummaries = d.object(forKey: "showSummaries") as? Bool ?? true
         historySize = d.object(forKey: "historySize") as? Int ?? 200

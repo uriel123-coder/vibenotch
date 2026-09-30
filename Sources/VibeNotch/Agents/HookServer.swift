@@ -117,7 +117,9 @@ final class HookServer {
             return
         }
         let q = Dictionary(uniqueKeysWithValues: (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-        let body = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any] ?? [:]
+        var body = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any] ?? [:]
+        if let tty = q["tty"], tty.hasPrefix("ttys") { body["_tty"] = "/dev/" + tty }
+        if let term = q["term"], !term.isEmpty { body["_term"] = term }
         reply.watchForDisconnect()
         onRequest?(HookRequest(src: q["src"] ?? "", evt: q["evt"] ?? "", body: body), reply)
     }

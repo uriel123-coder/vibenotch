@@ -55,21 +55,26 @@ enum VoiceAgent {
         #endif
     }
 
-    private static var running: Task<Void, Never>?
+    private static var running: (order: String, task: Task<Void, Never>)?
 
+    /// A new order doesn't stop the last one: it keeps going out of sight and tells you when it's done.
     static func run(_ order: String) {
-        running?.cancel()
         let assistant = Assistant.shared
         // Just «Jarvis» or «oye»: you're calling it, not asking for something yet.
         if wakeWords.contains(fold(order).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))) {
             return VoiceKey.listen(.assistant)
         }
-        assistant.begin(order)
+        // The same order again means the first try is stuck.
+        if let running, fold(running.order) == fold(order) { running.task.cancel() }
+        let id = assistant.begin(order)
         let context = Context.capture()
-        running = Task { @MainActor in
-            if await Quick.handle(order) { return }
-            await execute(order, context: context)
+        let task = Task { @MainActor in
+            await Run.$id.withValue(id) {
+                if await Quick.handle(order) { return }
+                await execute(order, context: context)
+            }
         }
+        running = (order, task)
     }
 
     /// Everything after the instant intents; skills call it with their saved orders.
@@ -167,7 +172,8 @@ enum VoiceAgent {
     }
 
     static let kinds = ["correo", "evento", "recordatorio", "whatsapp", "mensaje", "abrir_app", "abrir_web", "buscar_web",
-                        "buscar_archivo", "atajo", "escribir", "responder", "recordar", "agenda", "musica"]
+                        "buscar_archivo", "atajo", "escribir", "responder", "recordar", "agenda", "musica", "investigar", "juego",
+                        "documento"]
 
     /// macOS reads Spanish dates well ("mañana a las 5 de la tarde", "el viernes a las 10"); the small model doesn't.
     nonisolated static func date(in text: String) -> Date? {
@@ -224,11 +230,19 @@ enum VoiceAgent {
                 let composeStart = Date()
                 let mail = await Brain.compose(to: "Ana López", saying: "Llego tarde a la junta.", within: 12)
                 print(String(format: "correo redactado (%.1f s) → %@", Date().timeIntervalSince(composeStart), mail.map { "\($0.subject) | \($0.body)" } ?? "-"))
-                for said in ["Me llame.", "Hola sirve el noche.", "Si ya llegó a la casa.", "Ya voy en camino llego en 10 minutos."] {
-                    let t = Date()
-                    let out = await Brain.message(said, to: "mamá", within: 20) ?? "-"
-                    print(String(format: "mensaje «%@» (%.1f s) → %@", said, Date().timeIntervalSince(t), out))
-                }
+                let topic = "beneficios de dormir la siesta"
+                let found = await WebSearch.search(topic)
+                var pages: [(title: String, text: String)] = []
+                for hit in found.prefix(3) { pages.append((hit.title, await Page.read(hit.url, timeout: 8) ?? hit.snippet)) }
+                let researchStart = Date()
+                let report = (try? await Brain.research(topic, sources: pages) { _ in }) ?? "-"
+                print(String(format: "investigar (%d fuentes, %d leídas, %.1f s) → %@", found.count, pages.filter { $0.text.count > 300 }.count,
+                             Date().timeIntervalSince(researchStart), report))
+                let gameStart = Date()
+                let game = (try? await Brain.game("hazme un juego de la serpiente")) ?? ""
+                print(String(format: "juego (%.1f s, %d caracteres, script=%@) → %@", Date().timeIntervalSince(gameStart), game.count,
+                             game.contains("<script") ? "sí" : "no", String(game.prefix(200))))
+                try? game.write(toFile: "/tmp/vn-juego.html", atomically: true, encoding: .utf8)
                 for ask in ["Dame 3 ideas para un video de lanzamiento de una app", "hazlo más corto"] {
                     let t = Date()
                     var first: Double?
@@ -276,8 +290,11 @@ enum Quick {
         case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
+        case tab(NotchTab), awake(Bool)
         var description: String {
             switch self {
+            case .tab(let t): "abrir la pestaña \(t.title)"
+            case .awake(let on): on ? "mantener la Mac despierta" : "dejar dormir la Mac"
             case .send: "enviar el mensaje que quedó escrito"
             case .pref(let k, let v): "preferencia \(k.rawValue) = \(v)"
             case .person(let f): "persona «\(f.who)» \(f.kind) = \(f.value)"
@@ -327,6 +344,19 @@ enum Quick {
                       "como esta mi dia", "que pendientes tengo"]
         if agenda.contains(where: { t.hasPrefix($0) || t.contains(" " + $0) }) {
             return .agenda(VoiceAgent.date(in: order) ?? Date())
+        }
+        let awake = ["no dejes dormir", "no dejes que se duerma", "no dejes que la mac se duerma", "manten la mac despierta",
+                     "manten despierta", "que no se duerma", "no se duerma la mac", "modo cafe"]
+        let sleep = ["ya deja dormir", "deja dormir la mac", "ya puede dormir", "ya se puede dormir", "deja que se duerma", "quita el modo cafe"]
+        if sleep.contains(where: { t.contains($0) }) { return .awake(false) }
+        if awake.contains(where: { t.contains($0) }) { return .awake(true) }
+        if let place = rest(["abre el", "abre la", "abre mis", "abre", "muestrame el", "muestrame la", "muestrame mis", "muestrame",
+                             "ensename el", "ensename la", "ensename", "ve a", "ir a", "ver el", "ver la", "ver mis"]) {
+            let tabs: [(String, NotchTab)] = [("portapapeles", .clipboard), ("copiado", .clipboard), ("estante", .shelf), ("tareas", .jarvis),
+                                              ("jarvis", .jarvis), ("agentes", .agents), ("herramientas", .tools), ("convertir", .tools),
+                                              ("convertidor", .tools), ("buscador", .search), ("vista de hoy", .today), ("pestana hoy", .today)]
+            let p = VoiceAgent.fold(place)
+            if p.split(separator: " ").count <= 3, let hit = tabs.first(where: { p.hasPrefix($0.0) }) { return .tab(hit.1) }
         }
         if let name = rest(["abre la aplicacion", "abre la app", "abreme", "abrir", "abre"]), name.split(separator: " ").count <= 3,
            let app = VoiceCommand.findApp(name) {
@@ -437,6 +467,15 @@ enum Quick {
         guard let intent = intent(order) else { return false }
         let a = Assistant.shared
         switch intent {
+        case .tab(let tab):
+            a.finish(nil, linger: 0.5)
+            a.dismiss()
+            NotchModel.shared.open(tab)
+        case .awake(let on):
+            KeepAwake.shared.hold(on)
+            a.finish(.done(symbol: on ? "cup.and.saucer.fill" : "moon.zzz.fill", title: on ? "La Mac no se dormirá" : "La Mac ya se puede dormir",
+                           detail: on ? "Hasta que me digas «ya deja dormir la Mac»" : "", bundleID: nil),
+                     say: on ? "Listo, la Mac se queda despierta." : "Listo, ya se puede dormir.", linger: 4)
         case .send:
             guard let last = VoiceAgent.last else { return true }
             let family = last.action.kind == "whatsapp" ? "whatsapp" : "com.apple.mobilesms"
@@ -620,6 +659,14 @@ enum Rules {
         if rest(["crea un documento", "creame un documento", "hazme un documento", "haz un documento", "escribe un documento",
                  "escribeme un documento", "redacta un documento", "crea un doc", "hazme un doc", "crea un archivo", "hazme un archivo"]) != nil {
             a.kind = "documento"; a.text = o; return a
+        }
+        if let r = rest(["investiga", "investigame", "investiga sobre", "investiga a fondo", "haz una investigacion sobre",
+                         "haz una investigacion de", "hazme una investigacion sobre", "hazme una investigacion de", "averigua todo sobre"]) {
+            a.kind = "investigar"; a.text = r; return a
+        }
+        if f.range(of: #"^(crea|creame|hazme|haz|programa|programame|genera|generame|disena|disename)\s+(un|una|el)\s+(mini ?juego|juego|videojuego|juegito)\b"#,
+                   options: .regularExpression) != nil {
+            a.kind = "juego"; a.text = o; return a
         }
         if let r = rest(["crea una nota que diga", "crea una nota con", "crea una nota de", "crea una nota", "hazme una nota con",
                          "hazme una nota", "guarda una nota que diga", "guarda una nota con", "guarda una nota", "anota en notas",
@@ -1008,6 +1055,9 @@ private enum Brain {
         - recordar: texto = el dato que quiere que recuerdes.
         - agenda: cuando = el día que quiere revisar.
         - musica: texto = qué quiere escuchar (artista, canción o estilo).
+        - investigar: texto = el tema. Para investigar, comparar o averiguar algo a fondo con varias fuentes.
+        - juego: texto = el juego que pide (minijuegos, juegos sencillos para jugar en la Mac).
+        - documento: texto = lo que debe tener el documento (cartas, guiones, planes, reportes, listas largas).
         Nunca uses marcadores como [nombre] o [tu nombre].
         «esto», «esta persona», «aquí» se refieren a lo que está bajo el cursor o seleccionado.
         Lo que sabes del usuario:
@@ -1082,7 +1132,9 @@ private enum Brain {
         let session = LanguageModelSession(instructions: """
         Haces lo que el usuario pide con el texto que te da: resumir, traducir, explicar, corregir o mejorar. \
         Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. \
-        Si pide corregir o mejorar, devuelve solo el texto nuevo completo, con el mismo sentido. Nunca uses marcadores como [nombre].
+        Si pide corregir o mejorar, devuelve solo el texto nuevo completo, con el mismo sentido. Nunca uses marcadores como [nombre]. \
+        Si el texto es un prompt para una IA y pide mejorarlo, reescríbelo como un prompt claro con: rol, objetivo, contexto, \
+        pasos o requisitos, formato de respuesta y restricciones; conserva la intención y el idioma del original.
         """)
         return try await stream(session, "Pide: \(order)\nTexto:\n\(text.prefix(2800))", options: options, onPartial: onPartial)
     }
@@ -1112,9 +1164,11 @@ private enum Brain {
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
         Háblale de tú. Si te saluda, saluda en una frase y pregunta en qué le ayudas. \
         Si pregunta qué sabes hacer, contesta en 2 frases con 3 o 4 ejemplos, sin lista. Lo que sabes hacer en su Mac: abrir apps y páginas, \
-        buscar en la web, dejar listos WhatsApps y correos, agendar en su calendario, recordatorios, notas, crear y mejorar documentos, \
-        resumir o corregir lo que tenga seleccionado o la página abierta, rutinas («cuando diga X, haz Y») y recordar lo que te cuente. \
-        No prometas nada más.
+        buscar en la web, investigar un tema con varias fuentes, mandar WhatsApps, mensajes y correos, agendar en su calendario, \
+        recordatorios y temporizadores, notas, crear y mejorar documentos, mejorar prompts, crear minijuegos, \
+        resumir o corregir lo que tenga seleccionado o la página abierta, abrir partes de VibeNotch (portapapeles, estante, tareas), \
+        mantener la Mac despierta, rutinas («cuando diga X, haz Y») y recordar lo que te cuente. \
+        Puede hacer varias cosas a la vez: mientras trabaja en algo, el usuario le puede pedir otra. No prometas nada más.
         Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
@@ -1123,7 +1177,8 @@ private enum Brain {
 
     /// Talking: keeps the conversation for a few minutes and shows the answer as it's written.
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
-        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180
+        // Another order may still be talking on it; a session answers one thing at a time.
+        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180 || chatSession!.session.isResponding
         let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
         let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 300)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
@@ -1159,6 +1214,32 @@ private enum Brain {
         Nunca uses marcadores como [nombre] ni digas que eres un modelo.
         """)
         return try await stream(session, ask, options: GenerationOptions(temperature: 0.5, maximumResponseTokens: 1000), onPartial: onPartial)
+    }
+
+    /// A short report from what the pages actually say, not from what the model remembers.
+    static func research(_ topic: String, sources: [(title: String, text: String)], onPartial: @escaping (String) -> Void) async throws -> String {
+        let session = LanguageModelSession(instructions: """
+        Investigas temas en español usando solo las fuentes que te dan. Escribe: una frase con la conclusión principal, \
+        luego de 4 a 6 puntos clave que empiecen con «- », cada uno de una línea, con datos concretos (cifras, fechas, nombres). \
+        Si las fuentes no coinciden, dilo en un punto. No inventes nada que no esté en las fuentes. Sin títulos ni negritas.
+        """)
+        let text = sources.enumerated().map { "Fuente \($0.offset + 1) — \($0.element.title):\n\($0.element.text.prefix(1500))" }.joined(separator: "\n\n")
+        return tidy(try await stream(session, "Tema: \(topic)\n\n\(text)", options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 450),
+                                     onPartial: { onPartial(tidy($0)) }))
+    }
+
+    /// A whole game in one HTML file that runs in the browser.
+    static func game(_ ask: String) async throws -> String {
+        let session = LanguageModelSession(instructions: """
+        Programas minijuegos para el navegador en un solo archivo HTML con <canvas> y JavaScript puro, sin librerías ni imágenes externas. \
+        El juego debe funcionar al abrirlo: controles con teclado (flechas o espacio) y ratón, puntuación visible, \
+        pantalla de «Game Over» y reiniciar con la tecla R. Textos en español. Colores vivos sobre fondo oscuro. \
+        Código corto y correcto. Responde solo con el HTML completo, de <!DOCTYPE html> a </html>, sin explicaciones.
+        """)
+        let raw = try await session.respond(to: ask, options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 3000)).content
+        guard let start = raw.range(of: "<!DOCTYPE", options: .caseInsensitive) ?? raw.range(of: "<html", options: .caseInsensitive),
+              let end = raw.range(of: "</html>", options: [.caseInsensitive, .backwards]) else { return "" }
+        return String(raw[start.lowerBound..<end.upperBound])
     }
 
     private static func stream(_ session: LanguageModelSession, _ prompt: String, options: GenerationOptions,
@@ -1457,7 +1538,7 @@ enum Hands {
             if #available(macOS 26, *), VoiceAgent.available {
                 a.step("doc.richtext", "Escribiendo el documento…")
                 do {
-                    let text = try await Brain.write(s.text) { a.stream($0) }
+                    let text = try await Brain.write(s.text.count > 8 ? s.text : s.order) { a.stream($0) }
                     a.step("square.and.arrow.down", "Guardándolo en Documentos…")
                     let (url, title) = try Documents.create(text)
                     NSWorkspace.shared.open(url)
@@ -1468,6 +1549,32 @@ enum Hands {
                              say: "Listo, creé «\(title)» en Documentos.", linger: 14)
                 } catch {
                     a.fail("No pude crear el documento: \(error.localizedDescription)")
+                }
+                return
+            }
+            #endif
+            a.fail(VoiceAgent.unavailableReason)
+        case "investigar":
+            await research(s.text.isEmpty ? s.order : s.text)
+        case "juego":
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *), VoiceAgent.available {
+                a.step("gamecontroller", "Programando tu juego…")
+                let html = (try? await Brain.game(s.text.isEmpty ? s.order : s.text)) ?? ""
+                guard html.contains("<script"), html.count > 400 else { return a.fail("No me salió el juego, pídemelo otra vez con más detalle") }
+                a.step("square.and.arrow.down", "Guardándolo…")
+                let title = html.range(of: #"(?<=<title>)[^<]{1,60}"#, options: .regularExpression).map { String(html[$0]) } ?? "Minijuego"
+                let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("VibeNotch Juegos")
+                do {
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    let url = Documents.freeURL(in: dir, name: title, ext: "html")
+                    try Data(html.utf8).write(to: url, options: .withoutOverwriting)
+                    NSWorkspace.shared.open(url)
+                    Conversation.record(s.order, "Creé el juego «\(title)».")
+                    a.finish(.document(url: url, title: title, preview: "Se abrió en tu navegador. Flechas o espacio para jugar, R para reiniciar.", edited: false),
+                             say: "Listo, abrí «\(title)» para que juegues.", linger: 12)
+                } catch {
+                    a.fail("No pude guardar el juego: \(error.localizedDescription)")
                 }
                 return
             }
@@ -1601,6 +1708,33 @@ enum Hands {
         #endif
         Conversation.record(question, hits.first?.title ?? "", topic: Conversation.subject(of: query))
         a.finish(.web(answer: nil, hits: hits), say: "Esto encontré.", linger: 20)
+    }
+
+    /// «investiga los mejores celulares de 2026»: reads the top pages, not just their snippets, and says where each thing came from.
+    private static func research(_ topic: String) async {
+        a.step("globe", "Buscando fuentes sobre «\(topic)»…")
+        let hits = await WebSearch.search(topic)
+        guard !hits.isEmpty else { return a.fail("No encontré fuentes sobre eso") }
+        a.preview(.web(answer: nil, hits: hits))
+        a.step("doc.text.magnifyingglass", "Leyendo \(min(hits.count, 3)) páginas…")
+        let read = await withTaskGroup(of: (Int, String?).self) { group in
+            for (i, hit) in hits.prefix(3).enumerated() { group.addTask { (i, await Page.read(hit.url, timeout: 8)) } }
+            var out: [Int: String] = [:]
+            for await (i, text) in group { if let text { out[i] = text } }
+            return out
+        }
+        let sources = hits.prefix(3).enumerated().map { i, hit in (title: hit.title, text: read[i] ?? hit.snippet) }
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), VoiceAgent.available {
+            a.step("sparkles", "Juntando lo importante…")
+            if let report = try? await Brain.research(topic, sources: sources, onPartial: { a.preview(.web(answer: $0, hits: hits), streaming: true) }),
+               !report.isEmpty {
+                Conversation.record("investiga \(topic)", report, topic: topic)
+                return a.finish(.web(answer: report, hits: hits), say: spoken(report, fallback: "Esto encontré."), linger: 40, talk: true)
+            }
+        }
+        #endif
+        a.finish(.web(answer: nil, hits: hits), say: "Estas son las fuentes que encontré.", linger: 25)
     }
 
     private static func addEvent(title: String, subject: String, date: Date?) async {

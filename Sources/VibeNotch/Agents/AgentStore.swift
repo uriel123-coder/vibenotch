@@ -115,6 +115,8 @@ struct PermissionAsk: Identifiable {
     let tool: String
     let detail: String
     var style: Style = .permission
+    /// The agent isn't waiting on us: its own prompt is showing in the terminal too, and the notch answer is typed there.
+    var passive = false
     let reply: (PermissionDecision) -> Void
 
     var title: String {
@@ -292,6 +294,14 @@ final class AgentStore: ObservableObject {
             case (.terminal, _): $0.status = .waiting; $0.activity = "Responde en la terminal"
             }
         }
+        NotchModel.shared.askResolved()
+    }
+
+    /// You answered in the terminal: the copy in the notch goes away.
+    func dropPassiveAsks(_ sessionID: String) {
+        let gone = asks.filter { $0.passive && $0.sessionID == sessionID }
+        guard !gone.isEmpty else { return }
+        asks.removeAll { $0.passive && $0.sessionID == sessionID }
         NotchModel.shared.askResolved()
     }
 

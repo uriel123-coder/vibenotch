@@ -5,6 +5,11 @@ import Contacts
 import EventKit
 import PDFKit
 
+/// Which order the running code belongs to, so several can work at once without writing over each other.
+enum Run {
+    @TaskLocal static var id: UUID?
+}
+
 /// The voice assistant's state, shown in the notch: listening, thinking, doing, and a card with the result.
 @MainActor
 final class Assistant: ObservableObject {
@@ -101,11 +106,21 @@ final class Assistant: ObservableObject {
     }
 
     private func comeBack(_ text: String, failed: Bool) {
+        announce(text, failed: failed)
+        phase = .idle
+    }
+
+    private func announce(_ text: String, failed: Bool) {
         var n = Announcement(symbol: failed ? "exclamationmark.triangle.fill" : "sparkles", tint: failed ? .orange : .blue,
                              title: failed ? "Jarvis no pudo" : "Jarvis terminó", subtitle: text)
         n.action = ("Ver", { NotchModel.shared.open(.jarvis) })
         NotchModel.shared.announce(n, for: 6)
-        phase = .idle
+    }
+
+    /// The order this code runs for, when it isn't the one on screen: you asked something else meanwhile.
+    private var elsewhere: UUID? {
+        guard let id = Run.id, id != task else { return nil }
+        return id
     }
     var busy: Bool { phase == .thinking || phase == .working }
 
@@ -114,6 +129,8 @@ final class Assistant: ObservableObject {
     func listening(followUp: Bool = false) {
         session += 1
         hideWork?.cancel()
+        // Still working on the last order: it goes on out of sight while you ask the next one.
+        if busy { task = nil }
         background = false
         self.followUp = followUp && card != nil
         phase = .listening
@@ -141,7 +158,8 @@ final class Assistant: ObservableObject {
         }
     }
 
-    func begin(_ order: String) {
+    @discardableResult
+    func begin(_ order: String) -> UUID? {
         session += 1
         hideWork?.cancel()
         followUp = false
@@ -156,11 +174,12 @@ final class Assistant: ObservableObject {
         task = TaskLog.shared.start(order)
         recent = Array(([order] + recent.filter { $0.caseInsensitiveCompare(order) != .orderedSame }).prefix(5))
         UserDefaults.standard.set(recent, forKey: "assistant.recent")
+        return task
     }
 
     /// Text arriving from the model, word by word.
     func stream(_ text: String) {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, elsewhere == nil else { return }
         hideWork?.cancel()
         streaming = true
         wasStreamed = true
@@ -171,6 +190,7 @@ final class Assistant: ObservableObject {
     /// A visible step: "Buscando en la web…", "Abriendo Cursor…".
     func step(_ symbol: String, _ text: String) {
         guard !Task.isCancelled else { return }
+        if let other = elsewhere { return TaskLog.shared.step(other, symbol: symbol, text: text) }
         hideWork?.cancel()
         for i in steps.indices { steps[i].finished = true }
         steps.append(Step(symbol: symbol, text: text))
@@ -181,7 +201,7 @@ final class Assistant: ObservableObject {
 
     /// Shows something useful while the work goes on, like the search results before the summary.
     func preview(_ card: Card, streaming: Bool = false) {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, elsewhere == nil else { return }
         self.streaming = streaming
         if streaming { wasStreamed = true }
         self.card = card
@@ -191,6 +211,10 @@ final class Assistant: ObservableObject {
     func finish(_ card: Card?, say: String? = nil, linger: Double = 9, talk: Bool = false) {
         // A newer order replaced this one: its late result must not land on the new one.
         guard !Task.isCancelled else { return }
+        if let other = elsewhere {
+            TaskLog.shared.finish(other, status: .done, card: card, say: say)
+            return announce(say ?? "Tu otra tarea está lista", failed: false)
+        }
         for i in steps.indices { steps[i].finished = true }
         streaming = false
         self.card = card
@@ -218,6 +242,10 @@ final class Assistant: ObservableObject {
 
     func fail(_ why: String) {
         guard !Task.isCancelled else { return }
+        if let other = elsewhere {
+            TaskLog.shared.finish(other, status: .failed, card: nil, say: why)
+            return announce(why, failed: true)
+        }
         for i in steps.indices { steps[i].finished = true }
         phase = .failed
         status = why
@@ -817,15 +845,20 @@ enum Page {
         var error: NSDictionary?
         guard let out = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue, error == nil else { return nil }
         let parts = out.components(separatedBy: "\n")
-        guard let url = URL(string: parts.first ?? ""), url.scheme?.hasPrefix("http") == true else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 10)
+        guard let url = URL(string: parts.first ?? ""), url.scheme?.hasPrefix("http") == true,
+              let text = await read(url, timeout: 10) else { return nil }
+        return (parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces), text)
+    }
+
+    /// Any page's readable text, or nil when it's empty, blocked or too slow.
+    nonisolated static func read(_ url: URL, timeout: Double) async -> String? {
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
                          forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { return nil }
-        let text = await Task.detached(priority: .userInitiated) { readable(html) }.value
-        guard text.count > 200 else { return nil }
-        return (parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces), text)
+        let text = readable(html)
+        return text.count > 200 ? text : nil
     }
 
     /// The article's words: paragraphs and headings, without menus, scripts or ads.

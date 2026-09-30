@@ -364,9 +364,13 @@ struct OpenView: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // With a real notch the tabs go on both sides of it; all on the left they end up under the camera.
+            let tabs = settings.tabs
+            let left = model.island ? tabs.count : (tabs.count + 1) / 2
+            let leading = Array(tabs.prefix(left)), trailing = Array(tabs.dropFirst(left))
             HStack(spacing: 0) {
                 HStack(spacing: 2) {
-                    ForEach(settings.tabs, id: \.self) { tab in tabButton(tab) }
+                    ForEach(leading, id: \.self) { tab in tabButton(tab) }
                 }
                 .animation(.snappy, value: model.tab)
                 .fixedSize()
@@ -375,6 +379,13 @@ struct OpenView: View {
                 // The camera housing hides anything drawn under it.
                 Color.clear.frame(width: model.island ? 8 : model.notchSize.width + 16)
                 HStack(spacing: 2) {
+                    HStack(spacing: 2) {
+                        ForEach(trailing, id: \.self) { tab in tabButton(tab) }
+                    }
+                    .animation(.snappy, value: model.tab)
+                    .fixedSize()
+                    .compositingGroup()
+                    Spacer(minLength: 0)
                     if !agents.asks.isEmpty {
                         PulseDot(color: .warn, size: 6).padding(.trailing, 6)
                     }
