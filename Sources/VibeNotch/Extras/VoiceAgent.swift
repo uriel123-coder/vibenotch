@@ -239,10 +239,11 @@ enum VoiceAgent {
                 print(String(format: "investigar (%d fuentes, %d leídas, %.1f s) → %@", found.count, pages.filter { $0.text.count > 300 }.count,
                              Date().timeIntervalSince(researchStart), report))
                 let gameStart = Date()
-                let game = (try? await Brain.game("hazme un juego de la serpiente")) ?? ""
-                print(String(format: "juego (%.1f s, %d caracteres, script=%@) → %@", Date().timeIntervalSince(gameStart), game.count,
-                             game.contains("<script") ? "sí" : "no", String(game.prefix(200))))
-                try? game.write(toFile: "/tmp/vn-juego.html", atomically: true, encoding: .utf8)
+                for ask in ["hazme un juego de gatos que atrapan peces", "quiero un juego para dispararle a zombies"] {
+                    let g = try? await Brain.game(ask)
+                    print(String(format: "juego «%@» (%.1f s) → %@", ask, Date().timeIntervalSince(gameStart),
+                                 g.map { "\($0.mode) · \($0.title) · \($0.player) \($0.target) · \($0.color) · vel \($0.speed)" } ?? "-"))
+                }
                 for ask in ["Dame 3 ideas para un video de lanzamiento de una app", "hazlo más corto"] {
                     let t = Date()
                     var first: Double?
@@ -664,7 +665,8 @@ enum Rules {
                          "haz una investigacion de", "hazme una investigacion sobre", "hazme una investigacion de", "averigua todo sobre"]) {
             a.kind = "investigar"; a.text = r; return a
         }
-        if f.range(of: #"^(crea|creame|hazme|haz|programa|programame|genera|generame|disena|disename)\s+(un|una|el)\s+(mini ?juego|juego|videojuego|juegito)\b"#,
+        if f.range(of: #"\b(mini ?juegos?|juegos?|videojuegos?|juegitos?|jueguitos?)\b"#, options: .regularExpression) != nil,
+           f.range(of: #"\b(crea|creame|crees|hazme|haz|hagas|hacer|programa|programame|programes|genera|generame|disena|disename|armame|quiero|dame)\b"#,
                    options: .regularExpression) != nil {
             a.kind = "juego"; a.text = o; return a
         }
@@ -789,8 +791,8 @@ enum Rules {
            let k = Range(m.range(at: 1), in: f), let whole = Range(m.range, in: f) {
             kindWord = String(f[k])
             restStart = f.distance(from: f.startIndex, to: whole.upperBound)
-        } else if f.hasPrefix("dile a ") || f.hasPrefix("avisale a ") || f.hasPrefix("preguntale a ") {
-            restStart = f.hasPrefix("dile a ") ? 7 : f.hasPrefix("avisale a ") ? 10 : 12
+        } else if let p = ["dile a ", "avisale a ", "preguntale a ", "escribele a ", "mandale a ", "enviale a "].first(where: { f.hasPrefix($0) }) {
+            restStart = p.count
         }
         guard let start = restStart else { return nil }
         let via = #"(?i)\s+(por|en|con|v[ií]a|desde|de)\s+(whatsapp|wasap|guasap|correo|mensaje|mail|gmail|imessage|sms|telegram)\b"#
@@ -890,6 +892,8 @@ enum Rules {
                    !f.contains(VoiceAgent.fold(String(first))) { s.to = "" }
             case "evento" where s.date == nil:
                 continue
+            case "agenda":
+                guard ["agenda", "calendario", "tengo", "eventos", "pendientes", "mi dia"].contains(where: { f.contains($0) }) else { continue }
             case "abrir_app":
                 let name = VoiceAgent.fold(s.name.isEmpty ? s.text : s.name)
                 if name.isEmpty || !f.contains(name.split(separator: " ").first.map(String.init) ?? name) { continue }
@@ -1228,18 +1232,36 @@ private enum Brain {
                                      onPartial: { onPartial(tidy($0)) }))
     }
 
-    /// A whole game in one HTML file that runs in the browser.
-    static func game(_ ask: String) async throws -> String {
+    /// Picks and themes one of the game engines for what you asked.
+    static func game(_ ask: String) async throws -> Games.Config {
         let session = LanguageModelSession(instructions: """
-        Programas minijuegos para el navegador en un solo archivo HTML con <canvas> y JavaScript puro, sin librerías ni imágenes externas. \
-        El juego debe funcionar al abrirlo: controles con teclado (flechas o espacio) y ratón, puntuación visible, \
-        pantalla de «Game Over» y reiniciar con la tecla R. Textos en español. Colores vivos sobre fondo oscuro. \
-        Código corto y correcto. Responde solo con el HTML completo, de <!DOCTYPE html> a </html>, sin explicaciones.
+        Diseñas minijuegos. Elige el tipo que mejor encaja con lo que pide: serpiente (moverse y comer cosas para crecer), \
+        pong (rebotar una pelota contra la computadora), bloques (romper ladrillos con una pelota), naves (disparar a cosas que caen). \
+        Da un título corto y divertido en español, un emoji para el jugador y uno para lo que se come, golpea o dispara, \
+        un color en hexadecimal (#rrggbb) que combine con el tema y la velocidad de 1 (fácil) a 3 (difícil).
         """)
-        let raw = try await session.respond(to: ask, options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 3000)).content
-        guard let start = raw.range(of: "<!DOCTYPE", options: .caseInsensitive) ?? raw.range(of: "<html", options: .caseInsensitive),
-              let end = raw.range(of: "</html>", options: [.caseInsensitive, .backwards]) else { return "" }
-        return String(raw[start.lowerBound..<end.upperBound])
+        let text = DynamicGenerationSchema(type: String.self)
+        let root = DynamicGenerationSchema(name: "Juego", properties: [
+            .init(name: "tipo", schema: DynamicGenerationSchema(name: "Tipo", anyOf: Games.modes)),
+            .init(name: "titulo", schema: text),
+            .init(name: "jugador", description: "Un emoji", schema: text),
+            .init(name: "objetivo", description: "Un emoji", schema: text),
+            .init(name: "color", description: "#rrggbb", schema: text),
+            .init(name: "velocidad", schema: DynamicGenerationSchema(type: Double.self)),
+        ])
+        let content = try await session.respond(to: "Pide: \(ask)", schema: try GenerationSchema(root: root, dependencies: []),
+                                                options: GenerationOptions(temperature: 0.4)).content
+        func str(_ key: String) -> String { ((try? content.value(String.self, forProperty: key)) ?? "").trimmingCharacters(in: .whitespaces) }
+        var c = Games.guess(ask)
+        if Games.modes.contains(str("tipo")) { c.mode = str("tipo") }
+        if !str("titulo").isEmpty { c.title = str("titulo") }
+        // Emoji only: a word would be drawn as tiny text in the game.
+        let isEmoji: (String) -> Bool = { s in !s.isEmpty && s.unicodeScalars.contains { $0.properties.isEmojiPresentation } && s.count <= 2 }
+        if isEmoji(str("jugador")) { c.player = str("jugador") }
+        if isEmoji(str("objetivo")) { c.target = str("objetivo") }
+        c.color = str("color")
+        c.speed = (try? content.value(Double.self, forProperty: "velocidad")) ?? 2
+        return c
     }
 
     private static func stream(_ session: LanguageModelSession, _ prompt: String, options: GenerationOptions,
@@ -1557,29 +1579,24 @@ enum Hands {
         case "investigar":
             await research(s.text.isEmpty ? s.order : s.text)
         case "juego":
+            let ask = s.text.isEmpty ? s.order : s.text
+            a.step("gamecontroller", "Armando tu juego…")
+            var config = Games.guess(ask)
             #if canImport(FoundationModels)
-            if #available(macOS 26, *), VoiceAgent.available {
-                a.step("gamecontroller", "Programando tu juego…")
-                let html = (try? await Brain.game(s.text.isEmpty ? s.order : s.text)) ?? ""
-                guard html.contains("<script"), html.count > 400 else { return a.fail("No me salió el juego, pídemelo otra vez con más detalle") }
-                a.step("square.and.arrow.down", "Guardándolo…")
-                let title = html.range(of: #"(?<=<title>)[^<]{1,60}"#, options: .regularExpression).map { String(html[$0]) } ?? "Minijuego"
-                let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("VibeNotch Juegos")
-                do {
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    let url = Documents.freeURL(in: dir, name: title, ext: "html")
-                    try Data(html.utf8).write(to: url, options: .withoutOverwriting)
-                    NSWorkspace.shared.open(url)
-                    Conversation.record(s.order, "Creé el juego «\(title)».")
-                    a.finish(.document(url: url, title: title, preview: "Se abrió en tu navegador. Flechas o espacio para jugar, R para reiniciar.", edited: false),
-                             say: "Listo, abrí «\(title)» para que juegues.", linger: 12)
-                } catch {
-                    a.fail("No pude guardar el juego: \(error.localizedDescription)")
-                }
-                return
-            }
+            if #available(macOS 26, *), VoiceAgent.available, let themed = try? await Brain.game(ask) { config = themed }
             #endif
-            a.fail(VoiceAgent.unavailableReason)
+            let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("VibeNotch Juegos")
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let url = Documents.freeURL(in: dir, name: config.title, ext: "html")
+                try Data(Games.html(config).utf8).write(to: url, options: .withoutOverwriting)
+                NSWorkspace.shared.open(url)
+                Conversation.record(s.order, "Creé el juego «\(config.title)».")
+                a.finish(.document(url: url, title: config.title, preview: "Se abrió en tu navegador. Flechas o ratón para jugar, R para reiniciar.", edited: false),
+                         say: "Listo, abrí «\(config.title)» para que juegues.", linger: 12)
+            } catch {
+                a.fail("No pude guardar el juego: \(error.localizedDescription)")
+            }
         case "nota":
             a.step("note.text", "Guardando la nota…")
             let title = String(s.text.split(separator: "\n").first?.prefix(60) ?? "Nota")
