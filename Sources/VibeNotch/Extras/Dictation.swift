@@ -139,6 +139,7 @@ final class Dictation: ObservableObject {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { throw DictationError(why: "No encontré un micrófono") }
+        box.record(to: mode == .note ? nil : Self.recording, format: format)
         input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(box))
         engine.prepare()
         try engine.start()
@@ -187,6 +188,7 @@ final class Dictation: ObservableObject {
             for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] }
             let rms = sqrt(sum / Float(buffer.frameLength))
             let level = min(1, max(0, (20 * log10(max(rms, 1e-6)) + 50) / 45))
+            box.keep(buffer, loud: level > 0.45)
             DispatchQueue.main.async { MainActor.assumeIsolated { Dictation.shared.level = level } }
         }
     }
@@ -231,9 +233,22 @@ final class Dictation: ObservableObject {
 
     private func save() {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let spoke = box.stop()
         cleanup()
         phase = .idle
         guard !text.isEmpty else {
+            if mode != .note, spoke {
+                // You did talk; live recognition lost it (usually the server). Read the recording on the Mac before giving up.
+                let mode = self.mode
+                Task { @MainActor in
+                    if let text = await Self.transcribe(Self.recording), !text.isEmpty {
+                        VoiceKey.deliver(text, forceAgent: mode == .assistant)
+                    } else if Assistant.shared.phase == .listening && !Assistant.shared.followUp {
+                        Assistant.shared.fail("No te entendí, ¿me lo repites?")
+                    }
+                }
+                return
+            }
             if mode != .note {
                 if Assistant.shared.phase == .listening && !Assistant.shared.followUp { Assistant.shared.fail("No te escuché, intenta otra vez") }
                 return
@@ -280,6 +295,25 @@ final class Dictation: ObservableObject {
         generation += 1
     }
 
+    private static let recording = FileManager.default.temporaryDirectory.appendingPathComponent("vibenotch-dictado.caf")
+
+    /// The whole recording at once, on the Mac when it can (the server is what usually failed).
+    private static func transcribe(_ url: URL) async -> String? {
+        guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(), recognizer.isAvailable else { return nil }
+        let req = SFSpeechURLRecognitionRequest(url: url)
+        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        req.addsPunctuation = true
+        if #available(macOS 13, *) { req.contextualStrings = Memory.vocabulary() }
+        return await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+            let done = OnceBox()
+            let task = recognizer.recognitionTask(with: req) { result, error in
+                if let result, result.isFinal { done.run { c.resume(returning: result.bestTranscription.formattedString) } }
+                else if error != nil { done.run { c.resume(returning: nil) } }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { done.run { task.cancel(); c.resume(returning: nil) } }
+        }
+    }
+
     /// `VIBENOTCH_DICTATIONTEST=/ruta/audio.aiff`: transcribes a file with the same settings and prints it.
     static func selfTest(_ path: String) {
         Task { @MainActor in
@@ -297,13 +331,51 @@ final class Dictation: ObservableObject {
     }
 }
 
-/// The mic's audio thread hands buffers to whichever recognition is current.
+/// The mic's audio thread hands buffers to whichever recognition is current, and keeps a copy of the audio.
 private final class RequestBox: @unchecked Sendable {
     private let lock = NSLock()
     private var current: SFSpeechAudioBufferRecognitionRequest?
+    private var file: AVAudioFile?
+    private var loudBuffers = 0
     var request: SFSpeechAudioBufferRecognitionRequest? {
         get { lock.withLock { current } }
         set { lock.withLock { current = newValue } }
+    }
+
+    func record(to url: URL?, format: AVAudioFormat) {
+        lock.withLock {
+            loudBuffers = 0
+            try? FileManager.default.removeItem(at: url ?? URL(fileURLWithPath: "/dev/null"))
+            file = url.flatMap { try? AVAudioFile(forWriting: $0, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved) }
+        }
+    }
+
+    func keep(_ buffer: AVAudioPCMBuffer, loud: Bool) {
+        lock.withLock {
+            try? file?.write(from: buffer)
+            if loud { loudBuffers += 1 }
+        }
+    }
+
+    /// Closes the recording; true when someone was clearly talking in it.
+    func stop() -> Bool {
+        lock.withLock {
+            file = nil
+            return loudBuffers >= 8
+        }
+    }
+}
+
+/// Runs its block only the first time: a recognition can end with a result, an error and a timeout.
+private final class OnceBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func run(_ block: () -> Void) {
+        let first = lock.withLock { () -> Bool in
+            defer { done = true }
+            return !done
+        }
+        if first { block() }
     }
 }
 
