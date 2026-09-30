@@ -33,6 +33,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MailCodes.selfTest()
             exit(0)
         }
+        if ProcessInfo.processInfo.environment["VIBENOTCH_VOICETEST"] != nil {
+            for s in ["eh, este mensaje es es para Ana mmm nueva línea gracias", "ehm hola que que tal", "siete u ocho, padres e hijos"] {
+                print("«\(s)» → «\(VoiceText.clean(s))»")
+            }
+            for s in ["llamar a Ana en 10 minutos", "sacar la ropa en media hora", "pagar la luz"] {
+                print("recuérdame «\(s)» →", VoiceCommand.parseReminder(s))
+            }
+            for s in ["chrome", "whatsapp", "ajustes", "la calculadora", "finder", "la puerta"] {
+                print("abre «\(s)» →", VoiceCommand.findApp(s)?.lastPathComponent ?? "-")
+            }
+            exit(0)
+        }
         if ProcessInfo.processInfo.environment["VIBENOTCH_CURSORQTEST"] != nil {
             CursorQuestions.selfTest()
             exit(0)
@@ -78,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CodeWatcher.shared.start()
             MailCodes.shared.start()
             CursorQuestions.shared.start()
+            VoiceKey.shared.start()
         }
         if ProcessInfo.processInfo.environment["VIBENOTCH_TABTEST"] != nil { TabTest.run() }
 

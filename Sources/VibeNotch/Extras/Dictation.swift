@@ -9,8 +9,11 @@ final class Dictation: ObservableObject {
     static let shared = Dictation()
 
     enum Phase { case idle, starting, recording, finishing }
+    /// A voice note saved to Notes, or text typed into the app you're in (hold right ⌥).
+    enum Mode { case note, type }
 
     @Published private(set) var phase: Phase = .idle
+    @Published private(set) var mode: Mode = .note
     @Published private(set) var transcript = ""
     /// Mic loudness 0…1 for the little waveform.
     @Published private(set) var level: Float = 0
@@ -51,8 +54,9 @@ final class Dictation: ObservableObject {
         }
     }
 
-    func start() {
+    func start(_ mode: Mode = .note) {
         guard phase == .idle else { return }
+        self.mode = mode
         phase = .starting
         transcript = ""
         level = 0
@@ -174,6 +178,10 @@ final class Dictation: ObservableObject {
         guard !text.isEmpty else {
             NotchModel.shared.announce(Announcement(symbol: "mic.fill", tint: .warn, title: "No escuché nada",
                                                     subtitle: "Revisa que el micrófono correcto esté elegido en Ajustes del Sistema"))
+            return
+        }
+        if mode == .type {
+            VoiceKey.deliver(text)
             return
         }
         let f = DateFormatter()

@@ -77,6 +77,8 @@ final class AppSettings: ObservableObject {
     @Published var translateTo: String { didSet { store(translateTo, forKey: "translateTo") } }
     /// "auto" uses the Mac's language; otherwise a locale like "en-US".
     @Published var dictationLanguage: String { didSet { store(dictationLanguage, forKey: "dictationLanguage") } }
+    /// Hold the right Option key anywhere to dictate straight into the app you're in.
+    @Published var voiceKey: Bool { didSet { store(voiceKey, forKey: "voiceKey") } }
     @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
     /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
     @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
@@ -115,6 +117,7 @@ final class AppSettings: ObservableObject {
         whatsappCalls = d.object(forKey: "whatsappCalls") as? Bool ?? true
         translateTo = d.string(forKey: "translateTo") ?? "auto"
         dictationLanguage = d.string(forKey: "dictationLanguage") ?? "auto"
+        voiceKey = d.object(forKey: "voiceKey") as? Bool ?? true
         codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
         codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
         mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false

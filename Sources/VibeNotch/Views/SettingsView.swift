@@ -474,16 +474,17 @@ private struct ExtrasPage: View {
                 Picker("Idioma", selection: $s.dictationLanguage) {
                     ForEach(Dictation.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }
-                LabeledContent("Dictar", value: "⌃⌥D")
+                Toggle("Dictar en cualquier app (mantén ⌥ derecha)", isOn: $s.voiceKey)
+                LabeledContent("Nota de voz", value: "⌃⌥D")
                 LabeledContent("Dónde se procesa") {
                     Text(Dictation.runsOnDevice() ? "En tu Mac, sin internet" : "En los servidores de Apple (este idioma no está en tu Mac)")
                         .foregroundStyle(.secondary)
                 }
                 .id(s.dictationLanguage)
             } header: {
-                Text("Notas de voz")
+                Text("Voz")
             } footer: {
-                FooterText("Presiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
+                FooterText("Mantén presionada la tecla ⌥ derecha, habla y suelta: el texto se escribe donde tengas el cursor, en cualquier app, sin «eh» ni palabras repetidas y sin tocar lo que tenías copiado. Di «nueva línea» para saltar de renglón. También entiende órdenes: «abre Spotify», «busca el archivo factura» (fuera de un campo de texto) y «recuérdame llamar a Ana en 10 minutos». Necesita el permiso de Accesibilidad.\n\nPresiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
             }
 
             Section {

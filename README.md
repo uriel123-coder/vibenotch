@@ -159,6 +159,19 @@ El texto pasa justo **debajo de la cámara**, así que al grabar un video, dar u
   <img src="docs/screenshots/isla-10-teleprompter.png" width="49%" alt="Teleprompter en modo isla">
 </p>
 
+### 🎙️ Dictar en cualquier app
+
+**Mantén presionada la tecla ⌥ derecha**, habla y suelta: el texto se escribe donde tengas el cursor (WhatsApp, Cursor, Gmail, Notion, lo que sea). Gratis y en tu Mac, como VoiceOS o Wispr Flow.
+
+- Lo limpia solo: quita «eh», «mmm» y palabras repetidas, y pone mayúsculas. Di **«nueva línea»** para saltar de renglón.
+- No pierdes lo que tenías copiado: se pega y se restaura.
+- Entiende órdenes:
+  - **«abre Spotify»**, «abre la calculadora», «abre ajustes»
+  - **«recuérdame llamar a Ana en 10 minutos»** (pone un temporizador; sin hora, lo guarda en Notas)
+  - **«busca el archivo factura»** (cuando no estás escribiendo en un campo de texto)
+- Si presionas ⌥ con otra tecla (para escribir @, ñ, €…) no dicta nada.
+- Se apaga en Ajustes → Llamadas y más → Voz. Necesita el permiso de Accesibilidad.
+
 ### 🎙️ Notas de voz a texto
 
 Presiona **⌃⌥D** (o el micrófono en Clips › Notas) y habla. Ves tus palabras en el notch mientras hablas; toca **Listo** (o ⌃⌥D otra vez) y se guarda como **nota** y queda **copiada** para pegarla donde quieras.
@@ -407,6 +420,7 @@ Cómo lo logra:
 | **⌃⌥P** | Teleprompter con lo que copiaste (otra vez para cerrarlo) |
 | **⌃⌥T** | Traducir lo que copiaste |
 | **⌃⌥D** | Empezar / terminar una nota de voz |
+| **Mantener ⌥ derecha** | Dictar en cualquier app: hablas, sueltas y se escribe donde está el cursor |
 | **Espacio / ↑ ↓ / esc** | En el teleprompter: pausar / velocidad / cerrar |
 | **↩ / ⌘↩** | En Buscar: abrir el archivo / mostrarlo en Finder |
 | **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
@@ -573,7 +587,8 @@ VIBENOTCH_TEXTTEST="nesesito la presentasion" ./build/VibeNotch.app/Contents/Mac
 VIBENOTCH_CODETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # prueba el detector de códigos con ejemplos
 VIBENOTCH_MAILTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # compila el lector de Mail y prueba correos de ejemplo
 VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
-VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
+VIBENOTCH_CURSORQTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                             # muestra las últimas preguntas de Cursor que detecta
+VIBENOTCH_VOICETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                               # prueba la limpieza del dictado, los recordatorios y «abre…»
 open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```
@@ -609,6 +624,7 @@ VibeNotch fue creada por **[Uriel Nakach](https://github.com/uriel123-coder)**. 
 - **Today:** widgets you pick and order: music, timer, pinned notes, battery, calendar (with a **Join** button for Zoom, Meet, Teams, Webex and FaceTime links) and a system monitor (CPU, RAM, disk).
 - **Teleprompter (⌃⌥P):** your script scrolls right under the camera so you read while looking at the lens. Space pauses, ↑/↓ change speed.
 - **WhatsApp calls:** see who's calling and answer, decline, mute or hang up from the notch (needs the WhatsApp Mac app and Accessibility permission).
+- **Dictate anywhere (hold right ⌥):** speak and let go; cleaned-up text is typed where your cursor is, and "abre…", "busca…", "recuérdame…" run as commands. Free and on-device.
 - **Voice notes (⌃⌥D):** talk and watch the words appear in the notch; they're saved as a note and copied. On-device when macOS has the language.
 - **Verification codes:** when a 2FA code arrives by email, SMS (Messages), Gmail or your bank, it pops up in the notch already copied, with a **Paste** button (or pastes itself if you want), and tells you who sent it. Optionally connect Apple Mail to read new emails from all your accounts directly (Gmail, iCloud, Outlook…). Not saved in the clipboard history.
 - **Translate and fix spelling** of any clip with one click, or **⌃⌥T** for what you just copied, using macOS's on-device translator and spell checker.
