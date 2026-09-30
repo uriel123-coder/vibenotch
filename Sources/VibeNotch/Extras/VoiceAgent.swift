@@ -1037,6 +1037,7 @@ enum Rules {
         }
         if let r = rest(["abre la aplicacion", "abre la app", "abreme", "abrir", "abre"]) {
             let name = r.replacingOccurrences(of: #"(?i)^(el|la|los|las|mi)\s+"#, with: "", options: .regularExpression)
+            if let pane = settingsPane(VoiceAgent.fold(name)) { a.kind = "abrir_web"; a.url = pane; a.name = name; return a }
             if VoiceCommand.findApp(name) != nil { a.kind = "abrir_app"; a.name = name; return a }
             if let url = site(name) { a.kind = "abrir_web"; a.url = url; return a }
             if VoiceAgent.fold(name).range(of: #"^(mini ?)?(juego|juegos|juegito|jueguito|videojuego)\b"#, options: .regularExpression) != nil {
@@ -1200,6 +1201,28 @@ enum Rules {
             a.text = who; a.name = profileSites[VoiceAgent.fold(site)] ?? "LinkedIn"; return a
         }
         return nil
+    }
+
+    /// «ajustes del sonido», «la configuración de wifi»: the page of System Settings it means.
+    private static func settingsPane(_ f: String) -> String? {
+        guard f.range(of: #"\b(ajustes|configuracion|preferencias|opciones)\b"#, options: .regularExpression) != nil else { return nil }
+        let panes: [(String, String)] = [
+            ("sonido|audio|volumen|bocina|microfono", "com.apple.Sound-Settings.extension"),
+            ("wifi|wi fi|internet|red", "com.apple.wifi-settings-extension"),
+            ("bluetooth|audifonos|airpods", "com.apple.BluetoothSettings"),
+            ("pantalla|monitor|brillo|resolucion", "com.apple.Displays-Settings.extension"),
+            ("bateria|energia|carga", "com.apple.Battery-Settings.extension"),
+            ("notificaciones|avisos", "com.apple.Notifications-Settings.extension"),
+            ("accesibilidad|permisos?|privacidad|seguridad", "com.apple.settings.PrivacySecurity.extension"),
+            ("teclado|dictado", "com.apple.Keyboard-Settings.extension"),
+            ("fondo|wallpaper|pantalla de fondo", "com.apple.Wallpaper-Settings.extension"),
+            ("usuarios|cuenta|apple id|icloud", "com.apple.systempreferences.AppleIDSettings"),
+            ("general|actualizacion|software", "com.apple.Software-Update-Settings.extension"),
+        ]
+        for (words, id) in panes where f.range(of: #"\b(\#(words))\b"#, options: .regularExpression) != nil {
+            return "x-apple.systempreferences:" + id
+        }
+        return "x-apple.systempreferences:"
     }
 
     /// Orders about what's already on the Mac: the screen, the inbox, WhatsApp chats, a button to press.
@@ -1734,7 +1757,7 @@ private enum Brain {
             .init(name: "url", schema: text, isOptional: true),
         ])
         let root = DynamicGenerationSchema(name: "Plan", properties: [
-            .init(name: "objetivo", description: "Qué quiere lograr el usuario, en una frase, antes de decidir los pasos", schema: text),
+            .init(name: "objetivo", description: "Qué quiere lograr el usuario, en máximo 12 palabras", schema: text),
             .init(name: "pasos", schema: DynamicGenerationSchema(arrayOf: step, minimumElements: 1, maximumElements: 3)),
         ])
         let schema = try GenerationSchema(root: root, dependencies: [])
@@ -2196,6 +2219,9 @@ enum Hands {
             _ = try? await NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
             a.finish(.done(symbol: "app.badge.checkmark", title: "Abrí \(name)", detail: "", bundleID: Bundle(url: app)?.bundleIdentifier),
                      say: "Listo, abrí \(name).", linger: 3)
+        case "abrir_web" where s.url.hasPrefix("x-apple.systempreferences:"):
+            guard let link = URL(string: s.url), NSWorkspace.shared.open(link) else { return a.fail("No pude abrir Ajustes") }
+            a.finish(.done(symbol: "gearshape.fill", title: "Abrí Ajustes del Sistema", detail: s.name, bundleID: "com.apple.systempreferences"), linger: 3)
         case "abrir_web" where !s.url.isEmpty:
             let link = URL(string: s.url.hasPrefix("http") ? s.url : "https://" + s.url)
             a.step("safari", "Abriendo \(link?.host() ?? s.url)…")
