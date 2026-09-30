@@ -213,7 +213,9 @@ final class Dictation: ObservableObject {
             transcript = (committed + " " + text).trimmingCharacters(in: .whitespaces)
             // Room to think mid-sentence; a little more when it's barely started.
             let words = transcript.split(separator: " ").count
-            if mode == .assistant && phase == .recording { stopAfterSilence(words < 4 ? 3.2 : 2.4) }
+            // A sentence left hanging («mándale a», «dile que») is still coming.
+            let hanging = VoiceAgent.unfinished(transcript) || VoiceAgent.fold(transcript).hasSuffix(" que")
+            if mode == .assistant && phase == .recording { stopAfterSilence(hanging ? 4.5 : words < 4 ? 3.5 : 2.8) }
         }
         guard final || failed else { return }
         // The recognizer ended while you're still talking (a pause, «no speech», the server's minute): keep the words and listen on.

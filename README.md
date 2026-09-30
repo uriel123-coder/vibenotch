@@ -195,6 +195,10 @@ Presiona **⌃⌥J** (o mantén ⌥ derecha y empieza con **«oye…»** / **«J
 - **Mensajes con botón Enviar**: «manda mensaje de hola a mamá» busca en Contactos **y en WhatsApp** (gente que solo tienes en WhatsApp también cuenta), elige al que coincide exacto («Joe» antes que «Joel», «Mamá» antes que «Mamá de Ana»; en empate, con quien hablaste más reciente) y te enseña en el notch a quién, su número y el texto, con **Enviar** y **Cancelar**. También puedes decir «sí» o «no, es Joe». Si no la encuentra, pregunta cómo la tienes guardada («se llama Joe», «j-o-e» o su número) y lo aprende. En Ajustes → Voz puedes quitar la pregunta.
 - **Videos y música que sí se reproducen**: «entra a YouTube y busca cómo pasó el accidente de Checo», «ponme un video de gatos», «quiero ver el tráiler de Dune» abren el mejor video y te enseñan una vista previa con otros por si no era. «Pon Bad Bunny» lo reproduce en Spotify (o YouTube Music).
 - **Perfiles**: «busca a Samuel Nakach en LinkedIn», «el Instagram de Bad Bunny» abren el perfil (no publicaciones) y te enseñan los otros resultados.
+- **Ve tu pantalla, en cualquier app o página**: «¿qué ves?», «ayúdame con esta app», «¿qué opinas de esto?», «resume esta ventana», «abre Notion y dime qué tengo pendiente». Lee la ventana (también páginas con sesión iniciada, como Gmail o un dashboard) y te contesta sobre lo que hay. «Dale clic en Enviar» presiona el botón.
+- **Tus correos**: «resume mis mails», «enséñame el mail de Joe», «descarga los archivos del correo de Amazon». Usa Mail si lo usas; si no, abre Gmail en tu navegador, busca, abre el correo y te lo resume.
+- **Tus chats de WhatsApp**: «¿qué me dijo Joe?», «resume el grupo de la familia», «¿tengo mensajes sin leer?». Solo lee, nunca cambia nada.
+- **Hace, no explica**: si en plena plática le pides algo que puede hacer («oye, mándale a papá dile hola»), lo hace en vez de decirte cómo.
 - **Deletrear**: si escuchó mal un nombre, di «Nakach se escribe n-a-k-a-c-h» (o «ene, a, ka…»): corrige lo que acaba de hacer, lo repite y aprende la palabra para la próxima.
 - **Frases a medias**: si te cortas («busca a Samuel en…»), pregunta «¿Y luego?» y junta las dos partes en vez de buscar algo incompleto.
 - **La página que tienes abierta**: «¿cuál es la última página que tengo en Google?» te dice la pestaña de Chrome/Safari y te la resume si quieres. Los textos y páginas largos se leen completos, por partes.
@@ -488,6 +492,9 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | Micrófono y Reconocimiento de voz | Notas de voz, dictado y asistente | La primera vez que dictas |
 | Contactos | Que el asistente encuentre el correo o teléfono de alguien por su nombre | La primera vez que le pides escribirle a alguien |
 | Calendario (asistente) | Leer tu agenda y crear eventos cuando se lo pides | La primera vez que le preguntas por tu agenda |
+| Grabación de pantalla (asistente) | Leer apps que no dejan leer su texto (lo lee de la imagen, en tu Mac) | La primera vez que le pides ver algo así |
+| Automatización (Mail, navegador) | Leer y abrir tus correos, ver la página que tienes abierta | La primera vez que le pides tus correos o la página |
+| Datos de otras apps | Leer (sin cambiar nada) tus chats y contactos de WhatsApp | La primera vez que le preguntas por un chat |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
 | Archivos (Escritorio, Documentos, Descargas, iCloud Drive) | Buscar archivos por nombre | La primera vez que abres Buscar |
 

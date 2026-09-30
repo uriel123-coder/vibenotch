@@ -144,7 +144,8 @@ final class Assistant: ObservableObject {
         session += 1
         hideWork?.cancel()
         // Still working on the last order: it goes on out of sight while you ask the next one.
-        if busy { task = nil }
+        // A finished one is done too: «No te escuché» must not land on it.
+        task = nil
         background = false
         self.followUp = followUp && card != nil
         phase = .listening
