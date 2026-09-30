@@ -511,6 +511,12 @@ enum Quick {
             || (t.contains("pagina") || t.contains("pestana")) && ["tengo abiert", "estoy viendo", "ultima", "abierta", "abierto"].contains(where: { t.contains($0) }) {
             return .page
         }
+        let browsers = ["chrome", "safari", "google", "navegador", "arc", "brave", "edge", "internet"]
+        let looked = ["lo ultimo que vi", "que vi en", "que estaba viendo", "estoy viendo", "tengo abiert", "ultima pagina", "ultima pestana", "que pagina"]
+        if !["busca", "googlea", "investiga", "abre", "entra"].contains(where: { t.hasPrefix($0) }),
+           browsers.contains(where: { t.contains($0) }), looked.contains(where: { t.contains($0) }) {
+            return .page
+        }
         let agenda = ["mi agenda", "mis eventos", "mi calendario", "que hay en mi calendario", "muestrame mi agenda", "como esta mi dia",
                       "que pendientes tengo", "tengo reuniones", "tengo juntas", "tengo citas"]
         let loose = ["que tengo", "tengo algo", "que hay"]
@@ -1000,12 +1006,16 @@ enum Rules {
             "ayudame a organizar mi dia"].contains(where: { f.hasPrefix($0) }) {
             a.kind = "organizar"; a.when = dateText(o) ?? ""; return a
         }
-        if let r = rest(["reproduce", "ponme musica de", "pon musica de", "ponme musica", "pon musica", "ponme la cancion", "pon la cancion",
+        if let r = rest(["quiero escuchar", "quiero oir", "ponme algo de", "pon algo de", "ponme algo", "pon algo",
+                         "reproduce", "ponme musica de", "pon musica de", "ponme musica", "pon musica", "ponme la cancion", "pon la cancion",
                          "ponme canciones de", "pon canciones de", "ponme una playlist de", "pon una playlist de"]) {
             a.kind = "musica"
             a.text = r.replacingOccurrences(of: #"(?i)\s+(en|por|con) (spotify|youtube( music)?|apple music|la app de m[uú]sica)$"#, with: "",
                                             options: .regularExpression)
-            if f.hasPrefix("pon musica ") || f.hasPrefix("ponme musica ") { a.text = "música " + a.text }
+            a.text = a.text.replacingOccurrences(of: #"(?i)^(algo|musica|m[uú]sica)\s+(de\s+)?"#, with: "", options: .regularExpression)
+            if ["pon musica ", "ponme musica ", "pon algo", "ponme algo", "quiero escuchar algo", "quiero oir algo"].contains(where: { f.hasPrefix($0) }) {
+                a.text = "música " + a.text
+            }
             return a
         }
         if let r = rest(["ponme un temporizador de", "pon un temporizador de", "ponme una alarma en", "pon una alarma en", "pon un timer de",
@@ -1284,6 +1294,9 @@ enum Rules {
             case "buscar_web":
                 if s.text.isEmpty { s.text = s.name }
                 if s.text.isEmpty && steps.count > 1 { continue }
+            case "video", "musica", "perfil", "investigar":
+                // The model sometimes writes queries like URLs: «tortilla+de+papa».
+                s.text = s.text.replacingOccurrences(of: "+", with: " ").replacingOccurrences(of: "%20", with: " ")
             default: break
             }
             if out.contains(where: { $0.kind == s.kind && $0.name == s.name && $0.text == s.text && $0.to == s.to }) { continue }
