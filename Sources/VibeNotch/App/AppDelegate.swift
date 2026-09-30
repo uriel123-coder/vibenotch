@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MailCodes.selfTest()
             exit(0)
         }
+        if let orders = ProcessInfo.processInfo.environment["VIBENOTCH_AGENTTEST"] {
+            VoiceAgent.selfTest(orders)
+            return
+        }
         if ProcessInfo.processInfo.environment["VIBENOTCH_VOICETEST"] != nil {
             for s in ["eh, este mensaje es es para Ana mmm nueva línea gracias", "ehm hola que que tal", "siete u ocho, padres e hijos"] {
                 print("«\(s)» → «\(VoiceText.clean(s))»")

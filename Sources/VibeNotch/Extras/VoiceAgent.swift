@@ -61,6 +61,32 @@ enum VoiceAgent {
                                                 subtitle: "y Apple Intelligence activado"), for: 6)
     }
 
+    /// `VIBENOTCH_AGENTTEST="orden|otra orden"`: prints what the model would do, without doing it.
+    static func selfTest(_ orders: String) {
+        Task { @MainActor in
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *) {
+                print("Apple Intelligence:", SystemLanguageModel.default.availability)
+                guard available else { exit(1) }
+                for order in orders.split(separator: "|").map(String.init) {
+                    let start = Date()
+                    do {
+                        let a = try await Brain.decide(order, context: Context(app: "Finder", selection: "", clipboard: ""))
+                        print(String(format: "«%@» (%.1f s) → %@ · para=%@ asunto=%@ fecha=%@ min=%@ nombre=%@ url=%@\n   texto=%@", order,
+                                     Date().timeIntervalSince(start), a.kind, a.to, a.subject, a.date.map { "\($0)" } ?? "-",
+                                     a.minutes.map { "\($0)" } ?? "-", a.name, a.url, a.text))
+                    } catch {
+                        print("«\(order)» → error: \(error)")
+                    }
+                }
+                exit(0)
+            }
+            #endif
+            print("Sin FoundationModels en esta compilación")
+            exit(1)
+        }
+    }
+
     /// What you're looking at, so "esto" and "lo que seleccioné" mean something.
     struct Context {
         var app: String
