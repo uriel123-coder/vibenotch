@@ -93,8 +93,8 @@ final class CodexMonitor {
                                                       window: info.int("model_context_window"),
                                                       total: info.obj("total_token_usage")?.int("total_tokens")))
                             }
-                            if let rl = p.obj("rate_limits"), let limits = CodexMonitor.limits(rl) {
-                                let stamp = JSONDate.parse(o["timestamp"]) ?? file.modified
+                            let stamp = JSONDate.parse(o["timestamp"]) ?? file.modified
+                            if let rl = p.obj("rate_limits"), let limits = CodexMonitor.limits(rl, at: stamp) {
                                 if latestLimits == nil || stamp > latestLimits!.0 { latestLimits = (stamp, limits) }
                             }
                         default: break
@@ -152,14 +152,15 @@ final class CodexMonitor {
         }
     }
 
-    nonisolated private static func limits(_ rl: [String: Any]) -> AgentLimits? {
+    /// `resets_in_seconds` counts from when Codex wrote the line, not from when we read it.
+    nonisolated private static func limits(_ rl: [String: Any], at stamp: Date) -> AgentLimits? {
         var windows: [LimitWindow] = []
         for key in ["primary", "secondary"] {
             guard let w = rl.obj(key), let pct = w.dbl("used_percent") else { continue }
             let minutes = w.int("window_minutes") ?? 0
             let label = minutes == 10_080 ? "Semana" : minutes >= 60 ? "\(minutes / 60) h" : "\(minutes) min"
             var reset = JSONDate.parse(w["resets_at"])
-            if reset == nil, let secs = w.dbl("resets_in_seconds") { reset = Date().addingTimeInterval(secs) }
+            if reset == nil, let secs = w.dbl("resets_in_seconds") { reset = stamp.addingTimeInterval(secs) }
             windows.append(LimitWindow(label: label, used: pct / 100, resetsAt: reset))
         }
         guard !windows.isEmpty else { return nil }

@@ -109,7 +109,7 @@ final class ClaudeAppMonitor {
             if finishedTurn && !initial {
                 store.update(id, kind: .claude, project: project) { Self.fill(s, into: &$0) }
                 store.finished(id, kind: .claude, project: project, title: "Claude terminó", summary: s.detail ?? s.title)
-            } else if let need = s.needsAction, !need.isEmpty, store.sessions[id]?.status != .waiting, !initial {
+            } else if let need = s.needsAction, Self.isAsking(need), store.sessions[id]?.status != .waiting, !initial {
                 store.update(id, kind: .claude, project: project) {
                     Self.fill(s, into: &$0)
                     $0.status = .waiting
@@ -139,13 +139,23 @@ final class ClaudeAppMonitor {
     func notified(title: String, text: String) {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty || !title.isEmpty else { return }
-        let heading = title.isEmpty || title == "Claude" ? "Claude te necesita" : "Claude · \(title)"
-        var a = Announcement(kind: .claude, title: heading, subtitle: body.isEmpty ? title : body, style: .attention)
+        let asking = Self.isAsking(title + " " + body)
+        let heading = asking ? (title.isEmpty || title == "Claude" ? "Claude te pregunta" : "Claude te pregunta · \(title)")
+                             : (title.isEmpty ? "Claude" : "Claude · \(title)")
+        var a = Announcement(kind: .claude, title: heading, subtitle: body.isEmpty ? title : body, style: asking ? .attention : .done)
         a.action = ("Ir a Claude", {
             NSRunningApplication.runningApplications(withBundleIdentifier: ClaudeAppMonitor.bundleID).first?.activate()
         })
-        NotchModel.shared.announce(a, for: 45)
-        Sound.play(.ask)
+        NotchModel.shared.announce(a, for: asking ? 45 : 5)
+        Sound.play(asking ? .ask : .done)
+    }
+
+    /// Claude's notifications and post-turn notes are mostly "done" or suggestions; only these wait on you.
+    static func isAsking(_ text: String) -> Bool {
+        let t = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+        return t.contains("?") || ["pregunt", "question", "permis", "approv", "aprob", "your input", "tu respuesta",
+                                   "waiting for you", "te espera", "esperando tu", "needs your", "necesita tu", "elige", "choose"]
+            .contains { t.contains($0) }
     }
 
     private static func fill(_ s: Snapshot, into session: inout AgentSession) {

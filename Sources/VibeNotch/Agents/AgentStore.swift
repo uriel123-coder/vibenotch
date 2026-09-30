@@ -212,8 +212,10 @@ final class AgentStore: ObservableObject {
                 } else {
                     limitAlerts.remove(key + "|80")
                 }
-                if w.isReset(at: now), w.used >= 0.5, let r = w.resetsAt,
-                   limitAlerts.insert(key + "|reset|\(Int(r.timeIntervalSince1970))").inserted {
+                // Only a reset seen happening while running counts: stale data read at launch isn't news.
+                if !w.isReset(at: now) {
+                    if w.used >= 0.5 { limitAlerts.insert(key + "|armed") }
+                } else if w.used >= 0.5, limitAlerts.remove(key + "|armed") != nil {
                     NotchModel.shared.announce(Announcement(symbol: "arrow.clockwise.circle.fill", tint: .ok,
                                                             title: "Se reinició tu límite de \(kind.short)",
                                                             subtitle: "\(w.label) · ya puedes volver a usarlo"))
