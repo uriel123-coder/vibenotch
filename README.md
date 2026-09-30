@@ -171,17 +171,21 @@ El texto pasa justo **debajo de la cámara**, así que al grabar un video, dar u
   - **«busca el archivo factura»** (cuando no estás escribiendo en un campo de texto)
 - Si presionas ⌥ con otra tecla (para escribir @, ñ, €…) no dicta nada.
 
-#### ✨ Agente (Apple Intelligence, gratis y en tu Mac)
+#### ✨ Asistente tipo Jarvis (Apple Intelligence, gratis y en tu Mac)
 
-Empieza con **«oye…»** (o habla sin estar escribiendo en un campo de texto) y el agente lo hace por ti:
+Presiona **⌃⌥J** (o mantén ⌥ derecha y empieza con **«oye…»** / **«Jarvis…»**) y pídele cosas. En el notch ves todo lo que hace: **escuchando** (la esfera se mueve con tu voz), **pensando** y cada paso, por ejemplo «Buscando a Ana en Contactos…» o «Abriendo Cursor…». Al final aparece una tarjeta con el resultado y te contesta en voz alta.
 
-- «oye, mándale un correo a ana@correo.com diciendo que llego tarde» → abre el correo en Mail ya redactado; tú le das enviar.
-- «oye, pon una reunión con Luis mañana a las 5» → la guarda en tu calendario con aviso 10 minutos antes.
-- «oye, mándale por WhatsApp a 5512345678 que ya voy» → abre WhatsApp con el mensaje listo.
-- «oye, busca vuelos a Cancún», «oye, abre YouTube», «oye, corre mi atajo Modo foco».
-- Selecciona un texto y di «oye, resúmelo», «oye, tradúcelo al inglés» o «oye, ¿qué significa esto?» → la respuesta aparece en el notch y queda copiada.
+- **Preguntas**: «¿quién es Kai Brokering?», «¿cuánto mide el Everest?» → busca en la web, lee los resultados y te resume la respuesta con las fuentes.
+- **Correos y mensajes**: «mándale un correo a Ana diciendo que llego tarde» → busca a Ana en tus Contactos, redacta el correo y lo deja abierto en Mail. También funciona con WhatsApp y Mensajes. Tú le das enviar.
+- **Calendario**: «¿qué tengo mañana?» te muestra tu agenda. «Pon una reunión con Luis el viernes a las 5» la guarda con un aviso 10 minutos antes.
+- **Apps y web**: «abre Cursor», «abre YouTube», «busca el archivo factura», «corre mi atajo Modo foco».
+- **Varias cosas en una sola orden**: «pon una reunión con Luis mañana a las 5 y abre Cursor».
+- **Memoria**: «recuerda que mi jefe se llama Carlos Ibáñez», «¿qué recuerdas?», «olvida lo de Carlos». Lo que guarda lo usa después para entenderte mejor.
+- **Lo que tienes seleccionado o bajo el mouse**: selecciona un texto y di «resúmelo» o «tradúcelo al inglés».
 
-Necesita macOS 26 con Apple Intelligence activado. Nada sale de tu Mac, y lo que se envía (correos, mensajes) siempre queda listo para que tú lo mandes.
+**Tus palabras**: en Ajustes → Voz → «Palabras que uso» escribe apellidos, marcas o nombres raros (por ejemplo `Brokering, Ibáñez, Lynqin`) para que los escriba bien. Los nombres de tus Contactos y lo que le pides recordar se agregan solos.
+
+Las órdenes sencillas (abrir apps, agenda, memoria) salen al instante. Las demás usan el modelo de Apple Intelligence que corre en tu Mac. Necesita macOS 26 con Apple Intelligence activado. Solo las búsquedas web salen de tu Mac, y lo que se envía (correos, mensajes) siempre queda listo para que tú lo mandes. La voz se apaga en Ajustes → Voz.
 - Se apaga en Ajustes → Llamadas y más → Voz. Necesita el permiso de Accesibilidad.
 
 ### 🎙️ Notas de voz a texto
@@ -433,6 +437,7 @@ Cómo lo logra:
 | **⌃⌥T** | Traducir lo que copiaste |
 | **⌃⌥D** | Empezar / terminar una nota de voz |
 | **Mantener ⌥ derecha** | Dictar en cualquier app: hablas, sueltas y se escribe donde está el cursor |
+| **⌃⌥J** | Hablarle al asistente (otra vez para terminar de hablar) |
 | **Espacio / ↑ ↓ / esc** | En el teleprompter: pausar / velocidad / cerrar |
 | **↩ / ⌘↩** | En Buscar: abrir el archivo / mostrarlo en Finder |
 | **⌃⌥1 … ⌃⌥9** | Copiar el texto guardado 1…9 |
@@ -455,7 +460,9 @@ VibeNotch solo pide permisos cuando usas algo que los necesita:
 | Automatización (Spotify / Música) | Pausar y cambiar de canción | Al tocar un control de música |
 | Automatización (Mail) | Leer los correos nuevos para encontrar códigos y saber quién los mandó | Si tocas "Conectar Mail" en Llamadas y más |
 | Accesibilidad | Pegar automáticamente al elegir un clip, ver y contestar llamadas de WhatsApp y detectar códigos de verificación | Si activas "Pegar al elegir un clip" o tocas "Dar permiso" en Llamadas y más |
-| Micrófono y Reconocimiento de voz | Notas de voz a texto | La primera vez que dictas |
+| Micrófono y Reconocimiento de voz | Notas de voz, dictado y asistente | La primera vez que dictas |
+| Contactos | Que el asistente encuentre el correo o teléfono de alguien por su nombre | La primera vez que le pides escribirle a alguien |
+| Calendario (asistente) | Leer tu agenda y crear eventos cuando se lo pides | La primera vez que le preguntas por tu agenda |
 | Llavero | Leer los límites de tu plan de Claude | Solo si activas esa opción |
 | Archivos (Escritorio, Documentos, Descargas, iCloud Drive) | Buscar archivos por nombre | La primera vez que abres Buscar |
 
@@ -601,7 +608,7 @@ VIBENOTCH_MAILTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch             
 VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
 VIBENOTCH_CURSORQTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                             # muestra las últimas preguntas de Cursor que detecta
 VIBENOTCH_VOICETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                               # prueba la limpieza del dictado, los recordatorios y «abre…»
-VIBENOTCH_AGENTTEST="abre YouTube|¿cuál es la capital de Australia?" ./build/VibeNotch.app/Contents/MacOS/VibeNotch   # prueba el agente de Apple Intelligence sin hacer nada
+VIBENOTCH_AGENTTEST="abre YouTube|¿qué tengo mañana?|pon una reunión con Luis mañana a las 5 y abre Cursor" ./build/VibeNotch.app/Contents/MacOS/VibeNotch   # prueba el asistente: muestra qué haría y cuánto tarda, sin hacer nada
 open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```

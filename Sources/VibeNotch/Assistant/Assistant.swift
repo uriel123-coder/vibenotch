@@ -101,6 +101,7 @@ final class Assistant: ObservableObject {
 
     /// A visible step: "Buscando en la web…", "Abriendo Cursor…".
     func step(_ symbol: String, _ text: String) {
+        hideWork?.cancel()
         for i in steps.indices { steps[i].finished = true }
         steps.append(Step(symbol: symbol, text: text))
         status = text
