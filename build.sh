@@ -60,7 +60,31 @@ rm -rf build/obj
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-codesign --force --sign - "$APP" >/dev/null 2>&1
+
+# macOS ties permissions (Accessibility, Microphone…) to the signature. An ad-hoc signature changes with every build,
+# so each update would ask again; the same certificate every time keeps them. It lives in a throwaway keychain.
+SIGN_DIR="$HOME/.config/vibenotch-signing"
+SIGN_P12="${SIGN_P12:-$SIGN_DIR/signing.p12}"
+SIGN_PASSWORD="${SIGN_PASSWORD:-$(cat "$SIGN_DIR/password.txt" 2>/dev/null || true)}"
+if [ -f "$SIGN_P12" ] && [ -n "$SIGN_PASSWORD" ]; then
+  KC="$(mktemp -d)/vibenotch-sign.keychain-db"
+  OLD_KCS=()
+  while IFS= read -r k; do k="${k//\"/}"; k="${k#"${k%%[![:space:]]*}"}"; [ -n "$k" ] && OLD_KCS+=("$k"); done < <(security list-keychains -d user)
+  security create-keychain -p vibenotch "$KC"
+  security unlock-keychain -p vibenotch "$KC"
+  security import "$SIGN_P12" -k "$KC" -P "$SIGN_PASSWORD" -T /usr/bin/codesign >/dev/null
+  security set-key-partition-list -S apple-tool:,apple: -s -k vibenotch "$KC" >/dev/null
+  security list-keychains -d user -s "$KC" ${OLD_KCS[@]+"${OLD_KCS[@]}"}
+  SIGN_ID="$(security find-identity -p codesigning "$KC" | awk '/VibeNotch Signing/ {print $2; exit}')"
+  SIGNED=0
+  codesign --force --keychain "$KC" --sign "$SIGN_ID" "$APP" && SIGNED=1
+  security list-keychains -d user -s ${OLD_KCS[@]+"${OLD_KCS[@]}"}
+  security delete-keychain "$KC"
+  [ "$SIGNED" = 1 ] || { echo "✗ No se pudo firmar la app"; exit 1; }
+else
+  [ -n "${REQUIRE_SIGNING:-}" ] && { echo "✗ Falta el certificado de firma"; exit 1; }
+  codesign --force --sign - "$APP" >/dev/null 2>&1
+fi
 echo "✓ Listo: $(pwd)/$APP ($(lipo -archs "$BIN"))"
 
 case "$MODE" in

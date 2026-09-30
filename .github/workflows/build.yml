@@ -20,12 +20,22 @@ jobs:
         run: swiftc --version
 
       - name: Build universal app
-        run: ./build.sh zip
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          REQUIRE_SIGNING: ${{ github.event_name != 'pull_request' && '1' || '' }}
+        run: |
+          if [ -n "$SIGNING_P12_BASE64" ]; then
+            export SIGN_P12="$RUNNER_TEMP/signing.p12"
+            echo "$SIGNING_P12_BASE64" | base64 --decode > "$SIGN_P12"
+          fi
+          ./build.sh zip
 
       - name: Check the bundle
         run: |
           lipo -archs build/VibeNotch.app/Contents/MacOS/VibeNotch
           codesign --verify --verbose build/VibeNotch.app
+          codesign -dr - build/VibeNotch.app
           plutil -lint build/VibeNotch.app/Contents/Info.plist
 
       - uses: actions/upload-artifact@v7
