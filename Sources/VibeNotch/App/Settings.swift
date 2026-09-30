@@ -105,7 +105,7 @@ final class AppSettings: ObservableObject {
         phoneEnabled = d.object(forKey: "phoneEnabled") as? Bool ?? false
         phoneTopic = d.string(forKey: "phoneTopic") ?? PhoneNotifier.newTopic()
         phoneServer = d.string(forKey: "phoneServer") ?? "https://ntfy.sh"
-        phoneOnlyAway = d.object(forKey: "phoneOnlyAway") as? Bool ?? true
+        phoneOnlyAway = d.object(forKey: "phoneOnlyAway") as? Bool ?? false
         phoneDone = d.object(forKey: "phoneDone") as? Bool ?? true
         phoneAsks = d.object(forKey: "phoneAsks") as? Bool ?? true
         phoneDetails = d.object(forKey: "phoneDetails") as? Bool ?? true

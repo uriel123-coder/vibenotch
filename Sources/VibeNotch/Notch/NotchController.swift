@@ -118,6 +118,14 @@ final class NotchController {
             Prompter.shared.$active.combineLatest(Prompter.shared.$running).sink { a, r in
                 print("TRACE teleprompter activo=\(a) avanzando=\(r)"); fflush(stdout)
             }.store(in: &cancellables)
+            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let rows = AgentStore.shared.ordered.map { "\($0.id.prefix(15))=\($0.status)" }.joined(separator: " ")
+                    print("TRACE agentes [\(rows)] indicadores=\(self.model.showsIndicators) fs=\(self.model.fullscreen) espacioActivo=\(self.panel.isOnActiveSpace) visible=\(self.panel.isVisible) alpha=\(self.panel.alphaValue) frame=\(self.panel.frame)")
+                    fflush(stdout)
+                }
+            }
         }
         model.$state.sink { [weak self] state in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
