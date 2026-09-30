@@ -116,7 +116,7 @@ enum VoiceAgent {
     }
 
     static let kinds = ["correo", "evento", "recordatorio", "whatsapp", "mensaje", "abrir_app", "abrir_web", "buscar_web",
-                        "buscar_archivo", "atajo", "escribir", "responder", "recordar", "agenda"]
+                        "buscar_archivo", "atajo", "escribir", "responder", "recordar", "agenda", "musica"]
 
     /// macOS reads Spanish dates well ("mañana a las 5 de la tarde", "el viernes a las 10"); the small model doesn't.
     nonisolated static func date(in text: String) -> Date? {
@@ -285,8 +285,19 @@ enum Rules {
 
     static func plan(_ order: String, context: VoiceAgent.Context) -> [VoiceAgent.Action]? {
         let f = VoiceAgent.fold(order)
-        let deictic = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "resume", "traduce", "explica", "corrige", "mejora"]
-        if deictic.contains(where: { f.contains($0) }) { return nil }
+        let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica"]
+        let deictic = ["esto", "esta ", "este ", "eso", "seleccion", "copiado"] + edits
+        if deictic.contains(where: { f.contains($0) }) {
+            let text = context.selection.isEmpty ? context.clipboard : context.selection
+            guard edits.contains(where: { f.contains($0) }), clauses(order).count == 1 else { return nil }
+            var a = VoiceAgent.Action(kind: "transformar", order: order)
+            a.text = text
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                a.kind = "responder"
+                a.text = "Selecciona o copia el texto primero y vuelve a pedírmelo."
+            }
+            return [a]
+        }
         let steps = clauses(order).map { parse($0) }
         guard !steps.isEmpty, steps.allSatisfy({ $0 != nil }) else { return nil }
         return steps.compactMap { $0 }
@@ -335,6 +346,13 @@ enum Rules {
             return nil
         }
         if let message = message(o, f) { return message }
+        if let r = rest(["reproduce", "ponme musica de", "pon musica de", "ponme musica", "pon musica", "ponme la cancion", "pon la cancion",
+                         "ponme canciones de", "pon canciones de", "ponme una playlist de", "pon una playlist de"]) {
+            a.kind = "musica"
+            a.text = r.replacingOccurrences(of: #"(?i)\s+en spotify$"#, with: "", options: .regularExpression)
+            if f.hasPrefix("pon musica ") || f.hasPrefix("ponme musica ") { a.text = "música " + a.text }
+            return a
+        }
         if let r = rest(["ponme un temporizador de", "pon un temporizador de", "ponme una alarma en", "pon una alarma en", "pon un timer de",
                          "ponme un timer de"]) {
             let (_, minutes) = VoiceCommand.parseReminder("en " + r)
@@ -507,7 +525,7 @@ enum Rules {
         guard !part.isEmpty else { return s }
         return s.replacingOccurrences(of: part, with: "").replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
-            .replacingOccurrences(of: #"(?i)\s+(el|a las|a la|para el|para|de)$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\s+(el|a las|a la|para el|para|de|del|este|esta|el proximo|el próximo)$"#, with: "", options: .regularExpression)
     }
 
     /// The same span of the original text, keeping accents and capitals, given an offset in its folded copy.
@@ -564,6 +582,8 @@ private enum Brain {
         - responder: texto = tu respuesta breve y clara. Para explicar, resumir o traducir el texto seleccionado, o saludar.
         - recordar: texto = el dato que quiere que recuerdes.
         - agenda: cuando = el día que quiere revisar.
+        - musica: texto = qué quiere escuchar (artista, canción o estilo).
+        Nunca uses marcadores como [nombre] o [tu nombre].
         «esto», «esta persona», «aquí» se refieren a lo que está bajo el cursor o seleccionado.
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)
@@ -628,6 +648,16 @@ private enum Brain {
         Si no está la respuesta, dilo en una frase. No menciones «los resultados».
         """)
         return try await session.respond(to: "Pregunta: \(question)\nResultados:\n\(sources)", options: options).content
+    }
+
+    /// «resúmelo», «tradúcelo al inglés», «¿qué significa esto?» over the text you selected.
+    static func transform(_ order: String, text: String) async throws -> String {
+        let session = LanguageModelSession(instructions: """
+        Haces lo que el usuario pide con el texto que te da: resumir, traducir, explicar, corregir o mejorar. \
+        Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. Nunca uses marcadores como [nombre].
+        """)
+        return try await session.respond(to: "Pide: \(order)\nTexto:\n\(text.prefix(3000))", options: options).content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Turns «llego tarde» into a proper email. Gives up after `seconds` so the draft never waits on the model.
@@ -778,9 +808,35 @@ enum Hands {
                 a.fail("No encontré el atajo «\(s.name)»")
             }
         case "escribir":
+            guard VoiceKey.focusedIsText() else {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(s.text, forType: .string)
+                return a.finish(.answer(s.text), say: "Te lo dejé copiado.", linger: max(10, min(30, Double(s.text.count) / 10)))
+            }
             a.step("character.cursor.ibeam", "Escribiendo…")
             VoiceKey.type(s.text)
             a.finish(nil, linger: 1.5)
+        case "musica":
+            let spotify = VoiceCommand.findApp("Spotify") != nil
+            a.step("music.note", spotify ? "Buscando «\(s.text)» en Spotify…" : "Buscando «\(s.text)» en YouTube…")
+            let q = s.text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s.text
+            let url = URL(string: spotify ? "spotify:search:\(q)" : "https://music.youtube.com/search?q=\(q)")
+            guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir la música") }
+            a.finish(.done(symbol: "music.note", title: spotify ? "Abrí Spotify" : "Abrí YouTube Music", detail: s.text,
+                           bundleID: spotify ? "com.spotify.client" : nil), say: "Listo, dale play.", linger: 4)
+        case "transformar":
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *), VoiceAgent.available {
+                a.step("text.viewfinder", "Leyendo lo que seleccionaste…")
+                let answer = (try? await Brain.transform(s.order, text: s.text)) ?? ""
+                guard !answer.isEmpty else { return a.fail("No pude con ese texto") }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(answer, forType: .string)
+                return a.finish(.answer(answer), say: answer.count < 280 ? answer : "Listo, te lo dejé copiado.",
+                                linger: max(10, min(30, Double(answer.count) / 10)))
+            }
+            #endif
+            a.fail(VoiceAgent.unavailableReason)
         case "recordar":
             Memory.remember(s.text)
             a.finish(.memory(saved: Memory.facts.last, all: Memory.facts), say: "Listo, lo recordaré.")

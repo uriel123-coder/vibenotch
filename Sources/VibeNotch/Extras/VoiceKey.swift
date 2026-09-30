@@ -117,7 +117,7 @@ final class VoiceKey {
         }
     }
 
-    private static func focusedIsText() -> Bool {
+    static func focusedIsText() -> Bool {
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let element = focused else { return false }
