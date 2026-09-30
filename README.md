@@ -601,6 +601,7 @@ VIBENOTCH_MAILTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch             
 VIBENOTCH_TABTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                 # abre el notch, recorre las pestañas y mide cuánto se traba cada cambio
 VIBENOTCH_CURSORQTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                             # muestra las últimas preguntas de Cursor que detecta
 VIBENOTCH_VOICETEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                               # prueba la limpieza del dictado, los recordatorios y «abre…»
+VIBENOTCH_AGENTTEST="abre YouTube|¿cuál es la capital de Australia?" ./build/VibeNotch.app/Contents/MacOS/VibeNotch   # prueba el agente de Apple Intelligence sin hacer nada
 open -n --env VIBENOTCH_DICTATIONTEST=/tmp/voz.aiff build/VibeNotch.app                         # transcribe un audio (say -o /tmp/voz.aiff "hola")
 VIBENOTCH_CALLTEST=1 ./build/VibeNotch.app/Contents/MacOS/VibeNotch                                # muestra lo que ve de WhatsApp (haz una llamada de prueba)
 ```
