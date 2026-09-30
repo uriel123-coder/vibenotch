@@ -64,8 +64,8 @@ final class VoiceKey {
     }
 
     /// Opens the assistant's listening panel and the mic; ⌃⌥J uses it too.
-    static func listen(_ mode: Dictation.Mode) {
-        Assistant.shared.listening()
+    static func listen(_ mode: Dictation.Mode, followUp: Bool = false) {
+        Assistant.shared.listening(followUp: followUp)
         Dictation.shared.start(mode)
         VoiceAgent.prepare()
     }

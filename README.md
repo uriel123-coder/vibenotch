@@ -181,7 +181,13 @@ Presiona **⌃⌥J** (o mantén ⌥ derecha y empieza con **«oye…»** / **«J
 - **Apps y web**: «abre Cursor», «abre YouTube», «busca el archivo factura», «corre mi atajo Modo foco».
 - **Varias cosas en una sola orden**: «pon una reunión con Luis mañana a las 5 y abre Cursor».
 - **Memoria**: «recuerda que mi jefe se llama Carlos Ibáñez», «¿qué recuerdas?», «olvida lo de Carlos». Lo que guarda lo usa después para entenderte mejor.
-- **Lo que tienes seleccionado o bajo el mouse**: selecciona un texto y di «resúmelo» o «tradúcelo al inglés».
+- **Lo que tienes seleccionado o bajo el mouse**: selecciona un texto y di «resúmelo» o «tradúcelo al inglés». Si estás escribiendo (en Mail, Notas, WhatsApp…), «corrígelo», «hazlo más formal» o «mejóralo» lo reemplaza ahí mismo (⌘Z para deshacer).
+- **Platicar**: «dame ideas para un video», «explícame qué es la inflación», «escríbeme un mensaje para felicitar a mi mamá». La respuesta se va escribiendo en vivo en el notch, y al terminar sigue escuchando unos segundos para que le contestes («hazlo más corto», «¿y cuánto cuesta?»). La tarjeta tiene **Pegar**, **Documento** y **Copiar**.
+- **Documentos**: «crea un documento con el plan de lanzamiento» lo escribe y lo guarda en Documentos. «Mejora el documento propuesta» o «traduce el archivo contrato al inglés» guarda una versión nueva junto al original (nunca lo sobrescribe). «Crea una nota que diga comprar pan» la guarda en Notas.
+- **Organizar**: «organiza mi día» revisa tu calendario y te arma un plan con horarios y huecos libres.
+- **Tus propias habilidades**: «cuando diga modo trabajo, abre Cursor y Slack y pon música lo-fi». Después solo di «modo trabajo». También: «crea una rutina llamada buenos días que me diga mi agenda y abra el correo», «¿qué habilidades tengo?», «borra la habilidad modo trabajo».
+
+Con **⌃⌥J** no tienes que volver a presionar nada: deja de escuchar solo cuando haces una pausa, como Siri. Mientras escucha o trabaja, el borde del notch brilla.
 
 **Tus palabras**: en Ajustes → Voz → «Palabras que uso» escribe apellidos, marcas o nombres raros (por ejemplo `Brokering, Ibáñez, Lynqin`) para que los escriba bien. Los nombres de tus Contactos y lo que le pides recordar se agregan solos.
 

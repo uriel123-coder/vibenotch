@@ -19,20 +19,24 @@ struct AssistantView: View {
                     .animation(.easeOut(duration: 0.2), value: assistant.status)
                 Spacer(minLength: 6)
                 if assistant.phase == .listening {
-                    Text("Suelta ⌥ para terminar")
+                    Text(dictation.mode == .type ? "Suelta ⌥ para terminar" : assistant.followUp ? "Responde o espera" : "Haz una pausa al terminar")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.35))
-                } else {
+                }
+                if assistant.phase != .listening || assistant.followUp {
                     IconButton(symbol: "xmark", help: "Cerrar") { assistant.dismiss() }
                 }
             }
             if assistant.phase == .listening {
-                Text(dictation.transcript.isEmpty ? "Te escucho… di «oye» y lo que necesites" : dictation.transcript)
+                Text(dictation.transcript.isEmpty ? (assistant.followUp ? "Te escucho…" : "Te escucho… pídeme lo que necesites") : dictation.transcript)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(dictation.transcript.isEmpty ? 0.4 : 0.92))
                     .lineLimit(1)
                     .truncationMode(.head)
                     .animation(.easeOut(duration: 0.12), value: dictation.transcript)
+                if dictation.transcript.isEmpty && !assistant.followUp && !assistant.recent.isEmpty {
+                    Recents(orders: Array(assistant.recent.prefix(3)))
+                }
             } else if !assistant.heard.isEmpty {
                 Text("«\(assistant.heard)»")
                     .font(.system(size: 12, weight: .medium))
@@ -40,14 +44,14 @@ struct AssistantView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            if !assistant.steps.isEmpty && assistant.phase != .listening {
+            if !assistant.steps.isEmpty && assistant.phase != .listening && !(assistant.phase == .done && assistant.card != nil && assistant.steps.count > 2) {
                 VStack(alignment: .leading, spacing: 5) {
-                    ForEach(assistant.steps.suffix(4)) { StepRow(step: $0) }
+                    ForEach(assistant.steps.suffix(assistant.phase == .done ? 2 : 4)) { StepRow(step: $0) }
                 }
                 .transition(.opacity)
             }
             if let card = assistant.card {
-                CardView(card: card)
+                CardView(card: card, live: assistant.streaming || assistant.wasStreamed, writing: assistant.streaming)
                     .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
             }
         }
@@ -135,19 +139,66 @@ private struct StepRow: View {
 
 private struct CardView: View {
     let card: Assistant.Card
+    /// Arrived word by word from the model: shown as is, not typed out.
+    var live = false
+    var writing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             switch card {
             case .answer(let text):
-                Header(symbol: "sparkles", title: "Respuesta") { Copy(text: text) }
-                Typewriter(text: text)
+                Header(symbol: "sparkles", title: writing ? "Escribiendo…" : "Jarvis") {
+                    if !writing {
+                        HStack(spacing: 12) {
+                            SmallAction(title: "Pegar", symbol: "text.insert") { VoiceKey.type(text) }
+                            SmallAction(title: "Documento", symbol: "doc.badge.plus") {
+                                if let made = try? Documents.create(text) { NSWorkspace.shared.open(made.url) }
+                            }
+                            Copy(text: text)
+                        }
+                    }
+                }
+                AnswerText(text: text, live: live, writing: writing)
             case .web(let answer, let hits):
                 Header(symbol: "globe", title: "En la web") {
                     if let first = hits.first { Link("Abrir", destination: first.url).font(.system(size: 10.5, weight: .semibold)) }
                 }
-                if let answer { Typewriter(text: answer) }
-                VStack(spacing: 2) { ForEach(hits.prefix(4)) { WebRow(hit: $0) } }
+                if let answer { AnswerText(text: answer, live: live, writing: writing) }
+                VStack(spacing: 2) { ForEach(hits.prefix(answer == nil ? 4 : 3)) { WebRow(hit: $0) } }
+            case .event(let event):
+                EventCard(event: event)
+            case let .document(url, title, preview, edited):
+                HStack(alignment: .top, spacing: 12) {
+                    Image(nsImage: FileIcons.icon(for: url)).resizable().frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(edited ? "Versión nueva, junto al original" : "Nuevo documento en Documentos")
+                            .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Color.accentColor)
+                        Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        Text(preview).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.6)).lineLimit(3)
+                    }
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    Spacer()
+                    PillButton(title: "Mostrar en Finder", primary: false) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    PillButton(title: "Abrir", primary: true) { NSWorkspace.shared.open(url) }
+                }
+            case let .skills(saved, all):
+                Header(symbol: "wand.and.stars", title: "Tus habilidades") { EmptyView() }
+                if all.isEmpty {
+                    Text("Enséñame una: «cuando diga modo trabajo, abre Cursor y pon música lo-fi».")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(all.suffix(6), id: \.self) { skill in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("«\(skill.name)»").font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(skill.name == saved ? Color.accentColor : .white.opacity(0.9))
+                            Text(skill.orders).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
             case .events(let day, let rows):
                 Header(symbol: "calendar", title: Agenda.dayName(day)) { EmptyView() }
                 if rows.isEmpty {
@@ -250,6 +301,209 @@ private struct Copy: View {
     }
 }
 
+/// An answer: live while the model writes it (with a blinking cursor), typed out otherwise.
+private struct AnswerText: View {
+    let text: String
+    var live: Bool
+    var writing: Bool
+
+    var body: some View {
+        if live {
+            // While writing, the newest lines stay in view; the whole text is there (and copyable) once it's done.
+            let shown = writing && text.count > 700 ? "…" + text.suffix(700) : text
+            (Text(shown) + Text(writing ? " ▍" : "").foregroundColor(.accentColor))
+                .font(.system(size: 12.5))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineSpacing(2)
+                .lineLimit(writing ? nil : 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        } else {
+            Typewriter(text: text)
+        }
+    }
+}
+
+private struct Recents: View {
+    let orders: [String]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(orders, id: \.self) { order in
+                Button {
+                    Dictation.shared.cancel()
+                    VoiceAgent.run(order)
+                } label: {
+                    Label(order, systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.7))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct SmallAction: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol).font(.system(size: 10.5, weight: .semibold))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.6))
+    }
+}
+
+private struct PillButton: View {
+    let title: String
+    var primary = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(Capsule().fill(primary ? Color.accentColor : .white.opacity(0.1)))
+                .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The event it just created, like a calendar app: details on the left, your day around it on the right.
+private struct EventCard: View {
+    let event: Assistant.NewEvent
+    private let rowHeight: CGFloat = 36
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                if let icon = AppLookup.icon("com.apple.iCal") { Image(nsImage: icon).resizable().frame(width: 18, height: 18) }
+                Text("Calendario").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
+                Spacer()
+                Label("Agendado", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.green)
+            }
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(event.title).font(.system(size: 17, weight: .semibold)).lineLimit(2)
+                    Capsule().fill(Color.accentColor).frame(height: 2)
+                    Chip(symbol: "calendar", text: day)
+                    HStack(spacing: 6) {
+                        Chip(symbol: "clock", text: event.start.formatted(date: .omitted, time: .shortened))
+                        Text("–").foregroundStyle(.white.opacity(0.4))
+                        Chip(symbol: nil, text: duration)
+                    }
+                    Chip(symbol: "bell", text: "10 min antes")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                timeline.frame(width: 210)
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                PillButton(title: "Deshacer") { Hands.undoEvent(event.id) }
+                PillButton(title: "Abrir Calendario", primary: true) {
+                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+                        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+                    }
+                }
+            }
+        }
+    }
+
+    private var day: String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "d MMM"
+        let prefix = cal.isDateInToday(event.start) ? "Hoy" : cal.isDateInTomorrow(event.start) ? "Mañana" : {
+            let g = DateFormatter(); g.locale = Locale(identifier: "es_MX"); g.dateFormat = "EEEE"
+            return g.string(from: event.start).capitalized
+        }()
+        return "\(prefix), \(f.string(from: event.start))"
+    }
+
+    private var duration: String {
+        let minutes = Int(event.end.timeIntervalSince(event.start) / 60)
+        return minutes % 60 == 0 ? "\(minutes / 60) h" : minutes > 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
+    }
+
+    /// Four hours of your day, starting an hour before the new event.
+    private var timeline: some View {
+        let cal = Calendar.current
+        let firstHour = max(0, min(20, cal.component(.hour, from: event.start) - 1))
+        let windowStart = cal.date(bySettingHour: firstHour, minute: 0, second: 0, of: event.start) ?? event.start
+        let hours = 4
+        let windowEnd = windowStart.addingTimeInterval(Double(hours) * 3600)
+        let others = event.rows.filter { !$0.allDay && $0.end > windowStart && $0.start < windowEnd
+            && !($0.title == event.title && abs($0.start.timeIntervalSince(event.start)) < 60) }
+        let top: CGFloat = 7
+        func y(_ d: Date) -> CGFloat { top + CGFloat(max(0, d.timeIntervalSince(windowStart)) / 3600) * rowHeight }
+        let hourFormat = DateFormatter()
+        hourFormat.dateFormat = "HH:mm"
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<hours, id: \.self) { i in
+                HStack(spacing: 6) {
+                    Text(hourFormat.string(from: windowStart.addingTimeInterval(Double(i) * 3600)))
+                        .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: 32, alignment: .trailing)
+                    Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+                }
+                .frame(height: 14)
+                .offset(y: top + CGFloat(i) * rowHeight - 7)
+            }
+            ForEach(others) { row in
+                block(row.title, color: Color(nsColor: row.color), highlight: false)
+                    .frame(height: max(18, y(min(row.end, windowEnd)) - y(row.start) - 2))
+                    .offset(x: 40, y: y(row.start) + 1)
+            }
+            block(event.title, color: .accentColor, highlight: true)
+                .frame(height: max(20, y(min(event.end, windowEnd)) - y(event.start) - 2))
+                .offset(x: 40, y: y(event.start) + 1)
+        }
+        .frame(height: top + CGFloat(hours) * rowHeight, alignment: .topLeading)
+        .clipped()
+    }
+
+    private func block(_ title: String, color: Color, highlight: Bool) -> some View {
+        HStack(spacing: 5) {
+            Capsule().fill(color).frame(width: 3)
+            Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2).padding(.trailing, 4).padding(.leading, 2)
+        .frame(width: 170, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 5).fill(highlight ? color.opacity(0.85) : color.opacity(0.22)))
+        .foregroundStyle(.white.opacity(highlight ? 1 : 0.8))
+    }
+}
+
+private struct Chip: View {
+    let symbol: String?
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)) }
+            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.accentColor.opacity(0.95))
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor.opacity(0.25), lineWidth: 1))
+        }
+    }
+}
+
 /// Reveals the answer as if it were being written.
 private struct Typewriter: View {
     let text: String
@@ -267,7 +521,7 @@ private struct Typewriter: View {
                     let n = min(text.count, Int(ctx.date.timeIntervalSince(start) * 110))
                     Text(text.prefix(n))
                         .font(.system(size: 12.5))
-                        .foregroundStyle(.white.opacity(0.92))
+                                .foregroundStyle(.white.opacity(0.92))
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)

@@ -44,6 +44,7 @@ struct NotchRootView: View {
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
         .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : model.island ? 0.1 : 0), lineWidth: 1))
+        .overlay(SiriGlow(shape: shape, active: assistant.phase == .listening || assistant.busy))
         .background(
             shape.fill(.black)
                 .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
@@ -71,6 +72,28 @@ struct NotchRootView: View {
         .animation(.notch, value: assistant.visible)
         .background(TranslatorHost())
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// A soft moving glow along the edge while the assistant listens or works, like Siri.
+private struct SiriGlow<S: Shape>: View {
+    let shape: S
+    let active: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active || AppSettings.shared.reduceMotion)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let colors: [Color] = [.blue, .purple, .pink, .orange, .cyan, .blue]
+            let g = AngularGradient(colors: colors, center: .center, angle: .degrees(t * 80))
+            ZStack {
+                shape.stroke(g, lineWidth: 6).blur(radius: 9).opacity(0.65)
+                shape.stroke(g, lineWidth: 1.2).opacity(0.85)
+            }
+            .mask(shape)
+        }
+        .opacity(active ? 1 : 0)
+        .animation(.easeInOut(duration: 0.4), value: active)
+        .allowsHitTesting(false)
     }
 }
 

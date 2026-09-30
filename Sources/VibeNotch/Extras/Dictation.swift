@@ -23,6 +23,7 @@ final class Dictation: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
+    private var endpoint: DispatchWorkItem?
 
     var active: Bool { phase != .idle }
 
@@ -140,6 +141,21 @@ final class Dictation: ObservableObject {
         task = recognizer.recognitionTask(with: req, resultHandler: Self.handler(gen))
         startedAt = Date()
         phase = .recording
+        if mode == .assistant { stopAfterSilence(Assistant.shared.followUp ? 5 : 8) }
+    }
+
+    /// Talking to the assistant ends on its own when you pause, like Siri.
+    private func stopAfterSilence(_ seconds: Double) {
+        endpoint?.cancel()
+        let gen = generation
+        let work = DispatchWorkItem {
+            MainActor.assumeIsolated {
+                let d = Dictation.shared
+                if d.generation == gen && d.phase == .recording { d.finish() }
+            }
+        }
+        endpoint = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest) -> AVAudioNodeTapBlock {
@@ -167,7 +183,10 @@ final class Dictation: ObservableObject {
 
     private func update(_ text: String?, final: Bool, failed: Bool, gen: Int) {
         guard gen == generation, phase == .recording || phase == .finishing else { return }
-        if let text, !text.isEmpty { transcript = text }
+        if let text, !text.isEmpty {
+            transcript = text
+            if mode == .assistant && phase == .recording { stopAfterSilence(1.4) }
+        }
         // Server recognition stops on its own after about a minute; keep what was said.
         if final || failed { save() }
     }
@@ -178,7 +197,7 @@ final class Dictation: ObservableObject {
         phase = .idle
         guard !text.isEmpty else {
             if mode != .note {
-                if Assistant.shared.phase == .listening { Assistant.shared.fail("No te escuché, intenta otra vez") }
+                if Assistant.shared.phase == .listening && !Assistant.shared.followUp { Assistant.shared.fail("No te escuché, intenta otra vez") }
                 return
             }
             NotchModel.shared.announce(Announcement(symbol: "mic.fill", tint: .warn, title: "No escuché nada",
@@ -213,6 +232,8 @@ final class Dictation: ObservableObject {
     }
 
     private func cleanup() {
+        endpoint?.cancel()
+        endpoint = nil
         stopAudio()
         task?.cancel()
         task = nil

@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import Contacts
 import EventKit
+import PDFKit
 
 /// The voice assistant's state, shown in the notch: listening, thinking, doing, and a card with the result.
 @MainActor
@@ -35,14 +36,25 @@ final class Assistant: ObservableObject {
         let color: NSColor
     }
 
+    struct NewEvent: Equatable {
+        let id: String?
+        let title: String
+        let start: Date
+        let end: Date
+        let rows: [EventRow]
+    }
+
     enum Card: Equatable {
         case answer(String)
         case web(answer: String?, hits: [WebHit])
         case events(day: Date, rows: [EventRow])
+        case event(NewEvent)
         case files(query: String, urls: [URL])
         case draft(app: String, bundleID: String, to: String, subject: String, body: String)
         case done(symbol: String, title: String, detail: String, bundleID: String?)
         case memory(saved: String?, all: [String])
+        case document(url: URL, title: String, preview: String, edited: Bool)
+        case skills(saved: String?, all: [Skills.Skill])
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -50,6 +62,13 @@ final class Assistant: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var steps: [Step] = []
     @Published private(set) var card: Card?
+    /// The answer is still being written by the model: shown as it arrives instead of typed out.
+    @Published private(set) var streaming = false
+    /// This answer already appeared live, so it isn't typed out again when it's done.
+    @Published private(set) var wasStreamed = false
+    /// Listening for a follow-up after an answer; the answer stays on screen.
+    @Published private(set) var followUp = false
+    @Published private(set) var recent: [String] = UserDefaults.standard.stringArray(forKey: "assistant.recent") ?? []
     @Published var hovering = false {
         didSet { if !hovering && (phase == .done || phase == .failed) { scheduleHide(after: 4) } }
     }
@@ -71,32 +90,57 @@ final class Assistant: ObservableObject {
 
     // MARK: - Flow
 
-    func listening() {
+    func listening(followUp: Bool = false) {
         session += 1
         hideWork?.cancel()
+        self.followUp = followUp && card != nil
         phase = .listening
-        measured = 0
-        heard = ""
-        status = "Escuchando…"
-        steps = []
-        card = nil
+        status = self.followUp ? "¿Algo más?" : "Escuchando…"
+        if !self.followUp {
+            measured = 0
+            heard = ""
+            steps = []
+            card = nil
+        }
         Voice.stop()
     }
 
     /// Ends the listening UI without doing anything (plain dictation, or nothing was heard).
+    /// After an answer, it just goes back to showing the answer.
     func cancelListening() {
         guard phase == .listening else { return }
-        phase = .idle
+        if followUp {
+            followUp = false
+            phase = .done
+            status = "Listo"
+            scheduleHide(after: 5)
+        } else {
+            phase = .idle
+        }
     }
 
     func begin(_ order: String) {
         session += 1
         hideWork?.cancel()
+        followUp = false
+        streaming = false
+        wasStreamed = false
         heard = order
         steps = []
         card = nil
         phase = .thinking
         status = "Pensando…"
+        recent = Array(([order] + recent.filter { $0.caseInsensitiveCompare(order) != .orderedSame }).prefix(5))
+        UserDefaults.standard.set(recent, forKey: "assistant.recent")
+    }
+
+    /// Text arriving from the model, word by word.
+    func stream(_ text: String) {
+        hideWork?.cancel()
+        streaming = true
+        wasStreamed = true
+        phase = .working
+        card = .answer(text)
     }
 
     /// A visible step: "Buscando en la web…", "Abriendo Cursor…".
@@ -109,16 +153,35 @@ final class Assistant: ObservableObject {
     }
 
     /// Shows something useful while the work goes on, like the search results before the summary.
-    func preview(_ card: Card) { self.card = card }
+    func preview(_ card: Card, streaming: Bool = false) {
+        self.streaming = streaming
+        if streaming { wasStreamed = true }
+        self.card = card
+    }
 
-    func finish(_ card: Card?, say: String? = nil, linger: Double = 9) {
+    /// `talk`: it's a conversation (an answer, not an action), so it listens for a follow-up afterwards.
+    func finish(_ card: Card?, say: String? = nil, linger: Double = 9, talk: Bool = false) {
         for i in steps.indices { steps[i].finished = true }
+        streaming = false
         self.card = card
         phase = .done
-        status = say ?? "Listo"
-        if let say, AppSettings.shared.assistantSpeaks { Voice.say(say) }
+        status = say.map { $0.count > 70 ? "Listo" : $0 } ?? "Listo"
+        let current = session
+        let listenAgain = talk && AppSettings.shared.assistantConversation
+        let keepTalking = {
+            MainActor.assumeIsolated {
+                let a = Assistant.shared
+                guard listenAgain, a.session == current, a.phase == .done, !Dictation.shared.active else { return }
+                VoiceKey.listen(.assistant, followUp: true)
+            }
+        }
+        if let say, AppSettings.shared.assistantSpeaks {
+            Voice.say(say, then: keepTalking)
+        } else if listenAgain {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: keepTalking)
+        }
         Sound.play(.done)
-        scheduleHide(after: linger)
+        scheduleHide(after: listenAgain ? linger + 8 : linger)
     }
 
     func fail(_ why: String) {
@@ -131,8 +194,12 @@ final class Assistant: ObservableObject {
     }
 
     /// Screenshots and demos: sets a state directly.
-    func demo(_ phase: Phase, heard: String = "", status: String, steps: [Step] = [], card: Card? = nil) {
+    func demo(_ phase: Phase, heard: String = "", status: String, steps: [Step] = [], card: Card? = nil,
+              live: Bool = false, writing: Bool = false, followUp: Bool = false) {
         hideWork?.cancel()
+        wasStreamed = live
+        streaming = writing
+        self.followUp = followUp
         self.phase = phase
         self.heard = heard
         self.status = status
@@ -143,6 +210,9 @@ final class Assistant: ObservableObject {
     func dismiss() {
         hideWork?.cancel()
         Voice.stop()
+        if Dictation.shared.active && followUp { Dictation.shared.cancel() }
+        followUp = false
+        streaming = false
         phase = .idle
         card = nil
         steps = []
@@ -185,6 +255,9 @@ final class Assistant: ObservableObject {
         case .draft(_, _, _, _, let body)?: h += 118 + min(90, lines(body, 15))
         case .done?: h += 58
         case .memory(_, let all)?: h += 44 + CGFloat(max(1, min(all.count, 6))) * 22
+        case .event?: h += 200
+        case .document?: h += 130
+        case .skills(_, let all)?: h += 44 + CGFloat(max(1, min(all.count, 6))) * 22
         case nil: break
         }
         return min(h, 470)
@@ -211,10 +284,16 @@ enum Voice {
             .first ?? voices.first
     }
 
-    static func say(_ text: String) {
+    private static let listener = Listener()
+
+    /// `then` runs when it finishes speaking (not if it's interrupted).
+    static func say(_ text: String, then: (@Sendable () -> Void)? = nil) {
         let clean = text.replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)
-        guard !clean.isEmpty else { return }
+            .replacingOccurrences(of: #"[*#_`]"#, with: "", options: .regularExpression)
+        guard !clean.isEmpty else { then?(); return }
         synth.stopSpeaking(at: .immediate)
+        synth.delegate = listener
+        listener.then = then
         let u = AVSpeechUtterance(string: String(clean.prefix(320)))
         u.voice = best
         u.rate = 0.52
@@ -222,7 +301,151 @@ enum Voice {
         synth.speak(u)
     }
 
-    static func stop() { synth.stopSpeaking(at: .immediate) }
+    static func stop() {
+        listener.then = nil
+        synth.stopSpeaking(at: .immediate)
+    }
+
+    private final class Listener: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
+        var then: (@Sendable () -> Void)?
+        func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+            let next = then
+            then = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { next?() }
+        }
+    }
+}
+
+// MARK: - Skills
+
+/// Your own routines: «cuando diga modo trabajo, abre Cursor y Slack y pon música lo-fi».
+@MainActor
+enum Skills {
+    struct Skill: Codable, Equatable, Hashable {
+        var name: String
+        var orders: String
+    }
+
+    private static var url: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VibeNotch")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("habilidades.json")
+    }
+
+    static var all: [Skill] {
+        get { (try? JSONDecoder().decode([Skill].self, from: Data(contentsOf: url))) ?? [] }
+        set { try? JSONEncoder().encode(newValue).write(to: url, options: .atomic) }
+    }
+
+    static func save(_ name: String, orders: String) -> Skill {
+        let skill = Skill(name: name.trimmingCharacters(in: CharacterSet(charactersIn: " ,.«»\"'")), orders: orders)
+        all = all.filter { key($0.name) != key(skill.name) } + [skill]
+        return skill
+    }
+
+    static func remove(_ name: String) -> Bool {
+        let before = all
+        all = before.filter { key($0.name) != key(name) }
+        return all.count < before.count
+    }
+
+    /// «modo trabajo», «activa modo trabajo», «corre la rutina de la mañana».
+    static func match(_ order: String) -> Skill? {
+        var k = key(order)
+        for p in ["activa la rutina", "corre la rutina", "haz la rutina", "activa el", "activa la", "activa", "corre", "inicia", "empieza", "pon el", "pon"]
+        where k.hasPrefix(p + " ") { k = String(k.dropFirst(p.count + 1)); break }
+        return all.first { key($0.name) == k || key($0.name) == "modo " + k || "modo " + key($0.name) == k }
+    }
+
+    static func key(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.¡!¿?«»\"'"))
+    }
+}
+
+// MARK: - Documents
+
+/// Writes what the assistant made into a real document you can open, edit and share. Never overwrites anything.
+enum Documents {
+    static let readable = ["txt", "md", "rtf", "docx", "doc", "odt", "html", "htm", "pdf", "pages"]
+
+    /// A styled document from the model's text: «# Título», «## Sección», «- punto».
+    static func styled(_ text: String) -> (title: String, doc: NSAttributedString) {
+        let out = NSMutableAttributedString()
+        var title = ""
+        for raw in text.components(separatedBy: "\n") {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            var font = NSFont.systemFont(ofSize: 13)
+            if line.hasPrefix("# ") {
+                line = String(line.dropFirst(2)); font = .boldSystemFont(ofSize: 22)
+                if title.isEmpty { title = line }
+            } else if line.hasPrefix("## ") || line.hasPrefix("### ") {
+                line = line.replacingOccurrences(of: #"^#+\s"#, with: "", options: .regularExpression); font = .boldSystemFont(ofSize: 15)
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                line = "•  " + line.dropFirst(2)
+            }
+            line = line.replacingOccurrences(of: "**", with: "")
+            let style = NSMutableParagraphStyle()
+            style.paragraphSpacing = font.pointSize > 13 ? 8 : 5
+            out.append(NSAttributedString(string: line + "\n", attributes: [.font: font, .paragraphStyle: style]))
+        }
+        if title.isEmpty {
+            title = text.components(separatedBy: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+                .replacingOccurrences(of: "#", with: "").trimmingCharacters(in: .whitespaces) ?? "Documento"
+        }
+        return (String(title.prefix(60)), out)
+    }
+
+    /// A free file name: «Plan de viaje.rtf», «Plan de viaje 2.rtf»…
+    static func freeURL(in dir: URL, name: String, ext: String) -> URL {
+        let safe = name.replacingOccurrences(of: #"[/:\\?*"<>|]"#, with: "-", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        var url = dir.appendingPathComponent("\(safe.isEmpty ? "Documento" : safe).\(ext)")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(safe) \(n).\(ext)")
+            n += 1
+        }
+        return url
+    }
+
+    static func create(_ text: String) throws -> (url: URL, title: String) {
+        let (title, doc) = styled(text)
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = freeURL(in: dir, name: title, ext: "rtf")
+        let data = try doc.data(from: NSRange(location: 0, length: doc.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        try data.write(to: url, options: .withoutOverwriting)
+        return (url, title)
+    }
+
+    static func read(_ url: URL) -> String? {
+        if url.pathExtension.lowercased() == "pdf" { return PDFDocument(url: url)?.string }
+        return (try? NSAttributedString(url: url, options: [:], documentAttributes: nil))?.string
+    }
+
+    /// Saves the new version next to the original, in the same format when possible.
+    static func saveEdited(_ text: String, from original: URL, suffix: String) throws -> URL {
+        let ext = original.pathExtension.lowercased()
+        let base = original.deletingPathExtension().lastPathComponent + " (\(suffix))"
+        let dir = original.deletingLastPathComponent()
+        let data: Data
+        let outExt: String
+        switch ext {
+        case "txt", "md":
+            outExt = ext
+            data = Data(text.utf8)
+        case "docx":
+            outExt = "docx"
+            let doc = NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 12)])
+            data = try doc.data(from: NSRange(location: 0, length: doc.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
+        default:
+            outExt = "rtf"
+            let doc = NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 13)])
+            data = try doc.data(from: NSRange(location: 0, length: doc.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        }
+        let url = freeURL(in: dir, name: base, ext: outExt)
+        try data.write(to: url, options: .withoutOverwriting)
+        return url
+    }
 }
 
 // MARK: - Memory

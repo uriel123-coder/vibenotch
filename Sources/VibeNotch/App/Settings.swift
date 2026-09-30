@@ -82,6 +82,8 @@ final class AppSettings: ObservableObject {
     /// Names, surnames and brands the recognizer should spell right, separated by commas.
     @Published var voiceWords: String { didSet { store(voiceWords, forKey: "voiceWords") } }
     @Published var assistantSpeaks: Bool { didSet { store(assistantSpeaks, forKey: "assistantSpeaks") } }
+    /// After answering, keep listening a few seconds so you can reply like in a conversation.
+    @Published var assistantConversation: Bool { didSet { store(assistantConversation, forKey: "assistantConversation") } }
     @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
     /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
     @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
@@ -123,6 +125,7 @@ final class AppSettings: ObservableObject {
         voiceKey = d.object(forKey: "voiceKey") as? Bool ?? true
         voiceWords = d.string(forKey: "voiceWords") ?? ""
         assistantSpeaks = d.object(forKey: "assistantSpeaks") as? Bool ?? true
+        assistantConversation = d.object(forKey: "assistantConversation") as? Bool ?? true
         codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
         codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
         mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false

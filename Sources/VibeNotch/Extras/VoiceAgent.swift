@@ -55,23 +55,35 @@ enum VoiceAgent {
         let context = Context.capture()
         Task { @MainActor in
             if await Quick.handle(order) { return }
-            if let steps = Rules.plan(order, context: context) {
-                for step in steps { await Hands.perform(step) }
-                return
-            }
-            guard available else { return assistant.fail(unavailableReason) }
-            #if canImport(FoundationModels)
-            if #available(macOS 26, *) {
-                do {
-                    let steps = Rules.clean(try await Brain.decide(order, context: context), order: order)
-                    guard !steps.isEmpty else { return assistant.fail("No entendí qué hacer, dilo de otra forma") }
-                    for step in steps { await Hands.perform(step) }
-                } catch {
-                    assistant.fail("No pude con eso: \(error.localizedDescription)")
-                }
-            }
-            #endif
+            await execute(order, context: context)
         }
+    }
+
+    /// Everything after the instant intents; skills call it with their saved orders.
+    static func execute(_ order: String, context: Context) async {
+        let assistant = Assistant.shared
+        if let steps = Rules.plan(order, context: context) {
+            for step in steps { await Hands.perform(step) }
+            return
+        }
+        // In the middle of a conversation, anything else is a reply to it.
+        if Conversation.active {
+            var a = Action(kind: "charla", order: order)
+            a.text = order
+            return await Hands.perform(a)
+        }
+        guard available else { return assistant.fail(unavailableReason) }
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            do {
+                let steps = Rules.clean(try await Brain.decide(order, context: context), order: order)
+                guard !steps.isEmpty else { return assistant.fail("No entendí qué hacer, dilo de otra forma") }
+                for step in steps { await Hands.perform(step) }
+            } catch {
+                assistant.fail("No pude con eso: \(error.localizedDescription)")
+            }
+        }
+        #endif
     }
 
     /// What you're looking at, so "esto", "esta persona" and "lo que seleccioné" mean something.
@@ -80,6 +92,8 @@ enum VoiceAgent {
         var selection: String
         var clipboard: String
         var pointer: String
+        /// The cursor is in a text field, so results can be typed right there.
+        var editable = false
 
         @MainActor static func capture() -> Context {
             let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
@@ -93,8 +107,8 @@ enum VoiceAgent {
                 }
             }
             let clip = NSPasteboard.general.string(forType: .string) ?? ""
-            return Context(app: app, selection: String(selection.prefix(3000)), clipboard: String(clip.prefix(1500)),
-                           pointer: Pointer.context())
+            return Context(app: app, selection: String(selection.prefix(10000)), clipboard: String(clip.prefix(3000)),
+                           pointer: Pointer.context(), editable: VoiceKey.focusedIsText())
         }
     }
 
@@ -160,6 +174,16 @@ enum VoiceAgent {
                 let composeStart = Date()
                 let mail = await Brain.compose(to: "Ana López", saying: "Llego tarde a la junta.", within: 12)
                 print(String(format: "correo redactado (%.1f s) → %@", Date().timeIntervalSince(composeStart), mail.map { "\($0.subject) | \($0.body)" } ?? "-"))
+                for ask in ["Dame 3 ideas para un video de lanzamiento de una app", "hazlo más corto"] {
+                    let t = Date()
+                    var first: Double?
+                    let answer = (try? await Brain.chat(ask) { _ in if first == nil { first = Date().timeIntervalSince(t) } }) ?? "-"
+                    Conversation.record(ask, answer)
+                    print(String(format: "charla «%@» (primera palabra %.1f s, total %.1f s) → %@", ask, first ?? -1, Date().timeIntervalSince(t), answer))
+                }
+                let docStart = Date()
+                let doc = (try? await Brain.write("crea un documento con una lista de pendientes para mudarme") { _ in }) ?? "-"
+                print(String(format: "documento (%.1f s) → %@", Date().timeIntervalSince(docStart), String(doc.prefix(300))))
                 for order in hard {
                     Brain.prepare()
                     try? await Task.sleep(for: .seconds(2))
@@ -195,8 +219,13 @@ enum VoiceAgent {
 enum Quick {
     enum Intent: CustomStringConvertible {
         case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
+        case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         var description: String {
             switch self {
+            case .skill(let s): "habilidad «\(s.name)» → \(s.orders)"
+            case .newSkill(let n, let o): "nueva habilidad «\(n)» → \(o)"
+            case .listSkills: "mostrar habilidades"
+            case .removeSkill(let n): "quitar habilidad «\(n)»"
             case .remember(let f): "recordar «\(f)»"
             case .forget(let f): "olvidar «\(f)»"
             case .recall: "mostrar memoria"
@@ -217,6 +246,12 @@ enum Quick {
             }
             return nil
         }
+        if let skill = Skills.match(order) { return .skill(skill) }
+        if let made = newSkill(order) { return .newSkill(made.name, made.orders) }
+        if ["que habilidades", "mis habilidades", "mis rutinas", "que rutinas", "muestrame mis habilidades", "muestrame mis rutinas"]
+            .contains(where: { t.hasPrefix($0) }) { return .listSkills }
+        if let name = rest(["borra la habilidad", "olvida la habilidad", "quita la habilidad", "elimina la habilidad", "borra la rutina",
+                            "olvida la rutina", "quita la rutina", "elimina la rutina"]) { return .removeSkill(name) }
         if let fact = rest(["recuerda que", "acuerdate que", "acuerdate de que", "guarda que", "anota que"]) { return .remember(fact) }
         if let what = rest(["olvida que", "olvida lo de", "olvida"]) { return .forget(what) }
         if ["que recuerdas", "que sabes de mi", "que te acuerdas", "muestrame tu memoria"].contains(where: { t.hasPrefix($0) }) { return .recall }
@@ -236,10 +271,54 @@ enum Quick {
         return nil
     }
 
+    /// «cuando diga modo trabajo, abre Cursor y pon música» or «crea una rutina llamada buenos días que abra el correo y me diga mi agenda».
+    private static func newSkill(_ order: String) -> (name: String, orders: String)? {
+        let o = order.trimmingCharacters(in: CharacterSet(charactersIn: ".!¡ "))
+        let f = VoiceAgent.fold(o)
+        guard o.count == f.count else { return nil }
+        let patterns = [
+            #"^cuando (?:te )?digas? (.+?)[,:]? ((?:abre|abreme|pon|ponme|manda|mandale|busca|agenda|crea|corre|haz|recuerdame|escribe|dile|reproduce|activa|inicia|dime|muestrame|revisa)\b.*)$"#,
+            #"^(?:crea|crear|agrega|hazme|haz|guarda) (?:una |un )?(?:habilidad|rutina|skill|comando) (?:llamad[oa] |que se llame |de nombre )?(.+?) (?:que|para que|para) (.+)$"#,
+        ]
+        for p in patterns {
+            guard let m = try? NSRegularExpression(pattern: p).firstMatch(in: f, range: NSRange(f.startIndex..., in: f)),
+                  let n = Range(m.range(at: 1), in: f), let r = Range(m.range(at: 2), in: f) else { continue }
+            let name = String(o[o.index(o.startIndex, offsetBy: f.distance(from: f.startIndex, to: n.lowerBound))..<o.index(o.startIndex, offsetBy: f.distance(from: f.startIndex, to: n.upperBound))])
+            let orders = String(o[o.index(o.startIndex, offsetBy: f.distance(from: f.startIndex, to: r.lowerBound))...])
+            return (name.trimmingCharacters(in: CharacterSet(charactersIn: " ,«»\"'")), imperative(orders))
+        }
+        return nil
+    }
+
+    /// «que abra Cursor y ponga música» → «abre Cursor y pon música».
+    private static func imperative(_ s: String) -> String {
+        let map = ["abra": "abre", "ponga": "pon", "busque": "busca", "mande": "manda", "mandele": "mándale", "envie": "envía", "cree": "crea",
+                   "agende": "agenda", "escriba": "escribe", "reproduzca": "reproduce", "recuerde": "recuérdame", "corra": "corre",
+                   "active": "activa", "muestre": "muéstrame", "revise": "revisa", "me diga": "dime", "diga": "dime"]
+        var out = " " + s + " "
+        for (from, to) in map.sorted(by: { $0.key.count > $1.key.count }) {
+            out = out.replacingOccurrences(of: " \(from) ", with: " \(to) ", options: [.caseInsensitive, .diacriticInsensitive])
+        }
+        return out.replacingOccurrences(of: " me dime ", with: " dime ").trimmingCharacters(in: .whitespaces)
+    }
+
     static func handle(_ order: String) async -> Bool {
         guard let intent = intent(order) else { return false }
         let a = Assistant.shared
         switch intent {
+        case .skill(let skill):
+            a.step("wand.and.stars", "Corriendo tu habilidad «\(skill.name)»…")
+            await VoiceAgent.execute(skill.orders, context: .capture())
+        case .newSkill(let name, let orders):
+            a.step("wand.and.stars", "Aprendiendo «\(name)»…")
+            let skill = Skills.save(name, orders: orders)
+            a.finish(.skills(saved: skill.name, all: Skills.all), say: "Listo. Cuando digas «\(skill.name)», lo hago.", linger: 12)
+        case .listSkills:
+            let all = Skills.all
+            a.finish(.skills(saved: nil, all: all), say: all.isEmpty ? "Todavía no tienes habilidades. Dime: cuando diga modo trabajo, abre Cursor." : "Estas son tus habilidades.", linger: 14)
+        case .removeSkill(let name):
+            let removed = Skills.remove(name)
+            a.finish(.skills(saved: nil, all: Skills.all), say: removed ? "Listo, la quité." : "No encontré esa habilidad.")
         case .remember(let fact):
             a.step("brain", "Guardando en mi memoria…")
             Memory.remember(fact)
@@ -280,25 +359,38 @@ enum Quick {
 enum Rules {
     private static let verbs: Set<String> = ["abre", "abreme", "abrir", "pon", "ponme", "agenda", "agendame", "crea", "creame", "programa",
                                              "manda", "mandale", "mandame", "envia", "enviale", "escribele", "dile", "busca", "buscame",
-                                             "investiga", "recuerdame", "recuerda", "avisame", "corre", "ejecuta", "anota", "apunta", "agrega"]
+                                             "investiga", "recuerdame", "recuerda", "avisame", "corre", "ejecuta", "anota", "apunta", "agrega",
+                                             "reproduce", "organiza", "dime", "muestrame", "revisa", "escribe", "redacta"]
     private static let joins: Set<String> = ["y", "e", "luego", "despues", "tambien", "ademas"]
 
     static func plan(_ order: String, context: VoiceAgent.Context) -> [VoiceAgent.Action]? {
         let f = VoiceAgent.fold(order)
-        let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica"]
-        let deictic = ["esto", "esta ", "este ", "eso", "seleccion", "copiado"] + edits
-        if deictic.contains(where: { f.contains($0) }) {
-            let text = context.selection.isEmpty ? context.clipboard : context.selection
-            guard edits.contains(where: { f.contains($0) }), clauses(order).count == 1 else { return nil }
+        let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica",
+                     "hazlo", "formal", "mas corto", "mas largo", "amable", "profesional", "ortografia"]
+        let pointing = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "portapapeles", "hazlo", "resumelo", "traducelo", "corrigelo",
+                        "mejoralo", "reescribelo", "explicalo", "simplificalo", "resumemelo", "explicamelo", "traducemelo"]
+        let aboutFile = ["documento", "archivo", " doc ", "pdf", "word"].contains { (" " + f + " ").contains($0) }
+        let isEdit = edits.contains { f.contains($0) } && !aboutFile
+            && (pointing.contains { f.contains($0) } || f.split(separator: " ").count <= 3)
+        if isEdit && clauses(order).count == 1 {
             var a = VoiceAgent.Action(kind: "transformar", order: order)
-            a.text = text
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                a.text = context.selection
+                let rewrites = ["corrige", "corregi", "mejora", "reescrib", "parafrase", "simplifica", "hazlo", "formal", "mas corto", "mas largo",
+                                "amable", "profesional", "ortografia", "traduc"]
+                if context.editable && rewrites.contains(where: { f.contains($0) }) { a.name = "reemplazar" }
+            } else if Conversation.active {
+                a.kind = "charla"
+                a.text = order
+            } else if ["copiado", "portapapeles", "copie"].contains(where: { f.contains($0) }), !context.clipboard.isEmpty {
+                a.text = context.clipboard
+            } else {
                 a.kind = "responder"
-                a.text = "Selecciona o copia el texto primero y vuelve a pedírmelo."
+                a.text = "Selecciona el texto (o cópialo) y vuelve a pedírmelo."
             }
             return [a]
         }
-        let steps = clauses(order).map { parse($0) }
+        let steps = clauses(order).map { parse($0, context: context) }
         guard !steps.isEmpty, steps.allSatisfy({ $0 != nil }) else { return nil }
         return steps.compactMap { $0 }
     }
@@ -324,7 +416,7 @@ enum Rules {
         return parts.map { $0.joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: ",.;: ")) }.filter { !$0.isEmpty }
     }
 
-    private static func parse(_ clause: String) -> VoiceAgent.Action? {
+    private static func parse(_ clause: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
         let o = clause.trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!¡ "))
         let f = VoiceAgent.fold(o)
         func rest(_ prefixes: [String]) -> String? {
@@ -345,7 +437,29 @@ enum Rules {
             if let url = site(name) { a.kind = "abrir_web"; a.url = url; return a }
             return nil
         }
+        if rest(["crea un documento", "creame un documento", "hazme un documento", "haz un documento", "escribe un documento",
+                 "escribeme un documento", "redacta un documento", "crea un doc", "hazme un doc", "crea un archivo", "hazme un archivo"]) != nil {
+            a.kind = "documento"; a.text = o; return a
+        }
+        if let r = rest(["crea una nota que diga", "crea una nota con", "crea una nota de", "crea una nota", "hazme una nota con",
+                         "hazme una nota", "guarda una nota que diga", "guarda una nota con", "guarda una nota", "anota en notas",
+                         "apunta en notas", "agrega una nota"]) {
+            a.kind = "nota"; a.text = capitalized(r); return a
+        }
+        let fileEdit = #"^(mejora|mejorame|corrige|corrigeme|resume|resumeme|traduce|traduceme|reescribe|simplifica|revisa|revisame)\s+(?:el|mi|este|ese)\s+(?:documento|archivo|doc|texto|word|pdf)\s+(?:llamado\s+|que se llama\s+|de\s+|del\s+|sobre\s+)?(.+?)(?:\s+al\s+(ingles|espanol|frances|portugues|italiano|aleman))?$"#
+        if let m = try? NSRegularExpression(pattern: fileEdit).firstMatch(in: f, range: NSRange(f.startIndex..., in: f)),
+           let n = Range(m.range(at: 2), in: f) {
+            a.kind = "editar_archivo"
+            a.name = original(o, f, from: f.distance(from: f.startIndex, to: n.lowerBound))
+            if let lang = Range(m.range(at: 3), in: f) { a.name = String(a.name.dropLast(f.distance(from: n.upperBound, to: lang.upperBound))) }
+            a.name = a.name.trimmingCharacters(in: CharacterSet(charactersIn: " ,.«»\"'"))
+            return a
+        }
         if let message = message(o, f) { return message }
+        if ["organiza mi dia", "organizame el dia", "organiza mi semana", "organiza mi agenda", "planea mi dia", "planeame el dia", "como organizo mi dia",
+            "ayudame a organizar mi dia"].contains(where: { f.hasPrefix($0) }) {
+            a.kind = "organizar"; a.when = dateText(o) ?? ""; return a
+        }
         if let r = rest(["reproduce", "ponme musica de", "pon musica de", "ponme musica", "pon musica", "ponme la cancion", "pon la cancion",
                          "ponme canciones de", "pon canciones de", "ponme una playlist de", "pon una playlist de"]) {
             a.kind = "musica"
@@ -367,12 +481,10 @@ enum Rules {
             a.text = capitalized(removing(a.when, from: r))
             return a
         }
+        let nouns = ["reunion", "junta", "cita", "evento", "llamada", "comida", "cena", "desayuno", "clase", "entrevista", "videollamada",
+                     "calendario", "dentista", "doctor", "medico", "vuelo", "fiesta", "partido", "entrega", "examen", "pago", "cumple"]
         if let r = rest(["pon", "ponme", "agenda", "agendame", "agendar", "crea", "creame", "programa", "programame", "anota", "apunta", "agrega",
-                         "anade", "mete"]) {
-            guard let when = dateText(r) else { return nil }
-            let nouns = ["reunion", "junta", "cita", "evento", "llamada", "comida", "cena", "desayuno", "clase", "entrevista", "videollamada",
-                         "calendario", "dentista", "doctor", "medico", "vuelo", "fiesta", "partido", "entrega", "examen", "pago", "cumple"]
-            guard nouns.contains(where: { f.contains($0) }) || f.hasPrefix("agenda") else { return nil }
+                         "anade", "mete"]), let when = dateText(r), nouns.contains(where: { f.contains($0) }) || f.hasPrefix("agenda") {
             var title = removing(when, from: r)
             for tail in ["en mi calendario", "en el calendario", "a mi calendario", "al calendario", "en mi agenda"] {
                 title = title.replacingOccurrences(of: tail, with: "", options: [.caseInsensitive, .diacriticInsensitive])
@@ -389,6 +501,18 @@ enum Rules {
             a.kind = "buscar_web"; a.text = r; return a
         }
         if let answer = smallTalk(f) { a.kind = "responder"; a.text = answer; return a }
+        let talk = ["escribeme", "escribe", "redactame", "redacta", "dame ideas", "dame una idea", "dame consejos", "dame un consejo", "dame un plan",
+                    "dame una lista", "ideas para", "explicame", "explica", "ayudame", "como puedo", "como hago", "como le hago", "que opinas",
+                    "cuentame", "inventa", "hazme una lista", "haz una lista", "hazme un plan", "planea", "planeame", "sugiereme", "sugiere",
+                    "recomiendame", "que me recomiendas", "dime un chiste", "compara", "calcula", "cuanto es", "traduce", "traduceme", "corrige",
+                    "mejora", "resume", "resumeme", "hablemos", "platicame", "platiquemos", "quiero que", "necesito que", "dime como", "dime que",
+                    "hazme un resumen", "hazme un poema", "escribe un poema", "dame un resumen", "genera", "generame", "crea un plan", "creame un plan",
+                    "crea una lista", "creame una lista", "crea un texto", "creame un texto"]
+        if talk.contains(where: { f == $0 || f.hasPrefix($0 + " ") }) {
+            a.kind = "charla"; a.text = o
+            if context.editable && ["escribe", "redacta"].contains(where: { f.hasPrefix($0) }) { a.name = "escribir" }
+            return a
+        }
         if VoiceAgent.isQuestion(o), !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
             a.kind = "buscar_web"; a.text = o; return a
         }
@@ -549,6 +673,47 @@ enum Rules {
     }
 }
 
+// MARK: - Conversation
+
+/// What you've been talking about for the last few minutes, so «¿y cuántos años tiene?» or «hazlo más corto» make sense.
+@MainActor
+enum Conversation {
+    private(set) static var turns: [(q: String, a: String)] = []
+    private(set) static var topic = ""
+    private static var at = Date.distantPast
+
+    static var active: Bool { !turns.isEmpty && Date().timeIntervalSince(at) < 180 }
+
+    static func record(_ question: String, _ answer: String, topic newTopic: String? = nil) {
+        if !active { turns = []; topic = "" }
+        turns = Array((turns + [(question, answer)]).suffix(4))
+        if let newTopic, !newTopic.isEmpty { topic = newTopic }
+        at = Date()
+    }
+
+    /// A short question without its own subject, asked right after another one.
+    static func followsUp(_ question: String) -> Bool {
+        guard active, !topic.isEmpty else { return false }
+        let f = VoiceAgent.fold(question).trimmingCharacters(in: CharacterSet(charactersIn: "¿?¡! "))
+        if f.hasPrefix("y ") { return true }
+        let words = question.split(separator: " ")
+        let names = words.dropFirst().filter { $0.first?.isUppercase == true }
+        return words.count <= 6 && names.isEmpty
+    }
+
+    /// The subject of a question: its proper names, or the question itself.
+    static func subject(of question: String) -> String {
+        let names = question.split(separator: " ").dropFirst()
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { $0.first?.isUppercase == true }
+        return names.isEmpty ? question.trimmingCharacters(in: CharacterSet(charactersIn: "¿?¡! ")) : names.joined(separator: " ")
+    }
+
+    static var history: String {
+        turns.map { "Usuario: \($0.q)\nTú: \($0.a.prefix(400))" }.joined(separator: "\n")
+    }
+}
+
 // MARK: - Apple Intelligence
 
 #if canImport(FoundationModels)
@@ -605,8 +770,8 @@ private enum Brain {
         ready = nil
         var prompt = "Orden: \(order)\nApp abierta: \(context.app)"
         if !context.pointer.isEmpty { prompt += "\nBajo el cursor: \(context.pointer)" }
-        if !context.selection.isEmpty { prompt += "\nTexto seleccionado:\n\(context.selection)" }
-        else if !context.clipboard.isEmpty { prompt += "\nTexto copiado (solo si la orden habla de «esto» o «lo copiado»):\n\(context.clipboard)" }
+        if !context.selection.isEmpty { prompt += "\nTexto seleccionado:\n\(context.selection.prefix(2000))" }
+        else if !context.clipboard.isEmpty { prompt += "\nTexto copiado (solo si la orden habla de «esto» o «lo copiado»):\n\(context.clipboard.prefix(1200))" }
 
         let text = DynamicGenerationSchema(type: String.self)
         let step = DynamicGenerationSchema(name: "Paso", properties: [
@@ -641,23 +806,83 @@ private enum Brain {
     }
 
     /// Answers a question from the search results, like a person who just read them.
-    static func summarize(_ question: String, hits: [Assistant.WebHit]) async throws -> String {
+    static func summarize(_ question: String, hits: [Assistant.WebHit], onPartial: ((String) -> Void)? = nil) async throws -> String {
         let sources = hits.prefix(4).enumerated().map { "\($0.offset + 1). \($0.element.title): \($0.element.snippet)" }.joined(separator: "\n")
         let session = LanguageModelSession(instructions: """
         Respondes preguntas en español con 1 a 3 frases claras, usando solo los resultados de búsqueda que te dan. \
         Si no está la respuesta, dilo en una frase. No menciones «los resultados».
         """)
-        return try await session.respond(to: "Pregunta: \(question)\nResultados:\n\(sources)", options: options).content
+        let before = Conversation.active ? "Conversación reciente:\n\(Conversation.history)\n" : ""
+        return try await stream(session, "\(before)Pregunta: \(question)\nResultados:\n\(sources)", options: options, onPartial: onPartial)
     }
 
     /// «resúmelo», «tradúcelo al inglés», «¿qué significa esto?» over the text you selected.
-    static func transform(_ order: String, text: String) async throws -> String {
+    static func transform(_ order: String, text: String, onPartial: ((String) -> Void)? = nil) async throws -> String {
         let session = LanguageModelSession(instructions: """
         Haces lo que el usuario pide con el texto que te da: resumir, traducir, explicar, corregir o mejorar. \
-        Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. Nunca uses marcadores como [nombre].
+        Responde directo, en español salvo que pida otro idioma, sin introducciones ni comentarios. \
+        Si pide corregir o mejorar, devuelve solo el texto nuevo completo, con el mismo sentido. Nunca uses marcadores como [nombre].
         """)
-        return try await session.respond(to: "Pide: \(order)\nTexto:\n\(text.prefix(3000))", options: options).content
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await stream(session, "Pide: \(order)\nTexto:\n\(text.prefix(2800))", options: options, onPartial: onPartial)
+    }
+
+    private static var chatSession: (session: LanguageModelSession, at: Date)?
+
+    private static func chatInstructions() -> String {
+        let facts = Memory.facts.suffix(25).map { "- \($0)" }.joined(separator: "\n")
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "EEEE d 'de' MMMM 'de' yyyy, h:mm a"
+        return """
+        Eres Jarvis, el asistente personal del usuario en su Mac. Hablas español de México natural, cálido y directo, \
+        como el mejor asistente humano. Si es plática o una pregunta, responde en 1 a 3 frases. Si pide un texto, lista, plan, \
+        ideas o explicación, entrégalo completo y bien organizado, con «- » para listas. Nunca uses marcadores como [nombre]. \
+        No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
+        Hoy es \(f.string(from: Date())).
+        Lo que sabes del usuario:
+        \(facts.isEmpty ? "- (nada todavía)" : facts)
+        """
+    }
+
+    /// Talking: keeps the conversation for a few minutes and shows the answer as it's written.
+    static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
+        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180
+        let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
+        do {
+            let answer = try await stream(session, prompt, options: GenerationOptions(temperature: 0.6), onPartial: onPartial)
+            chatSession = (session, Date())
+            return answer
+        } catch {
+            guard !fresh else { throw error }
+            // The conversation got too long for the model: start over with just the recent turns.
+            let session = LanguageModelSession(instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
+            let answer = try await stream(session, prompt, options: GenerationOptions(temperature: 0.6), onPartial: onPartial)
+            chatSession = (session, Date())
+            return answer
+        }
+    }
+
+    /// A full document from a request: «# Título», sections and lists.
+    static func write(_ ask: String, onPartial: @escaping (String) -> Void) async throws -> String {
+        let session = LanguageModelSession(instructions: """
+        Escribes documentos en español, claros, útiles y bien organizados. Empieza siempre con una línea «# Título». \
+        Usa «## » para secciones y «- » para listas. Entre 150 y 450 palabras salvo que pidan otra cosa. \
+        Nunca uses marcadores como [nombre] ni digas que eres un modelo.
+        """)
+        return try await stream(session, ask, options: GenerationOptions(temperature: 0.5), onPartial: onPartial)
+    }
+
+    private static func stream(_ session: LanguageModelSession, _ prompt: String, options: GenerationOptions,
+                               onPartial: ((String) -> Void)?) async throws -> String {
+        guard let onPartial else {
+            return try await session.respond(to: prompt, options: options).content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var last = ""
+        for try await snapshot in session.streamResponse(to: prompt, options: options) {
+            last = snapshot.content
+            onPartial(last)
+        }
+        return last.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Turns «llego tarde» into a proper email. Gives up after `seconds` so the draft never waits on the model.
@@ -827,16 +1052,100 @@ enum Hands {
         case "transformar":
             #if canImport(FoundationModels)
             if #available(macOS 26, *), VoiceAgent.available {
-                a.step("text.viewfinder", "Leyendo lo que seleccionaste…")
-                let answer = (try? await Brain.transform(s.order, text: s.text)) ?? ""
+                let replace = s.name == "reemplazar"
+                a.step("text.viewfinder", replace ? "Reescribiendo lo que seleccionaste…" : "Leyendo lo que seleccionaste…")
+                let answer = (try? await Brain.transform(s.order, text: s.text, onPartial: replace ? nil : { a.stream($0) })) ?? ""
                 guard !answer.isEmpty else { return a.fail("No pude con ese texto") }
+                if replace {
+                    VoiceKey.type(answer)
+                    return a.finish(.done(symbol: "text.badge.checkmark", title: "Listo, lo reemplacé", detail: "⌘Z para deshacer", bundleID: nil),
+                                    say: "Listo.", linger: 4)
+                }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(answer, forType: .string)
-                return a.finish(.answer(answer), say: answer.count < 280 ? answer : "Listo, te lo dejé copiado.",
-                                linger: max(10, min(30, Double(answer.count) / 10)))
+                ClipboardStore.shared.skipCurrentChange()
+                Conversation.record(s.order, answer)
+                return a.finish(.answer(answer), say: spoken(answer, fallback: "Listo, te lo dejé copiado."),
+                                linger: max(10, min(30, Double(answer.count) / 10)), talk: true)
             }
             #endif
             a.fail(VoiceAgent.unavailableReason)
+        case "charla", "organizar":
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *), VoiceAgent.available {
+                var prompt = s.text.isEmpty ? s.order : s.text
+                if s.kind == "organizar" {
+                    let day = s.date ?? Date()
+                    a.step("calendar", "Revisando tu calendario…")
+                    let rows = await Agenda.events(on: day) ?? []
+                    let f = DateFormatter()
+                    f.dateFormat = "H:mm"
+                    let list = rows.map { $0.allDay ? "- Todo el día: \($0.title)" : "- \(f.string(from: $0.start))–\(f.string(from: $0.end)): \($0.title)" }
+                    prompt = """
+                    Organiza mi \(Calendar.current.isDateInToday(day) ? "día de hoy" : Agenda.dayName(day)). Son las \(f.string(from: Date())).
+                    Mis eventos:
+                    \(list.isEmpty ? "- (ninguno)" : list.joined(separator: "\n"))
+                    Dame un plan corto por horas con mis eventos, los huecos libres y 2 o 3 sugerencias útiles.
+                    """
+                    a.step("sparkles", "Armando tu plan…")
+                } else {
+                    a.step("sparkles", "Pensando…")
+                }
+                do {
+                    let answer = try await Brain.chat(prompt) { a.stream($0) }
+                    guard !answer.isEmpty else { return a.fail("No se me ocurrió nada, pregúntame de otra forma") }
+                    Conversation.record(s.order, answer)
+                    if s.name == "escribir" && VoiceKey.focusedIsText() {
+                        VoiceKey.type(answer)
+                        return a.finish(.done(symbol: "character.cursor.ibeam", title: "Listo, lo escribí", detail: "⌘Z para deshacer", bundleID: nil),
+                                        say: "Listo.", linger: 4)
+                    }
+                    a.finish(.answer(answer), say: spoken(answer, fallback: "Aquí lo tienes."),
+                             linger: max(12, min(40, Double(answer.count) / 8)), talk: true)
+                } catch {
+                    a.fail("No pude responder: \(error.localizedDescription)")
+                }
+                return
+            }
+            #endif
+            a.fail(VoiceAgent.unavailableReason)
+        case "documento":
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *), VoiceAgent.available {
+                a.step("doc.richtext", "Escribiendo el documento…")
+                do {
+                    let text = try await Brain.write(s.text) { a.stream($0) }
+                    a.step("square.and.arrow.down", "Guardándolo en Documentos…")
+                    let (url, title) = try Documents.create(text)
+                    NSWorkspace.shared.open(url)
+                    let preview = text.components(separatedBy: "\n").filter { !$0.hasPrefix("# ") && !$0.isEmpty }.prefix(3).joined(separator: " ")
+                        .replacingOccurrences(of: "## ", with: "").replacingOccurrences(of: "**", with: "")
+                    Conversation.record(s.order, "Creé el documento «\(title)».")
+                    a.finish(.document(url: url, title: title, preview: String(preview.prefix(220)), edited: false),
+                             say: "Listo, creé «\(title)» en Documentos.", linger: 14)
+                } catch {
+                    a.fail("No pude crear el documento: \(error.localizedDescription)")
+                }
+                return
+            }
+            #endif
+            a.fail(VoiceAgent.unavailableReason)
+        case "nota":
+            a.step("note.text", "Guardando la nota…")
+            let title = String(s.text.split(separator: "\n").first?.prefix(60) ?? "Nota")
+            let html = "<div><h1>\(escape(title))</h1></div><div>\(escape(s.text).replacingOccurrences(of: "\n", with: "<br>"))</div>"
+            var error: NSDictionary?
+            NSAppleScript(source: "tell application \"Notes\" to make new note with properties {body:\(quote(html))}")?.executeAndReturnError(&error)
+            if error == nil {
+                a.finish(.done(symbol: "note.text", title: "Guardé la nota en Notas", detail: s.text, bundleID: "com.apple.Notes"),
+                         say: "Listo, está en tus Notas.", linger: 5)
+            } else {
+                NotesStore.shared.save(Note(title: title, text: s.text, color: 2))
+                a.finish(.done(symbol: "note.text", title: "Guardé la nota en VibeNotch", detail: s.text, bundleID: nil),
+                         say: "Listo, la guardé en tus notas de VibeNotch.", linger: 5)
+            }
+        case "editar_archivo":
+            await editFile(s)
         case "recordar":
             Memory.remember(s.text)
             a.finish(.memory(saved: Memory.facts.last, all: Memory.facts), say: "Listo, lo recordaré.")
@@ -855,8 +1164,80 @@ enum Hands {
         }
     }
 
+    /// What gets said out loud: short answers whole, long ones by their first sentences.
+    private static func spoken(_ answer: String, fallback: String) -> String {
+        let clean = answer.replacingOccurrences(of: #"(?m)^[-•#*]+\s*"#, with: "", options: .regularExpression)
+        if clean.count <= 260 { return clean }
+        var out = ""
+        for sentence in clean.split(omittingEmptySubsequences: true, whereSeparator: { ".!?\n".contains($0) }) {
+            let next = out + sentence.trimmingCharacters(in: .whitespaces) + ". "
+            if next.count > 240 { break }
+            out = next
+        }
+        return out.isEmpty ? fallback : out
+    }
+
+    private static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    /// «mejora el documento propuesta», «traduce el archivo contrato al inglés»: a new version next to the original, never over it.
+    private static func editFile(_ s: VoiceAgent.Action) async {
+        #if canImport(FoundationModels)
+        if #available(macOS 26, *), VoiceAgent.available {
+            a.step("doc.text.magnifyingglass", "Buscando «\(s.name)» en tu Mac…")
+            let urls = await findFiles(s.name)
+            guard let file = urls.first(where: { Documents.readable.contains($0.pathExtension.lowercased()) }) else {
+                return a.fail("No encontré un documento llamado «\(s.name)»")
+            }
+            a.step("doc.text", "Leyendo \(file.lastPathComponent)…")
+            guard let text = Documents.read(file)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                return a.fail("No pude leer \(file.lastPathComponent)")
+            }
+            let f = VoiceAgent.fold(s.order)
+            let summary = f.hasPrefix("resum")
+            let chunks = stride(from: 0, to: min(text.count, 10000), by: 2500).map { start -> String in
+                let from = text.index(text.startIndex, offsetBy: start)
+                let to = text.index(from, offsetBy: min(2500, text.distance(from: from, to: text.endIndex)))
+                return String(text[from..<to])
+            }
+            var parts: [String] = []
+            do {
+                for (i, chunk) in chunks.enumerated() {
+                    let what = summary ? "Resumiendo" : f.hasPrefix("traduc") ? "Traduciendo" : f.hasPrefix("corrig") ? "Corrigiendo" : "Mejorando"
+                    a.step("sparkles", chunks.count > 1 ? "\(what) parte \(i + 1) de \(chunks.count)…" : "\(what) el texto…")
+                    let before = parts
+                    parts.append(try await Brain.transform(s.order, text: chunk, onPartial: { a.stream((before + [$0]).joined(separator: "\n\n")) }))
+                }
+            } catch {
+                return a.fail("No pude con ese documento: \(error.localizedDescription)")
+            }
+            let result = parts.joined(separator: "\n\n")
+            if summary {
+                Conversation.record(s.order, result)
+                return a.finish(.answer(result), say: spoken(result, fallback: "Aquí está el resumen."), linger: 30, talk: true)
+            }
+            let suffix = f.hasPrefix("traduc") ? "traducido" : f.hasPrefix("corrig") ? "corregido" : "mejorado"
+            do {
+                let url = try Documents.saveEdited(result, from: file, suffix: suffix)
+                NSWorkspace.shared.open(url)
+                a.finish(.document(url: url, title: url.lastPathComponent, preview: String(result.prefix(220)), edited: true),
+                         say: "Listo, guardé la versión \(suffix) junto al original.", linger: 14)
+            } catch {
+                a.fail("No pude guardar la versión nueva: \(error.localizedDescription)")
+            }
+            return
+        }
+        #endif
+        a.fail(VoiceAgent.unavailableReason)
+    }
+
     private static func searchWeb(_ query: String, question: String) async {
-        a.step("globe", "Buscando «\(query)» en la web…")
+        var query = query
+        if Conversation.followsUp(question) {
+            query = Conversation.topic + " " + question.replacingOccurrences(of: #"(?i)^¿?\s*y\s+"#, with: "", options: .regularExpression)
+        }
+        a.step("globe", "Buscando «\(query.trimmingCharacters(in: CharacterSet(charactersIn: "¿?")))» en la web…")
         let hits = await WebSearch.search(query)
         guard !hits.isEmpty else {
             var c = URLComponents(string: "https://www.google.com/search")!
@@ -868,11 +1249,14 @@ enum Hands {
         if #available(macOS 26, *), VoiceAgent.isQuestion(question), VoiceAgent.available {
             a.step("text.magnifyingglass", "Leyendo \(min(hits.count, 4)) resultados…")
             a.preview(.web(answer: nil, hits: hits))
-            if let answer = try? await Brain.summarize(question, hits: hits) {
-                return a.finish(.web(answer: answer, hits: hits), say: answer, linger: 25)
+            let asked = Conversation.followsUp(question) ? "\(question) (sobre \(Conversation.topic))" : question
+            if let answer = try? await Brain.summarize(asked, hits: hits, onPartial: { a.preview(.web(answer: $0, hits: hits), streaming: true) }) {
+                Conversation.record(question, answer, topic: Conversation.followsUp(question) ? nil : Conversation.subject(of: question))
+                return a.finish(.web(answer: answer, hits: hits), say: spoken(answer, fallback: "Esto encontré."), linger: 25, talk: true)
             }
         }
         #endif
+        Conversation.record(question, hits.first?.title ?? "", topic: Conversation.subject(of: query))
         a.finish(.web(answer: nil, hits: hits), say: "Esto encontré.", linger: 20)
     }
 
@@ -896,7 +1280,16 @@ enum Hands {
         let f = DateFormatter()
         f.locale = Locale(identifier: "es_MX")
         f.dateFormat = "EEEE d 'a las' H:mm"
-        a.finish(.events(day: start, rows: rows), say: "Listo, agendé \(e.title ?? "el evento") el \(f.string(from: start)).", linger: 12)
+        let event = Assistant.NewEvent(id: e.eventIdentifier, title: e.title ?? "Evento", start: start, end: e.endDate, rows: rows)
+        a.finish(.event(event), say: "Listo, agendé \(e.title ?? "el evento") el \(f.string(from: start)).", linger: 14)
+    }
+
+    /// The «Deshacer» on the card of an event it just created.
+    static func undoEvent(_ id: String?) {
+        guard let id else { return }
+        let store = EKEventStore()
+        if let e = store.event(withIdentifier: id) { try? store.remove(e, span: .thisEvent) }
+        a.finish(.done(symbol: "arrow.uturn.backward", title: "Lo quité del calendario", detail: "", bundleID: nil), linger: 3)
     }
 
     static func findFiles(_ query: String) async -> [URL] {

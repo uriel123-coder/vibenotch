@@ -346,6 +346,44 @@ enum Snapshot {
                card: .draft(app: "Mail", bundleID: "com.apple.mail", to: "ana.lopez@gmail.com", subject: "Llego un poco tarde a la junta",
                             body: "Hola Ana:\n\nTe aviso que voy a llegar unos 15 minutos tarde a la junta. Una disculpa por el retraso; si quieren pueden empezar sin mí.\n\nSaludos"))
         await shot("\(prefix)-12e-asistente-correo", panel, dir, height: 420)
+
+        let meetup = Assistant.NewEvent(id: nil, title: "Café con Jonah", start: at(10), end: at(10, 30), rows: [
+            Assistant.EventRow(title: "Café con Jonah", start: at(10), end: at(10, 30), allDay: false, color: .systemBlue),
+            Assistant.EventRow(title: "Revisión de diseño", start: at(11), end: at(12), allDay: false, color: .systemIndigo),
+            Assistant.EventRow(title: "Comida con Sarah", start: at(12, 30), end: at(13, 30), allDay: false, color: .systemPink),
+        ])
+        a.demo(.done, heard: "Agenda un café con Jonah mañana a las 10 por media hora", status: "Listo, agendé Café con Jonah",
+               steps: [Step(symbol: "calendar.badge.plus", text: "Agregando a tu calendario…", finished: true)],
+               card: .event(meetup))
+        await shot("\(prefix)-12f-asistente-evento", panel, dir, height: 400)
+
+        a.demo(.working, heard: "Dame ideas para el video de lanzamiento de Lynqin", status: "Pensando…",
+               steps: [Step(symbol: "sparkles", text: "Pensando…")],
+               card: .answer("Aquí van 3 ideas:\n- Un «antes y después»: tu día sin Lynqin (10 pestañas, caos) y con Lynqin (todo en un lugar).\n- 15 segundos de pantalla real: dices una orden y se hace sola, sin cortes.\n- Cierra con la frase"),
+               live: true, writing: true)
+        await shot("\(prefix)-12g-asistente-escribiendo", panel, dir, height: 330)
+
+        a.demo(.listening, heard: "Dame ideas para el video de lanzamiento de Lynqin", status: "¿Algo más?",
+               card: .answer("Aquí van 3 ideas:\n- Un «antes y después»: tu día sin Lynqin (10 pestañas, caos) y con Lynqin (todo en un lugar).\n- 15 segundos de pantalla real: dices una orden y se hace sola, sin cortes.\n- Cierra con la frase «Dilo y considéralo hecho»."),
+               live: true, followUp: true)
+        Dictation.shared.demo("hazlo más corto y guárdalo como documento")
+        await shot("\(prefix)-12h-asistente-conversacion", panel, dir, height: 330)
+        Dictation.shared.cancel()
+
+        let doc = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Plan de lanzamiento.rtf")
+        a.demo(.done, heard: "Crea un documento con el plan de lanzamiento de Lynqin", status: "Listo, creé «Plan de lanzamiento»",
+               steps: [Step(symbol: "doc.richtext", text: "Escribiendo el documento…", finished: true),
+                       Step(symbol: "square.and.arrow.down", text: "Guardándolo en Documentos…", finished: true)],
+               card: .document(url: doc, title: "Plan de lanzamiento", preview: "Objetivo: 1,000 usuarios en 30 días. Semana 1: video de lanzamiento y lista de espera. Semana 2: creadores y demos en vivo…", edited: false))
+        await shot("\(prefix)-12i-asistente-documento", panel, dir, height: 300)
+
+        a.demo(.done, heard: "Cuando diga modo trabajo, abre Cursor y Slack y pon música lo-fi", status: "Listo. Cuando digas «modo trabajo», lo hago.",
+               steps: [Step(symbol: "wand.and.stars", text: "Aprendiendo «modo trabajo»…", finished: true)],
+               card: .skills(saved: "modo trabajo", all: [
+                   Skills.Skill(name: "buenos días", orders: "dime mi agenda y abre el correo"),
+                   Skills.Skill(name: "modo trabajo", orders: "abre Cursor y abre Slack y pon música lo-fi"),
+               ]))
+        await shot("\(prefix)-12j-asistente-habilidad", panel, dir, height: 280)
         a.dismiss()
     }
 
