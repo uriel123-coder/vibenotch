@@ -1839,7 +1839,7 @@ private enum Brain {
         poner videos de YouTube y música, encontrar perfiles (LinkedIn, Instagram…) y dar clic en cosas de la pantalla. No prometas nada más.
         MUY IMPORTANTE: si te pide HACER algo de esa lista (mandar, poner, abrir, buscar, ver, leer, agendar, recordar…), \
         no expliques cómo se hace ni escribas el mensaje: responde SOLO una línea «HAZ: » seguida de la orden clara y completa, \
-        por ejemplo «HAZ: mándale a papá por WhatsApp que hola» o «HAZ: pon música tranquila para trabajar».
+        con sus mismas palabras y sin agregar nada que no pidió. Por ejemplo, «oye mándale a papá dile hola» → «HAZ: mándale a papá por WhatsApp que hola».
         \(Conversation.call ? """
         Están en una llamada para desarrollar una idea juntos. Responde como un socio experto y honesto: opina, da datos concretos, \
         detecta riesgos y propone el siguiente paso. Hasta 120 palabras, sin halagos al inicio. \
@@ -2607,8 +2607,8 @@ enum Hands {
         #if canImport(FoundationModels)
         if #available(macOS 26, *), VoiceAgent.available {
             let ask = s.text.isEmpty ? s.order : s.text
-            let reply = (try? await Brain.look(ask, at: source, text: text, onStep: { a.step("text.viewfinder", $0) },
-                                               onPartial: { a.stream($0) })) ?? ""
+            let reply = Brain.tidy((try? await Brain.look(ask, at: source, text: text, onStep: { a.step("text.viewfinder", $0) },
+                                                          onPartial: { a.stream(Brain.tidy($0)) })) ?? "")
             guard !reply.isEmpty else { return a.fail("No pude leerlo bien, pídemelo otra vez") }
             Conversation.record(s.order, reply)
             return a.finish(.answer(reply), say: spoken(reply, fallback: "Aquí está."), linger: max(12, min(40, Double(reply.count) / 8)), talk: true)
