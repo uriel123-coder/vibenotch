@@ -1059,18 +1059,29 @@ private enum Brain {
         let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180
         let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
         let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 300)
+        let shown: (String) -> Void = { onPartial(tidy($0)) }
         do {
-            let answer = try await stream(session, prompt, options: talk, onPartial: onPartial)
+            let answer = try await stream(session, prompt, options: talk, onPartial: shown)
             chatSession = (session, Date())
-            return answer
+            return tidy(answer)
         } catch {
             guard !fresh else { throw error }
             // The conversation got too long for the model: start over with just the recent turns.
             let session = LanguageModelSession(instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
-            let answer = try await stream(session, prompt, options: talk, onPartial: onPartial)
+            let answer = try await stream(session, prompt, options: talk, onPartial: shown)
             chatSession = (session, Date())
-            return answer
+            return tidy(answer)
         }
+    }
+
+    /// Without the filler the model adds anyway: «¡Claro! Aquí tienes tres ideas:» and bold labels.
+    static func tidy(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: #"^\s*(¡?(claro|por supuesto|con gusto|perfecto|desde luego)[!.,]*\s*)?(aqu[ií] (tienes|te dejo|van)[^\n]*:\s*\n+)?"#,
+                                       with: "", options: [.regularExpression, .caseInsensitive])
+        t = t.replacingOccurrences(of: "**", with: "")
+        t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = t.first else { return s }
+        return first.uppercased() + t.dropFirst()
     }
 
     /// A full document from a request: «# Título», sections and lists.
