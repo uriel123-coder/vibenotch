@@ -208,11 +208,12 @@ final class Assistant: ObservableObject {
     }
 
     /// `talk`: it's a conversation (an answer, not an action), so it listens for a follow-up afterwards.
-    func finish(_ card: Card?, say: String? = nil, linger: Double = 9, talk: Bool = false) {
+    /// `ask`: it asked you something and waits for the answer. `record: false`: just talking, not a task for the Tareas list.
+    func finish(_ card: Card?, say: String? = nil, linger: Double = 9, talk: Bool = false, ask: Bool = false, record: Bool = true) {
         // A newer order replaced this one: its late result must not land on the new one.
         guard !Task.isCancelled else { return }
         if let other = elsewhere {
-            TaskLog.shared.finish(other, status: .done, card: card, say: say)
+            if record { TaskLog.shared.finish(other, status: .done, card: card, say: say) } else { TaskLog.shared.discard(other) }
             return announce(say ?? "Tu otra tarea está lista", failed: false)
         }
         for i in steps.indices { steps[i].finished = true }
@@ -220,10 +221,10 @@ final class Assistant: ObservableObject {
         self.card = card
         phase = .done
         status = say.map { $0.count > 70 ? "Listo" : $0 } ?? "Listo"
-        TaskLog.shared.finish(task, status: .done, card: card, say: say)
+        if record { TaskLog.shared.finish(task, status: .done, card: card, say: say) } else { TaskLog.shared.discard(task) }
         if background { return comeBack(say ?? heard, failed: false) }
         let current = session
-        let listenAgain = talk && AppSettings.shared.assistantConversation
+        let listenAgain = (talk && AppSettings.shared.assistantConversation) || ask || Conversation.call
         let keepTalking = {
             MainActor.assumeIsolated {
                 let a = Assistant.shared
@@ -728,6 +729,8 @@ enum People {
         let name: String
         let email: String?
         let phone: String?
+        /// Found by a nickname guess («mamá» → «Mami Laura»), worth confirming once.
+        var guessed = false
     }
 
     static func loadNames() {
@@ -771,6 +774,7 @@ enum People {
                     .filter { $0.isLetter || $0 == " " }.trimmingCharacters(in: .whitespaces)
             }
             var matches = (try? store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: q), keysToFetch: keys)) ?? []
+            let guessed = matches.isEmpty
             if matches.isEmpty {
                 // «mamá» saved as «Mamá ❤️», «Mami» or «Mamá Laura».
                 let variants: [String: [String]] = ["mama": ["mami", "ma"], "papa": ["papi", "pa"], "abuela": ["abue", "abuelita"],
@@ -786,7 +790,7 @@ enum People {
             let name = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
             let mobile = c.phoneNumbers.first { [CNLabelPhoneNumberMobile, CNLabelPhoneNumberiPhone].contains($0.label ?? "") } ?? c.phoneNumbers.first
             return Person(name: name.isEmpty ? q : name, email: c.emailAddresses.first.map { String($0.value) },
-                          phone: mobile?.value.stringValue)
+                          phone: mobile?.value.stringValue, guessed: guessed && fold(name) != fold(q))
         }.value
     }
 }

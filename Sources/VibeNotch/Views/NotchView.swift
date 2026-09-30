@@ -365,8 +365,10 @@ struct OpenView: View {
     var body: some View {
         VStack(spacing: 8) {
             // With a real notch the tabs go on both sides of it; all on the left they end up under the camera.
+            // A notch drawn on a screen without a camera hides nothing once open, so the tabs stay in one row there.
             let tabs = settings.tabs
-            let left = model.island ? tabs.count : (tabs.count + 1) / 2
+            let split = !model.island && model.detectedNotch
+            let left = split ? (tabs.count + 1) / 2 : tabs.count
             let leading = Array(tabs.prefix(left)), trailing = Array(tabs.dropFirst(left))
             HStack(spacing: 0) {
                 HStack(spacing: 2) {
@@ -377,7 +379,7 @@ struct OpenView: View {
                 .compositingGroup()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The camera housing hides anything drawn under it.
-                Color.clear.frame(width: model.island ? 8 : model.notchSize.width + 16)
+                Color.clear.frame(width: split ? model.notchSize.width + 16 : 8)
                 HStack(spacing: 2) {
                     HStack(spacing: 2) {
                         ForEach(trailing, id: \.self) { tab in tabButton(tab) }
@@ -391,7 +393,7 @@ struct OpenView: View {
                     }
                     IconButton(symbol: "gearshape.fill", help: "Ajustes") { SettingsWindow.shared.show() }
                 }
-                .frame(maxWidth: model.island ? nil : .infinity, alignment: .trailing)
+                .frame(maxWidth: split ? .infinity : nil, alignment: .trailing)
             }
             .frame(height: model.island ? 28 : model.notchSize.height - 4)
             .padding(.horizontal, 6)

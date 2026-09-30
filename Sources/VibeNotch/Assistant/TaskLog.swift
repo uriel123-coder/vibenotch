@@ -69,6 +69,13 @@ final class TaskLog: ObservableObject {
         save()
     }
 
+    /// Plain conversation isn't a task: it leaves no entry.
+    func discard(_ id: UUID?) {
+        guard let id else { return }
+        entries.removeAll { $0.id == id }
+        save()
+    }
+
     private func update(_ id: UUID?, _ change: (inout Entry) -> Void) {
         guard let id, let i = entries.firstIndex(where: { $0.id == id }) else { return }
         change(&entries[i])

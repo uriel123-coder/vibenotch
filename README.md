@@ -54,7 +54,7 @@ Si ya la tienes, el mismo comando la actualiza sin perder tus ajustes ni tus not
 
 ## ¿Qué hace?
 
-VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Con notch, las pestañas se reparten a los dos lados de la cámara para que ninguna quede tapada. Tiene 7 pestañas:
+VibeNotch vive en el notch (o en una "isla" flotante si tu Mac no tiene notch). Pasa el mouse arriba al centro y se abre. Si tu Mac tiene notch de verdad, las pestañas se reparten a los dos lados de la cámara para que ninguna quede tapada; si no, van todas en una fila. Tiene 7 pestañas:
 
 ### ✨ Agentes: ve lo que hace tu IA sin cambiar de ventana
 
@@ -191,6 +191,9 @@ Presiona **⌃⌥J** (o mantén ⌥ derecha y empieza con **«oye…»** / **«J
 - **Corrígelo y lo rehace**: justo después de algo, «no, por WhatsApp», «no, era para Laura», «mejor a las 6» (quita el evento anterior y crea el nuevo) o «mejor en Spotify». Y se queda con la corrección.
 - **Contesta en el chat abierto**: en WhatsApp, Mensajes, Slack o Telegram, «respóndele que ya voy en camino» lo escribe ahí mismo.
 - **Sin seleccionar nada**: «corrige esto» toma el texto del campo donde escribes y lo reemplaza; en el navegador «resume esta página» lee la página abierta.
+- **Modo llamada**: di «hablemos» (o «hablemos de mi idea de…») y platica seguido, como en una llamada: te responde como socio, opina, te da datos y te hace una pregunta para seguir, sin que tengas que volver a presionar nada. Cuando acabes, di «terminamos» y luego «haz un documento con esto» o «investiga eso»: usa todo lo que platicaron. La plática no llena tu lista de Tareas; solo lo que le pides hacer.
+- **Pregunta cuando no sabe**: si le dices «mándale un mensaje a mamá» y no la encuentra, te pregunta cómo se llama en tus contactos o su número, y lo guarda. Si la adivinó («Mami Laura»), te pregunta «¿Te refieres a Mami Laura?» una sola vez.
+- **¿Qué hiciste hoy?**: te dice lo que hizo hoy.
 - **Varias cosas a la vez**: mientras trabaja en algo, pídele otra cosa. La primera sigue en segundo plano (la ves en la pestaña Jarvis) y te avisa cuando termina.
 - **Investigar**: «investiga los mejores celulares de 2026» lee las primeras páginas (no solo los títulos), te da la conclusión y los puntos clave, y te deja las fuentes.
 - **Minijuegos**: «hazme un juego de la serpiente» lo programa, lo guarda en Documentos › VibeNotch Juegos y lo abre para que juegues.

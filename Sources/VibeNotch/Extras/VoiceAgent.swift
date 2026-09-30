@@ -57,6 +57,14 @@ enum VoiceAgent {
 
     private static var running: (order: String, task: Task<Void, Never>)?
 
+    /// A question it asked and is waiting on: «¿te refieres a Mami Laura?», «¿cómo se llama mamá en tus contactos?».
+    enum Pending {
+        case confirm(Action, People.Person, Date)
+        case who(Action, Date)
+        var at: Date { switch self { case .confirm(_, _, let d), .who(_, let d): d } }
+    }
+    static var pending: Pending?
+
     /// A new order doesn't stop the last one: it keeps going out of sight and tells you when it's done.
     static func run(_ order: String) {
         let assistant = Assistant.shared
@@ -244,16 +252,20 @@ enum VoiceAgent {
                     print(String(format: "juego «%@» (%.1f s) → %@", ask, Date().timeIntervalSince(gameStart),
                                  g.map { "\($0.mode) · \($0.title) · \($0.player) \($0.target) · \($0.color) · vel \($0.speed)" } ?? "-"))
                 }
-                for ask in ["Dame 3 ideas para un video de lanzamiento de una app", "hazlo más corto"] {
+                Conversation.call = true
+                for ask in ["Quiero armar una startup de comida saludable para oficinas en la Ciudad de México", "¿Cómo le cobraría a las empresas?",
+                            "Me gusta lo de la suscripción, ¿qué necesito para empezar?"] {
                     let t = Date()
                     var first: Double?
                     let answer = (try? await Brain.chat(ask) { _ in if first == nil { first = Date().timeIntervalSince(t) } }) ?? "-"
                     Conversation.record(ask, answer)
-                    print(String(format: "charla «%@» (primera palabra %.1f s, total %.1f s) → %@", ask, first ?? -1, Date().timeIntervalSince(t), answer))
+                    print(String(format: "llamada «%@» (primera palabra %.1f s, total %.1f s) → %@", ask, first ?? -1, Date().timeIntervalSince(t), answer))
                 }
                 let docStart = Date()
-                let doc = (try? await Brain.write("crea un documento con una lista de pendientes para mudarme") { _ in }) ?? "-"
-                print(String(format: "documento (%.1f s) → %@", Date().timeIntervalSince(docStart), String(doc.prefix(300))))
+                let doc = (try? await Brain.write("haz un documento con esto\n\nHazlo con lo que platicamos (usa estas ideas y datos, ordénalos y complétalos):\n"
+                                                  + Conversation.transcript()) { _ in }) ?? "-"
+                print(String(format: "documento de la llamada (%.1f s) → %@", Date().timeIntervalSince(docStart), doc))
+                Conversation.call = false
                 for order in hard {
                     Brain.prepare()
                     try? await Task.sleep(for: .seconds(2))
@@ -291,9 +303,12 @@ enum Quick {
         case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
-        case tab(NotchTab), awake(Bool)
+        case tab(NotchTab), awake(Bool), call(Bool), reply(String), history
         var description: String {
             switch self {
+            case .call(let on): on ? "empezar llamada" : "terminar llamada"
+            case .reply(let r): "respuesta a su pregunta: \(r)"
+            case .history: "lo que hizo hoy"
             case .tab(let t): "abrir la pestaña \(t.title)"
             case .awake(let on): on ? "mantener la Mac despierta" : "dejar dormir la Mac"
             case .send: "enviar el mensaje que quedó escrito"
@@ -324,6 +339,18 @@ enum Quick {
             }
             return nil
         }
+        if let pending = VoiceAgent.pending {
+            if Date().timeIntervalSince(pending.at) < 180, answers(t, pending) { return .reply(order) }
+            VoiceAgent.pending = nil
+        }
+        let calls = ["hablemos", "platiquemos", "vamos a platicar", "vamos a hablar", "modo llamada", "quiero platicar contigo",
+                     "quiero hablar contigo", "platica conmigo", "habla conmigo", "hagamos una llamada", "ayudame a pensar", "lluvia de ideas"]
+        let hangUps = ["adios", "cuelga", "terminamos", "ya terminamos", "fin de la llamada", "termina la llamada", "ya estuvo", "hasta luego",
+                       "eso es todo", "gracias eso es todo", "ya es todo", "corta la llamada", "salir de la llamada"]
+        if Conversation.call, hangUps.contains(where: { t == $0 || t.hasPrefix($0 + " ") }) { return .call(false) }
+        if calls.contains(where: { t == $0 || t.hasPrefix($0 + " ") }) { return .call(true) }
+        if ["que hiciste hoy", "que has hecho", "que hiciste", "que tareas hiciste", "que me hiciste hoy", "resumen de lo que hiciste"]
+            .contains(where: { t.hasPrefix($0) }) { return .history }
         if let skill = Skills.match(order) { return .skill(skill) }
         let sendWords = ["envialo", "mandalo", "enviar", "envia", "mandar", "manda", "enviaselo", "mandaselo", "dale enviar", "si envialo",
                          "si mandalo", "ya envialo", "ya mandalo", "envialo ya", "mandalo ya", "si enviar", "envia el mensaje", "manda el mensaje",
@@ -368,6 +395,21 @@ enum Quick {
             return .files(q)
         }
         return nil
+    }
+
+    private static let yes = ["si", "claro", "esa", "ese", "correcto", "exacto", "asi es", "ella", "el", "sip", "simon", "dale", "ok", "va"]
+    private static let no = ["no", "otra", "otro", "nel", "tampoco", "ninguno", "ninguna"]
+
+    /// Whether what you said answers its question, or is a new order and the question is dropped.
+    private static func answers(_ t: String, _ pending: VoiceAgent.Pending) -> Bool {
+        let first = t.split(separator: " ").first.map(String.init) ?? ""
+        switch pending {
+        case .confirm: return yes.contains(first) || no.contains(first) || yes.contains(t)
+        case .who:
+            if t.filter(\.isNumber).count >= 7 { return true }
+            let orders = ["abre", "pon", "ponme", "manda", "mandale", "busca", "investiga", "crea", "hazme", "haz", "recuerdame", "dime", "que", "como"]
+            return t.split(separator: " ").count <= 5 && !orders.contains(first)
+        }
     }
 
     /// «los mensajes siempre por WhatsApp», «prefiero Spotify», «de ahora en adelante usa Gmail».
@@ -468,6 +510,57 @@ enum Quick {
         guard let intent = intent(order) else { return false }
         let a = Assistant.shared
         switch intent {
+        case .call(let on):
+            Conversation.call = on
+            let t = VoiceAgent.fold(order).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+            if on, t.split(separator: " ").count > 3 {
+                var talk = VoiceAgent.Action(kind: "charla", order: order)
+                talk.text = order
+                await Hands.perform(talk)
+            } else if on {
+                a.finish(.answer("Te escucho. ¿Qué idea traes?"), say: "Te escucho. ¿Qué idea traes?", linger: 20, talk: true, record: false)
+            } else {
+                a.finish(.done(symbol: "phone.down.fill", title: "Terminamos la llamada",
+                               detail: "Pídeme «haz un documento con esto» o «investiga eso» cuando quieras", bundleID: nil),
+                         say: "Va. Cuando quieras, pídeme un documento con lo que platicamos.", linger: 8, record: false)
+            }
+        case .reply(let r):
+            guard let pending = VoiceAgent.pending else { return true }
+            VoiceAgent.pending = nil
+            switch pending {
+            case .confirm(let action, let person, _):
+                let first = VoiceAgent.fold(r).split(separator: " ").first.map(String.init) ?? ""
+                if no.contains(first) {
+                    VoiceAgent.pending = .who(action, Date())
+                    let ask = "Va. ¿Cómo se llama «\(action.to)» en tus contactos, o cuál es su número?"
+                    a.finish(.answer(ask), say: ask, linger: 25, talk: true, ask: true, record: false)
+                    return true
+                }
+                Aliases.learn(action.to, name: person.name, email: person.email, phone: person.phone)
+                a.step("person.crop.circle.badge.checkmark", "Listo, «\(action.to)» es \(person.name)")
+                await Hands.sendMessage(action)
+            case .who(let action, _):
+                let digits = r.filter(\.isNumber)
+                if digits.count >= 7 {
+                    Aliases.learn(action.to, phone: digits)
+                    a.step("person.crop.circle.badge.checkmark", "Guardé el número de \(action.to)")
+                } else if let p = await People.find(r) {
+                    Aliases.learn(action.to, name: p.name, email: p.email, phone: p.phone)
+                    a.step("person.crop.circle.badge.checkmark", "Listo, «\(action.to)» es \(p.name)")
+                } else {
+                    a.fail("Tampoco encontré a «\(r)» en tus contactos. Dime su número y lo guardo.")
+                    return true
+                }
+                await Hands.sendMessage(action)
+            }
+        case .history:
+            let done = TaskLog.shared.entries.filter { Calendar.current.isDateInToday($0.started) && $0.status != .running }
+            guard !done.isEmpty else {
+                a.finish(.answer("Hoy todavía no me has pedido nada."), say: "Hoy todavía no me has pedido nada.", record: false)
+                return true
+            }
+            let lines = done.prefix(8).map { "- \($0.order)" + ($0.status == .failed ? " (no pude)" : $0.result.isEmpty ? "" : " → \($0.result.prefix(60))") }
+            a.finish(.answer(lines.joined(separator: "\n")), say: "Hoy hice \(done.count) \(done.count == 1 ? "cosa" : "cosas"). Aquí están.", linger: 20, record: false)
         case .tab(let tab):
             a.finish(nil, linger: 0.5)
             a.dismiss()
@@ -657,9 +750,15 @@ enum Rules {
             if let url = site(name) { a.kind = "abrir_web"; a.url = url; return a }
             return nil
         }
-        if rest(["crea un documento", "creame un documento", "hazme un documento", "haz un documento", "escribe un documento",
-                 "escribeme un documento", "redacta un documento", "crea un doc", "hazme un doc", "crea un archivo", "hazme un archivo"]) != nil {
+        let docs = ["crea un documento", "creame un documento", "hazme un documento", "haz un documento", "escribe un documento",
+                    "escribeme un documento", "redacta un documento", "crea un doc", "hazme un doc", "crea un archivo", "hazme un archivo",
+                    "crea el documento", "haz el documento", "hazme el documento", "arma el documento", "arma un documento", "armame un documento",
+                    "pasalo a un documento", "ponlo en un documento", "hazlo documento", "hazlo un documento", "guardalo en un documento"]
+        if docs.contains(where: { f == $0 || f.hasPrefix($0 + " ") }) {
             a.kind = "documento"; a.text = o; return a
+        }
+        if ["investiga", "investigalo", "investigame eso", "investiga mas", "investigalo a fondo"].contains(f) {
+            a.kind = "investigar"; return a
         }
         if let r = rest(["investiga", "investigame", "investiga sobre", "investiga a fondo", "haz una investigacion sobre",
                          "haz una investigacion de", "hazme una investigacion sobre", "hazme una investigacion de", "averigua todo sobre"]) {
@@ -987,14 +1086,41 @@ enum Conversation {
     private(set) static var turns: [(q: String, a: String)] = []
     private(set) static var topic = ""
     private static var at = Date.distantPast
+    /// «hablemos»: a call. It keeps listening after every answer and remembers the whole talk until you hang up.
+    static var call = false {
+        didSet { if call, !oldValue { turns = []; topic = ""; at = Date() } }
+    }
 
-    static var active: Bool { !turns.isEmpty && Date().timeIntervalSince(at) < 180 }
+    static var active: Bool { (call && Date().timeIntervalSince(at) < 1200) || (!turns.isEmpty && Date().timeIntervalSince(at) < 300) }
 
     static func record(_ question: String, _ answer: String, topic newTopic: String? = nil) {
         if !active { turns = []; topic = "" }
-        turns = Array((turns + [(question, answer)]).suffix(4))
+        turns = Array((turns + [(question, answer)]).suffix(call ? 16 : 6))
         if let newTopic, !newTopic.isEmpty { topic = newTopic }
+        if topic.isEmpty { topic = subject(of: question) }
         at = Date()
+    }
+
+    /// The talk so far, for «haz un documento con esto»: the newest turns fit when it's long.
+    static func transcript(limit: Int = 2600) -> String {
+        var out: [String] = []
+        var size = 0
+        for t in turns.reversed() {
+            let line = "Usuario: \(t.q)\nAsistente: \(t.a.prefix(900))"
+            if size + line.count > limit { break }
+            out.insert(line, at: 0)
+            size += line.count
+        }
+        return out.joined(separator: "\n\n")
+    }
+
+    /// «haz un documento con esto», «investiga eso»: the order is about what you've been talking about.
+    static func about(_ order: String) -> Bool {
+        guard active, !turns.isEmpty else { return false }
+        let f = " " + VoiceAgent.fold(order) + " "
+        let cues = [" esto ", " eso ", " esta idea ", " la idea ", " mi idea ", " lo que hablamos ", " lo que platicamos ", " de lo mismo ",
+                    " con todo ", " nuestra ", " la conversacion ", " el plan ", " ese plan ", " este plan ", " lo anterior ", " sobre eso ", " mas "]
+        return cues.contains { f.contains($0) } || order.split(separator: " ").count <= 4
     }
 
     /// A short question without its own subject, asked right after another one.
@@ -1144,6 +1270,7 @@ private enum Brain {
     }
 
     private static var chatSession: (session: LanguageModelSession, at: Date)?
+    private static var chatCall = false
 
     /// People and choices it has learned, so it doesn't ask again.
     private static func learned() -> String {
@@ -1171,8 +1298,14 @@ private enum Brain {
         buscar en la web, investigar un tema con varias fuentes, mandar WhatsApps, mensajes y correos, agendar en su calendario, \
         recordatorios y temporizadores, notas, crear y mejorar documentos, mejorar prompts, crear minijuegos, \
         resumir o corregir lo que tenga seleccionado o la página abierta, abrir partes de VibeNotch (portapapeles, estante, tareas), \
-        mantener la Mac despierta, rutinas («cuando diga X, haz Y») y recordar lo que te cuente. \
+        mantener la Mac despierta, rutinas («cuando diga X, haz Y»), recordar lo que te cuente, \
+        platicar en modo llamada («hablemos») para armar una idea y luego convertirla en documento. \
         Puede hacer varias cosas a la vez: mientras trabaja en algo, el usuario le puede pedir otra. No prometas nada más.
+        \(Conversation.call ? """
+        Están en una llamada para desarrollar una idea juntos. Responde como un socio experto y honesto: opina, da datos concretos, \
+        detecta riesgos y propone el siguiente paso. Hasta 120 palabras. Termina con una sola pregunta corta para seguir. \
+        Cuando el usuario diga que ya está, recuérdale que te puede pedir «haz un documento con esto» o «investiga eso».
+        """ : "")
         Hoy es \(f.string(from: Date())). Ahora está usando \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "su Mac").
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
@@ -1182,8 +1315,11 @@ private enum Brain {
     /// Talking: keeps the conversation for a few minutes and shows the answer as it's written.
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
         // Another order may still be talking on it; a session answers one thing at a time.
-        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180 || chatSession!.session.isResponding
-        let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
+        let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > (Conversation.call ? 1200 : 180)
+            || chatSession!.session.isResponding || chatCall != Conversation.call
+        chatCall = Conversation.call
+        let session = fresh ? LanguageModelSession(instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
+            ? "\nConversación reciente:\n" + Conversation.history : "")) : chatSession!.session
         let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 300)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
         do {
@@ -1550,7 +1686,7 @@ enum Hands {
                                         say: "Listo.", linger: 4)
                     }
                     a.finish(.answer(answer), say: spoken(answer, fallback: "Aquí lo tienes."),
-                             linger: max(12, min(40, Double(answer.count) / 8)), talk: true)
+                             linger: max(12, min(40, Double(answer.count) / 8)), talk: true, record: s.kind == "organizar")
                 } catch {
                     a.fail("No pude responder: \(error.localizedDescription)")
                 }
@@ -1563,7 +1699,12 @@ enum Hands {
             if #available(macOS 26, *), VoiceAgent.available {
                 a.step("doc.richtext", "Escribiendo el documento…")
                 do {
-                    let text = try await Brain.write(s.text.count > 8 ? s.text : s.order) { a.stream($0) }
+                    var ask = s.text.count > 8 ? s.text : s.order
+                    if Conversation.about(s.order) {
+                        a.step("text.bubble", "Juntando lo que platicamos…")
+                        ask += "\n\nHazlo con lo que platicamos (usa estas ideas y datos, ordénalos y complétalos):\n" + Conversation.transcript()
+                    }
+                    let text = try await Brain.write(ask) { a.stream($0) }
                     a.step("square.and.arrow.down", "Guardándolo en Documentos…")
                     let (url, title) = try Documents.create(text)
                     NSWorkspace.shared.open(url)
@@ -1580,7 +1721,13 @@ enum Hands {
             #endif
             a.fail(VoiceAgent.unavailableReason)
         case "investigar":
-            await research(s.text.isEmpty ? s.order : s.text)
+            var topic = s.text
+            let pronoun = VoiceAgent.fold(topic).replacingOccurrences(of: #"^(mas |mejor |bien |a fondo )?(sobre |de )?"#, with: "", options: .regularExpression)
+            if ["eso", "esto", "el tema", "lo que hablamos", "lo que platicamos", "mas", "la idea", "mi idea", "esa idea", ""].contains(pronoun),
+               Conversation.active, !Conversation.topic.isEmpty {
+                topic = Conversation.topic
+            }
+            await research(topic.isEmpty ? s.order : topic)
         case "juego":
             let ask = s.text.isEmpty ? s.order : s.text
             a.step("gamecontroller", "Armando tu juego…")
@@ -1805,7 +1952,7 @@ enum Hands {
     }
 
     /// Finds the person, opens their chat with the message and sends it. Without their number it leaves it ready and says why.
-    private static func sendMessage(_ s: VoiceAgent.Action) async {
+    static func sendMessage(_ s: VoiceAgent.Action) async {
         VoiceAgent.unsent = false
         let whatsapp = s.kind == "whatsapp"
         var name = s.to
@@ -1813,10 +1960,19 @@ enum Hands {
         var email: String? = s.to.contains("@") ? s.to : nil
         if phone == nil, email == nil, !s.to.isEmpty {
             a.step("person.crop.circle", "Buscando a \(s.to) en tus contactos…")
-            if let p = await People.find(s.to) {
+            let found = await People.find(s.to)
+            if let p = found, p.guessed {
+                VoiceAgent.pending = .confirm(s, p, Date())
+                return a.finish(.answer("¿Te refieres a \(p.name)?"), say: "¿Te refieres a \(p.name)?", linger: 20, talk: true, ask: true)
+            }
+            if let p = found {
                 name = p.name
                 phone = p.phone
                 email = p.email
+            } else if Aliases.find(s.to) == nil {
+                VoiceAgent.pending = .who(s, Date())
+                let ask = "No tengo guardado a «\(s.to)». ¿Cómo se llama en tus contactos, o cuál es su número?"
+                return a.finish(.answer(ask), say: ask, linger: 25, talk: true, ask: true)
             }
         }
         if name.isEmpty { name = "esa persona" }
