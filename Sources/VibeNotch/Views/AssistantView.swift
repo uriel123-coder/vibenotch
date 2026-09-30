@@ -150,11 +150,11 @@ private struct CardView: View {
                 Header(symbol: "sparkles", title: writing ? "Escribiendo…" : "Jarvis") {
                     if !writing {
                         HStack(spacing: 12) {
-                            SmallAction(title: "Pegar", symbol: "text.insert") { VoiceKey.type(text) }
+                            SmallAction(title: "Pegar", symbol: "text.insert") { VoiceKey.type(Documents.plain(text)) }
                             SmallAction(title: "Documento", symbol: "doc.badge.plus") {
                                 if let made = try? Documents.create(text) { NSWorkspace.shared.open(made.url) }
                             }
-                            Copy(text: text)
+                            Copy(text: Documents.plain(text))
                         }
                     }
                 }
@@ -311,7 +311,7 @@ private struct AnswerText: View {
         if live {
             // While writing, the newest lines stay in view; the whole text is there (and copyable) once it's done.
             let shown = writing && text.count > 700 ? "…" + text.suffix(700) : text
-            (Text(shown) + Text(writing ? " ▍" : "").foregroundColor(.accentColor))
+            (Text(Documents.pretty(shown)) + Text(writing ? " ▍" : "").foregroundColor(.accentColor))
                 .font(.system(size: 12.5))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineSpacing(2)
@@ -511,7 +511,7 @@ private struct Typewriter: View {
 
     var body: some View {
         // The full text, invisible, holds the final height so the notch doesn't grow line by line.
-        Text(text)
+        Text(Documents.pretty(text))
             .font(.system(size: 12.5))
             .lineSpacing(2)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -519,9 +519,9 @@ private struct Typewriter: View {
             .overlay(alignment: .topLeading) {
                 TimelineView(.animation(minimumInterval: 1 / 30, paused: Date().timeIntervalSince(start) * 110 > Double(text.count))) { ctx in
                     let n = min(text.count, Int(ctx.date.timeIntervalSince(start) * 110))
-                    Text(text.prefix(n))
+                    Text(Documents.pretty(String(text.prefix(n))))
                         .font(.system(size: 12.5))
-                                .foregroundStyle(.white.opacity(0.92))
+                        .foregroundStyle(.white.opacity(0.92))
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)

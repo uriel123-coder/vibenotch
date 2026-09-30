@@ -726,6 +726,11 @@ private enum Brain {
         let session = LanguageModelSession(instructions: instructions())
         session.prewarm()
         ready = (session, Date())
+        if chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 170 {
+            let chat = LanguageModelSession(instructions: chatInstructions())
+            chat.prewarm()
+            chatSession = (chat, Date())
+        }
     }
 
     private static func instructions() -> String {
@@ -836,7 +841,8 @@ private enum Brain {
         return """
         Eres Jarvis, el asistente personal del usuario en su Mac. Hablas español de México natural, cálido y directo, \
         como el mejor asistente humano. Si es plática o una pregunta, responde en 1 a 3 frases. Si pide un texto, lista, plan, \
-        ideas o explicación, entrégalo completo y bien organizado, con «- » para listas. Nunca uses marcadores como [nombre]. \
+        ideas o explicación, entrégalo bien organizado con «- » para listas, en menos de 120 palabras salvo que pida algo largo. \
+        No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. \
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
         Hoy es \(f.string(from: Date())).
         Lo que sabes del usuario:
@@ -848,15 +854,16 @@ private enum Brain {
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
         let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180
         let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
+        let talk = GenerationOptions(temperature: 0.6, maximumResponseTokens: 450)
         do {
-            let answer = try await stream(session, prompt, options: GenerationOptions(temperature: 0.6), onPartial: onPartial)
+            let answer = try await stream(session, prompt, options: talk, onPartial: onPartial)
             chatSession = (session, Date())
             return answer
         } catch {
             guard !fresh else { throw error }
             // The conversation got too long for the model: start over with just the recent turns.
             let session = LanguageModelSession(instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
-            let answer = try await stream(session, prompt, options: GenerationOptions(temperature: 0.6), onPartial: onPartial)
+            let answer = try await stream(session, prompt, options: talk, onPartial: onPartial)
             chatSession = (session, Date())
             return answer
         }
@@ -869,7 +876,7 @@ private enum Brain {
         Usa «## » para secciones y «- » para listas. Entre 150 y 450 palabras salvo que pidan otra cosa. \
         Nunca uses marcadores como [nombre] ni digas que eres un modelo.
         """)
-        return try await stream(session, ask, options: GenerationOptions(temperature: 0.5), onPartial: onPartial)
+        return try await stream(session, ask, options: GenerationOptions(temperature: 0.5, maximumResponseTokens: 1000), onPartial: onPartial)
     }
 
     private static func stream(_ session: LanguageModelSession, _ prompt: String, options: GenerationOptions,
@@ -1057,12 +1064,12 @@ enum Hands {
                 let answer = (try? await Brain.transform(s.order, text: s.text, onPartial: replace ? nil : { a.stream($0) })) ?? ""
                 guard !answer.isEmpty else { return a.fail("No pude con ese texto") }
                 if replace {
-                    VoiceKey.type(answer)
+                    VoiceKey.type(Documents.plain(answer))
                     return a.finish(.done(symbol: "text.badge.checkmark", title: "Listo, lo reemplacé", detail: "⌘Z para deshacer", bundleID: nil),
                                     say: "Listo.", linger: 4)
                 }
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(answer, forType: .string)
+                NSPasteboard.general.setString(Documents.plain(answer), forType: .string)
                 ClipboardStore.shared.skipCurrentChange()
                 Conversation.record(s.order, answer)
                 return a.finish(.answer(answer), say: spoken(answer, fallback: "Listo, te lo dejé copiado."),
@@ -1096,7 +1103,7 @@ enum Hands {
                     guard !answer.isEmpty else { return a.fail("No se me ocurrió nada, pregúntame de otra forma") }
                     Conversation.record(s.order, answer)
                     if s.name == "escribir" && VoiceKey.focusedIsText() {
-                        VoiceKey.type(answer)
+                        VoiceKey.type(Documents.plain(answer))
                         return a.finish(.done(symbol: "character.cursor.ibeam", title: "Listo, lo escribí", detail: "⌘Z para deshacer", bundleID: nil),
                                         say: "Listo.", linger: 4)
                     }

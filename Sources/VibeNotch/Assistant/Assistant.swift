@@ -369,6 +369,28 @@ enum Skills {
 enum Documents {
     static let readable = ["txt", "md", "rtf", "docx", "doc", "odt", "html", "htm", "pdf", "pages"]
 
+    /// The model's text without markdown symbols, for pasting and copying.
+    static func plain(_ s: String) -> String {
+        s.components(separatedBy: "\n").map { line in
+            line.replacingOccurrences(of: #"^\s*#+\s*"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"^(\s*)[*]\s+"#, with: "$1- ", options: .regularExpression)
+                .replacingOccurrences(of: "**", with: "")
+        }.joined(separator: "\n")
+    }
+
+    /// The model's text with its bold, headings and bullets shown as such.
+    static func pretty(_ s: String) -> AttributedString {
+        let md = s.components(separatedBy: "\n").map { line -> String in
+            if let r = line.range(of: #"^\s*#+\s*"#, options: .regularExpression) {
+                let rest = line[r.upperBound...].replacingOccurrences(of: "**", with: "")
+                return rest.isEmpty ? "" : "**\(rest)**"
+            }
+            return line.replacingOccurrences(of: #"^(\s*)[-*]\s+"#, with: "$1• ", options: .regularExpression)
+        }.joined(separator: "\n")
+        return (try? AttributedString(markdown: md, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(md.replacingOccurrences(of: "**", with: ""))
+    }
+
     /// A styled document from the model's text: «# Título», «## Sección», «- punto».
     static func styled(_ text: String) -> (title: String, doc: NSAttributedString) {
         let out = NSMutableAttributedString()
