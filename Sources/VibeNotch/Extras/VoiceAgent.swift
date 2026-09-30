@@ -1236,6 +1236,9 @@ private enum Brain {
         if VoiceAgent.fold(said).hasPrefix("hola"), let o = out, !VoiceAgent.fold(o).hasPrefix("hola") {
             out = "Hola, " + o.prefix(1).lowercased() + o.dropFirst()
         }
+        if let o = out, let r = o.range(of: #", ¿\p{Lu}"#, options: .regularExpression) {
+            out = o.replacingCharacters(in: r, with: o[r].lowercased())
+        }
         guard let out, !out.isEmpty, out.count < max(160, said.count * 3), !out.contains("\n\n") else { return nil }
         return out
     }
