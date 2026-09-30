@@ -109,6 +109,7 @@ enum Snapshot {
             Dictation.shared.demo()
             await shot("\(prefix)-11-nota-de-voz", panel, dir, height: 170)
             Dictation.shared.cancel()
+            await assistantShots(prefix, panel, dir)
             AppSettings.shared.prompterCountdown = false
             Prompter.shared.start("""
             Hola, soy Uriel y hoy les quiero enseñar VibeNotch.
@@ -301,6 +302,51 @@ enum Snapshot {
         await writer.finishWriting()
         if let error = writer.error { FileHandle.standardError.write(Data("makeMovie: \(error)\n".utf8)) }
         return writer.status == .completed
+    }
+
+    private static func assistantShots(_ prefix: String, _ panel: NSPanel, _ dir: URL) async {
+        let a = Assistant.shared
+        typealias Step = Assistant.Step
+        try? await Task.sleep(for: .milliseconds(200))
+        Dictation.shared.demo("oye, ¿quién es Kai Brokering?")
+        a.demo(.listening, status: "Escuchando…")
+        await shot("\(prefix)-12a-asistente-escucha", panel, dir, height: 190)
+        Dictation.shared.cancel()
+        a.demo(.working, heard: "¿Quién es Kai Brokering?", status: "Leyendo 5 resultados…",
+               steps: [Step(symbol: "globe", text: "Buscando «Kai Brokering» en la web…", finished: true),
+                       Step(symbol: "text.magnifyingglass", text: "Leyendo 5 resultados…")])
+        await shot("\(prefix)-12b-asistente-trabajando", panel, dir, height: 230)
+        let hits = [
+            Assistant.WebHit(title: "Kai Brokering - Founder of VoiceOS (YC P25) - LinkedIn", url: URL(string: "https://www.linkedin.com/in/kai-brokering")!,
+                             snippet: "Experience: VoiceOS · Education: Y Combinator · Location: San Francisco"),
+            Assistant.WebHit(title: "Kai Brokering - Y Combinator Founder | AI Voice Startup", url: URL(string: "https://www.kaibrokering.com/")!,
+                             snippet: "Tokyo-born entrepreneur, NASA intern, Y Combinator X25. Building AI voice technology."),
+            Assistant.WebHit(title: "VoiceOS – AI Voice Assistant for Mac & Windows", url: URL(string: "https://www.voiceos.com/")!,
+                             snippet: "Point anywhere on your screen. Your cursor is the context."),
+        ]
+        a.demo(.done, heard: "¿Quién es Kai Brokering?", status: "Listo",
+               steps: [Step(symbol: "globe", text: "Buscando «Kai Brokering» en la web…", finished: true),
+                       Step(symbol: "text.magnifyingglass", text: "Leyendo 5 resultados…", finished: true)],
+               card: .web(answer: "Kai Brokering es cofundador de VoiceOS, una startup de Y Combinator que hace un asistente de voz para Mac. Nació en Tokio y fue becario en la NASA.", hits: hits))
+        await shot("\(prefix)-12c-asistente-web", panel, dir, height: 520)
+        let cal = Calendar.current
+        let day = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
+        func at(_ h: Int, _ m: Int = 0) -> Date { cal.date(bySettingHour: h, minute: m, second: 0, of: day)! }
+        a.demo(.done, heard: "¿Qué tengo mañana?", status: "Mañana tienes 3 eventos. A las 10:00: Junta con Luis.",
+               steps: [Step(symbol: "calendar", text: "Revisando tu calendario…", finished: true)],
+               card: .events(day: day, rows: [
+                   Assistant.EventRow(title: "Junta con Luis", start: at(10), end: at(11), allDay: false, color: .systemBlue),
+                   Assistant.EventRow(title: "Comida con Ana", start: at(14, 30), end: at(15, 30), allDay: false, color: .systemPink),
+                   Assistant.EventRow(title: "Dentista", start: at(18), end: at(19), allDay: false, color: .systemGreen),
+               ]))
+        await shot("\(prefix)-12d-asistente-agenda", panel, dir, height: 330)
+        a.demo(.done, heard: "Mándale un correo a Ana diciendo que llego tarde a la junta", status: "Listo, tu correo está abierto en Mail",
+               steps: [Step(symbol: "person.crop.circle", text: "Buscando a Ana en Contactos…", finished: true),
+                       Step(symbol: "envelope", text: "Redactando el correo…", finished: true)],
+               card: .draft(app: "Mail", bundleID: "com.apple.mail", to: "ana.lopez@gmail.com", subject: "Llego un poco tarde a la junta",
+                            body: "Hola Ana:\n\nTe aviso que voy a llegar unos 15 minutos tarde a la junta. Una disculpa por el retraso; si quieren pueden empezar sin mí.\n\nSaludos"))
+        await shot("\(prefix)-12e-asistente-correo", panel, dir, height: 420)
+        a.dismiss()
     }
 
     /// Renders the panel at 2x over a wallpaper with a fake menu bar, cropped to the interesting part.

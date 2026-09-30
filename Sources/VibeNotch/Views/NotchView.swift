@@ -10,6 +10,7 @@ struct NotchRootView: View {
     @ObservedObject private var prompter = Prompter.shared
     @ObservedObject private var calls = WhatsAppCalls.shared
     @ObservedObject private var dictation = Dictation.shared
+    @ObservedObject private var assistant = Assistant.shared
     @State private var dropHover = false
 
     var body: some View {
@@ -17,12 +18,15 @@ struct NotchRootView: View {
         let r = model.radii
         let shape = NotchShape(topRadius: r.top, bottomRadius: r.bottom, island: model.island)
         let hidden = model.island && model.state == .closed && !model.showsIndicators && !model.showsHandle
+            && !assistant.visible && !dictation.active && !prompter.active
 
         ZStack(alignment: .top) {
             shape.fill(.black)
             Group {
                 if prompter.active {
                     PrompterView()
+                } else if assistant.visible {
+                    AssistantView()
                 } else if dictation.active {
                     DictationView()
                 } else {
@@ -45,7 +49,7 @@ struct NotchRootView: View {
                 .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
         )
         .contentShape(shape)
-        .onTapGesture { if model.state != .open && !prompter.active && !dictation.active { model.open() } }
+        .onTapGesture { if model.state != .open && !prompter.active && !dictation.active && !assistant.visible { model.open() } }
         .onDrop(of: ShelfStore.dropTypes, isTargeted: $dropHover) { providers in
             if model.state == .open && model.tab == .tools { return ToolsStore.shared.accept(providers) }
             model.tab = .shelf
@@ -64,6 +68,7 @@ struct NotchRootView: View {
         .animation(.notch, value: hidden)
         .animation(.notch, value: prompter.active)
         .animation(.notch, value: dictation.active)
+        .animation(.notch, value: assistant.visible)
         .background(TranslatorHost())
         .environment(\.colorScheme, .dark)
     }

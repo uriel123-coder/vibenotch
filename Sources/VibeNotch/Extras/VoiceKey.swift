@@ -35,7 +35,7 @@ final class VoiceKey {
             holding = false
             pending?.cancel()
             pending = nil
-            if d.mode == .type && d.active { d.cancel() }
+            if d.mode != .note && d.active { d.cancel() }
             return
         }
         let down = e.modifierFlags.rawValue & Self.rightOption != 0
@@ -52,7 +52,7 @@ final class VoiceKey {
                 self.pending = nil
                 return
             }
-            guard d.mode == .type else { return }
+            guard d.mode != .note else { return }
             if others { d.cancel() } else if d.phase == .starting { d.cancel() } else { d.finish() }
         }
     }
@@ -60,20 +60,28 @@ final class VoiceKey {
     private func begin() {
         pending = nil
         guard holding, !Dictation.shared.active else { return }
-        Dictation.shared.start(.type)
+        Self.listen(.type)
+    }
+
+    /// Opens the assistant's listening panel and the mic; ⌃⌥J uses it too.
+    static func listen(_ mode: Dictation.Mode) {
+        Assistant.shared.listening()
+        Dictation.shared.start(mode)
         VoiceAgent.prepare()
     }
 
     // MARK: - Result
 
-    static func deliver(_ raw: String) {
+    static func deliver(_ raw: String, forceAgent: Bool = false) {
         let text = VoiceText.clean(raw)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else { return Assistant.shared.cancelListening() }
+        if forceAgent { return VoiceAgent.run(VoiceAgent.order(in: text) ?? text) }
         if let order = VoiceAgent.order(in: text) { return VoiceAgent.run(order) }
         let editing = focusedIsText()
-        if VoiceCommand.run(text, editing: editing) { return }
         // With no text field to type into, what you said is an order.
-        if !editing && VoiceAgent.available { return VoiceAgent.run(text) }
+        if !editing { return VoiceAgent.run(text) }
+        Assistant.shared.cancelListening()
+        if VoiceCommand.run(text, editing: editing) { return }
         type(text)
     }
 

@@ -134,6 +134,9 @@ final class NotchController {
         Dictation.shared.$phase.dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
         }.store(in: &cancellables)
+        Assistant.shared.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.syncMouseAcceptance() } }
+        }.store(in: &cancellables)
         Prompter.shared.$active.dropFirst().sink { [weak self] on in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -349,7 +352,7 @@ final class NotchController {
             dragStart = (p, Date())
             // The panel only stops ignoring the mouse after it moves, so a click on the notch usually lands on the
             // menu bar underneath and only reaches us through the global monitor. Treat it as a click on the notch.
-            if !local && !Prompter.shared.active && !Dictation.shared.active && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
+            if !local && !Prompter.shared.active && !Dictation.shared.active && !Assistant.shared.visible && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
                 hoverWork?.cancel()
                 hoverWork = nil
                 model.open()
@@ -418,7 +421,7 @@ final class NotchController {
     }
 
     private func hover(inside: Bool, at p: NSPoint) {
-        if Prompter.shared.active || Dictation.shared.active { return }
+        if Prompter.shared.active || Dictation.shared.active || Assistant.shared.visible { return }
         switch model.state {
         case .closed:
             let hot = hiddenByFullscreen ? fullscreenZone().contains(p) : wakeZone().contains(p)

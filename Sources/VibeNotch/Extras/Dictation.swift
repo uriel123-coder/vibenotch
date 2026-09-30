@@ -9,8 +9,8 @@ final class Dictation: ObservableObject {
     static let shared = Dictation()
 
     enum Phase { case idle, starting, recording, finishing }
-    /// A voice note saved to Notes, or text typed into the app you're in (hold right ⌥).
-    enum Mode { case note, type }
+    /// A voice note saved to Notes, text typed into the app you're in (hold right ⌥), or an order for the assistant (⌃⌥J).
+    enum Mode { case note, type, assistant }
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var mode: Mode = .note
@@ -39,11 +39,11 @@ final class Dictation: ObservableObject {
 
     static func runsOnDevice() -> Bool { SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition ?? false }
 
-    func demo() {
+    func demo(_ text: String = "Comprar pan y leche, llamar al dentista el jueves y mandarle a Ana la presentación de ventas") {
         phase = .recording
         startedAt = Date().addingTimeInterval(-14)
         level = 0.55
-        transcript = "Comprar pan y leche, llamar al dentista el jueves y mandarle a Ana la presentación de ventas"
+        transcript = text
     }
 
     func toggle() {
@@ -125,6 +125,7 @@ final class Dictation: ObservableObject {
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         if #available(macOS 13, *) { req.addsPunctuation = true }
+        req.contextualStrings = Memory.vocabulary()
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
@@ -176,12 +177,16 @@ final class Dictation: ObservableObject {
         cleanup()
         phase = .idle
         guard !text.isEmpty else {
+            if mode != .note {
+                if Assistant.shared.phase == .listening { Assistant.shared.fail("No te escuché, intenta otra vez") }
+                return
+            }
             NotchModel.shared.announce(Announcement(symbol: "mic.fill", tint: .warn, title: "No escuché nada",
                                                     subtitle: "Revisa que el micrófono correcto esté elegido en Ajustes del Sistema"))
             return
         }
-        if mode == .type {
-            VoiceKey.deliver(text)
+        if mode != .note {
+            VoiceKey.deliver(text, forceAgent: mode == .assistant)
             return
         }
         let f = DateFormatter()

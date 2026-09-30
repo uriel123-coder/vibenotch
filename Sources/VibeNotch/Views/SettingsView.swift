@@ -475,6 +475,9 @@ private struct ExtrasPage: View {
                     ForEach(Dictation.languages, id: \.code) { Text($0.name).tag($0.code) }
                 }
                 Toggle("Dictar en cualquier app (mantén ⌥ derecha)", isOn: $s.voiceKey)
+                LabeledContent("Asistente", value: "⌃⌥J")
+                Toggle("El asistente responde en voz alta", isOn: $s.assistantSpeaks)
+                TextField("Palabras que uso", text: $s.voiceWords, prompt: Text("Apellidos, nombres, marcas: Nakamura, Lynqin, Palmier…"))
                 LabeledContent("Nota de voz", value: "⌃⌥D")
                 LabeledContent("Dónde se procesa") {
                     Text(Dictation.runsOnDevice() ? "En tu Mac, sin internet" : "En los servidores de Apple (este idioma no está en tu Mac)")
@@ -484,7 +487,7 @@ private struct ExtrasPage: View {
             } header: {
                 Text("Voz")
             } footer: {
-                FooterText("Mantén presionada la tecla ⌥ derecha, habla y suelta: el texto se escribe donde tengas el cursor, en cualquier app, sin «eh» ni palabras repetidas y sin tocar lo que tenías copiado. Di «nueva línea» para saltar de renglón. También entiende órdenes: «abre Spotify», «busca el archivo factura» (fuera de un campo de texto) y «recuérdame llamar a Ana en 10 minutos». Necesita el permiso de Accesibilidad.\n\nAgente: empieza con «oye…» (o habla sin estar en un campo de texto) y Apple Intelligence lo hace por ti: redactar un correo, poner una reunión, preparar un WhatsApp, buscar en Google, correr un atajo o resumir lo que seleccionaste. Corre en tu Mac, gratis, con macOS 26 y Apple Intelligence activado.\n\nPresiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
+                FooterText("Mantén presionada la tecla ⌥ derecha, habla y suelta: el texto se escribe donde tengas el cursor, en cualquier app, sin «eh» ni palabras repetidas y sin tocar lo que tenías copiado. Di «nueva línea» para saltar de renglón. También entiende órdenes: «abre Spotify», «busca el archivo factura» (fuera de un campo de texto) y «recuérdame llamar a Ana en 10 minutos». Necesita el permiso de Accesibilidad.\n\nAsistente: presiona ⌃⌥J (o empieza con «oye…» al dictar) y pídele lo que sea: «¿qué tengo mañana?», «mándale un correo a Ana diciendo…», «busca su LinkedIn» señalando un nombre con el cursor, «recuerda que el correo de mi jefe es…», «abre Cursor y pon una junta el viernes a las 10». En el notch ves lo que está haciendo y el resultado. Usa Apple Intelligence en tu Mac, gratis; la búsqueda web usa DuckDuckGo. «Palabras que uso» ayuda a que escriba bien apellidos y nombres (también usa los de tus Contactos y tu memoria).\n\nPresiona ⌃⌥D (o el micrófono en Clips › Notas), habla y toca Listo o ⌃⌥D otra vez. Ves el texto mientras hablas; al terminar se guarda como nota y queda copiado. La primera vez macOS pide permiso de micrófono y de reconocimiento de voz.")
             }
 
             Section {

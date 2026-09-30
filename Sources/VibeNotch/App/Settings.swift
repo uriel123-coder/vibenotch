@@ -79,6 +79,9 @@ final class AppSettings: ObservableObject {
     @Published var dictationLanguage: String { didSet { store(dictationLanguage, forKey: "dictationLanguage") } }
     /// Hold the right Option key anywhere to dictate straight into the app you're in.
     @Published var voiceKey: Bool { didSet { store(voiceKey, forKey: "voiceKey") } }
+    /// Names, surnames and brands the recognizer should spell right, separated by commas.
+    @Published var voiceWords: String { didSet { store(voiceWords, forKey: "voiceWords") } }
+    @Published var assistantSpeaks: Bool { didSet { store(assistantSpeaks, forKey: "assistantSpeaks") } }
     @Published var codesEnabled: Bool { didSet { store(codesEnabled, forKey: "codesEnabled") } }
     /// Types the code into the field you're in as soon as it arrives, instead of waiting for "Pegar".
     @Published var codesAutoPaste: Bool { didSet { store(codesAutoPaste, forKey: "codesAutoPaste") } }
@@ -118,6 +121,8 @@ final class AppSettings: ObservableObject {
         translateTo = d.string(forKey: "translateTo") ?? "auto"
         dictationLanguage = d.string(forKey: "dictationLanguage") ?? "auto"
         voiceKey = d.object(forKey: "voiceKey") as? Bool ?? true
+        voiceWords = d.string(forKey: "voiceWords") ?? ""
+        assistantSpeaks = d.object(forKey: "assistantSpeaks") as? Bool ?? true
         codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
         codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
         mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false

@@ -95,6 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MailCodes.shared.start()
             CursorQuestions.shared.start()
             VoiceKey.shared.start()
+            People.loadNames()
+            _ = Shortcuts.names()
         }
         if ProcessInfo.processInfo.environment["VIBENOTCH_TABTEST"] != nil { TabTest.run() }
 
@@ -123,6 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_D), modifiers: mods, id: 6) {
             MainActor.assumeIsolated { Dictation.shared.toggle() }
+        })
+        hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_J), modifiers: mods, id: 7) {
+            MainActor.assumeIsolated {
+                let d = Dictation.shared
+                if d.active && d.mode == .assistant { d.finish() }
+                else if !d.active { VoiceKey.listen(.assistant) }
+            }
         })
         hotKeys.append(HotKey(keyCode: UInt32(kVK_ANSI_T), modifiers: mods, id: 5) {
             MainActor.assumeIsolated { TextTools.shared.translate(NSPasteboard.general.string(forType: .string) ?? "") }

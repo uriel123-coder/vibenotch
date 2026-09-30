@@ -28,13 +28,15 @@
 	<string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>VibeNotch muestra tus próximos eventos y te avisa 5 minutos antes.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>El asistente de VibeNotch busca en tus contactos el correo o teléfono de la persona a la que le quieres escribir.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Uriel Nakach · MIT</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>VibeNotch escucha el micrófono solo mientras dictas una nota de voz.</string>
+	<string>VibeNotch escucha el micrófono solo mientras dictas o le hablas al asistente.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>VibeNotch convierte tus notas de voz en texto, en tu Mac cuando es posible.</string>
+	<string>VibeNotch convierte en texto lo que dictas y lo que le pides al asistente, en tu Mac cuando es posible.</string>
 </dict>
 </plist>

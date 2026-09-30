@@ -88,7 +88,7 @@ final class NotchModel: ObservableObject {
     var island: Bool { !hasNotch }
 
     var radii: (top: CGFloat, bottom: CGFloat) {
-        if Prompter.shared.active || Dictation.shared.active { return island ? (0, 24) : (14, 26) }
+        if Prompter.shared.active || Dictation.shared.active || Assistant.shared.visible { return island ? (0, 24) : (14, 26) }
         if island {
             switch state {
             case .closed: return (0, 15)
@@ -144,6 +144,11 @@ final class NotchModel: ObservableObject {
         let ask = AgentStore.shared.asks.first
         if Prompter.shared.active {
             return island ? CGSize(width: 600, height: 200) : CGSize(width: max(n.width + 400, 620), height: n.height + 190)
+        }
+        if Assistant.shared.visible {
+            let a = Assistant.shared
+            let h = a.measured > 0 || island ? a.height : n.height + a.height - 8
+            return CGSize(width: island ? 580 : max(n.width + 380, 600), height: h)
         }
         if Dictation.shared.active {
             return island ? CGSize(width: 540, height: 96) : CGSize(width: max(n.width + 360, 560), height: n.height + 84)
