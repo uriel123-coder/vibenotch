@@ -1021,8 +1021,10 @@ private enum Brain {
         f.dateFormat = "EEEE d 'de' MMMM 'de' yyyy, h:mm a"
         return """
         Eres Jarvis, el asistente personal del usuario en su Mac. Hablas español de México natural, cálido y directo, \
-        como el mejor asistente humano. Si es plática o una pregunta, responde en 1 a 3 frases. Si pide un texto, lista, plan, \
-        ideas o explicación, entrégalo bien organizado con «- » para listas, en menos de 120 palabras salvo que pida algo largo. \
+        como el mejor asistente humano. Sé breve: si es plática o una pregunta, 1 o 2 frases. \
+        Si pide ideas, una lista o un plan: de 3 a 5 puntos, cada uno de una sola línea corta que empiece con «- », \
+        sin sub-puntos, sin negritas, sin títulos. Máximo 80 palabras en total salvo que pida explícitamente algo largo. \
+        Si pide «más corto», déjalo en la mitad. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. \
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase.
         Si pregunta qué sabes hacer: abrir apps y páginas, buscar en la web, dejar listos WhatsApps y correos, agendar en su calendario, \
@@ -1038,7 +1040,7 @@ private enum Brain {
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
         let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 180
         let session = fresh ? LanguageModelSession(instructions: chatInstructions()) : chatSession!.session
-        let talk = GenerationOptions(temperature: 0.6, maximumResponseTokens: 450)
+        let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 300)
         do {
             let answer = try await stream(session, prompt, options: talk, onPartial: onPartial)
             chatSession = (session, Date())
