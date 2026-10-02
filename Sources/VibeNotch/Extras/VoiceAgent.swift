@@ -1170,9 +1170,7 @@ enum Rules {
         let personal = f.range(of: #"\b(mi|mis|me|conmigo|tengo|tenia|yo)\b"#, options: .regularExpression) != nil
             && f.range(of: #"\b(clima|tiempo hace|precio|cuesta|noticias|significa|que es|quien es|quien fue)\b"#, options: .regularExpression) == nil
         // With the model, questions go to it: it searches when it needs to and remembers the conversation.
-        // Personal questions must reach the model so it can choose WhatsApp, Mail,
-        // Calendar or the screen. Only non-personal questions fall back to web.
-        if VoiceAgent.isQuestion(o), !VoiceAgent.available && !personal,
+        if VoiceAgent.isQuestion(o), !VoiceAgent.available || (!personal && context.selection.isEmpty && false),
            !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
             a.kind = "buscar_web"; a.text = o; return a
         }
@@ -2193,22 +2191,9 @@ enum Hands {
     private static var a: Assistant { .shared }
     /// The chat handed an order back to be done; it doesn't bounce again.
     static var delegating = false
-    /// Prevents a repeated planner step from creating two events or sending twice.
-    private static var activeActions: Set<String> = []
-
-    private static func actionKey(_ s: VoiceAgent.Action) -> String {
-        [s.kind, s.order, s.to, s.name, s.text, s.when]
-            .map(VoiceAgent.fold).joined(separator: "\u{1f}")
-    }
+    private static var clearedStaleAccess = false
 
     static func perform(_ s: VoiceAgent.Action) async {
-        let key = actionKey(s)
-        guard !activeActions.contains(key) else {
-            a.step("checkmark.circle", "Omití una acción repetida…")
-            return
-        }
-        activeActions.insert(key)
-        defer { activeActions.remove(key) }
         if let (key, value) = Habits.mentioned(in: s.order) {
             let fits: [Habits.Key: Set<String>] = [.messages: ["whatsapp", "mensaje"], .music: ["musica"], .mail: ["correo"]]
             if fits[key]?.contains(s.kind) == true { Habits.set(key, value) }
@@ -3074,6 +3059,16 @@ enum Hands {
     /// Without Accessibility it can't press or read anything: asks macOS itself, opens the right switch and waits for you to turn it on.
     static func ensureAccess(_ why: String) async -> Bool {
         if AXIsProcessTrusted() { return true }
+        if !clearedStaleAccess {
+            clearedStaleAccess = true
+            // A switch turned on for an older copy of VibeNotch looks on in Settings but doesn't count for this one:
+            // clearing VibeNotch's entry makes macOS list this copy, so the switch you turn on is the right one.
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.urielnak.vibenotch"]
+            try? reset.run()
+            reset.waitUntilExit()
+        }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(pane) }
         a.step("hand.raised.fill", "Para \(why) activa VibeNotch en Accesibilidad; te espero…")
