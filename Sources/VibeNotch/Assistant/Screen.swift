@@ -59,19 +59,25 @@ enum Screen {
         return await Task.detached(priority: .userInitiated) { () -> Bool in
             guard let window = element(root, kAXFocusedWindowAttribute) ?? children(root).first else { return false }
             var queue = [find(window, role: "AXWebArea") ?? window], seen = 0
+            var candidates: [(score: Int, element: AXUIElement)] = []
             while !queue.isEmpty, seen < 6000 {
                 let e = queue.removeFirst()
                 seen += 1
                 // The search box holds the same words; typing fields are never the target.
                 if ["AXTextField", "AXSearchField", "AXComboBox", "AXTextArea"].contains(string(e, kAXRoleAttribute)) { continue }
                 let label = People.fold([string(e, kAXTitleAttribute), string(e, kAXDescriptionAttribute), string(e, kAXValueAttribute)].joined(separator: " "))
-                if label.contains(wanted), actions(e).contains(kAXPressAction as String) {
-                    return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success
-                }
-                if label.contains(wanted), let parent = pressableAncestor(e) {
-                    return AXUIElementPerformAction(parent, kAXPressAction as CFString) == .success
+                if label.contains(wanted) {
+                    if actions(e).contains(kAXPressAction as String) {
+                        let score = label == wanted ? 100 : 60
+                        candidates.append((score, e))
+                    } else if let parent = pressableAncestor(e) {
+                        candidates.append((label == wanted ? 90 : 50, parent))
+                    }
                 }
                 queue.append(contentsOf: children(e))
+            }
+            for candidate in candidates.sorted(by: { $0.score > $1.score }) {
+                if AXUIElementPerformAction(candidate.element, kAXPressAction as CFString) == .success { return true }
             }
             return false
         }.value
