@@ -866,7 +866,7 @@ enum Quick {
                 a.finish(.done(symbol: "checkmark.message.fill", title: "Enviado", detail: last.action.text, bundleID: running.bundleIdentifier),
                          say: "Listo, enviado.", linger: 4)
             } else {
-                a.fail("No pude enviarlo; activa VibeNotch en Accesibilidad")
+                a.fail("No pude confirmar el envío; el mensaje quedó sin enviar")
             }
         case .pref(let key, let value):
             Habits.set(key, value)
@@ -3088,7 +3088,9 @@ enum Hands {
         return false
     }
 
-    /// Waits for the chat to be in front with the message in its box, then presses Return.
+    /// Waits for the chat to be in front and activates its real send control.
+    /// Return is only a fallback for clients that do not expose the button in
+    /// their Accessibility tree (for example some WhatsApp web builds).
     static func pressSend(in bundle: String) async -> Bool {
         let family = bundle.lowercased().contains("whatsapp") ? "whatsapp" : bundle.lowercased()
         func inFront() -> Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.lowercased().contains(family) == true }
@@ -3101,11 +3103,23 @@ enum Hands {
         guard inFront(), accessibilityGranted() else { return false }
         try? await Task.sleep(for: .milliseconds(1600))
         guard inFront(), !Task.isCancelled else { return false }
+
+        // Prefer the actual control. This prevents the common case where
+        // Return only leaves the composed text in the input field.
+        for label in ["Enviar", "Send", "Send message", "Mandar"] {
+            if await Screen.press(label, in: bundle) {
+                try? await Task.sleep(for: .milliseconds(500))
+                return inFront() && accessibilityGranted()
+            }
+        }
+
+        // Keyboard fallback for apps that expose no send button at all.
         let source = CGEventSource(stateID: .combinedSessionState)
         for down in [true, false] {
             CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: down)?.post(tap: .cghidEventTap)
         }
-        return true
+        try? await Task.sleep(for: .milliseconds(700))
+        return inFront() && accessibilityGranted()
     }
 
     /// WhatsApp needs the country code: «55 1234 5678» in Mexico is 525512345678.
