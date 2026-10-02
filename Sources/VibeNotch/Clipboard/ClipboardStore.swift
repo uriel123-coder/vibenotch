@@ -123,7 +123,7 @@ final class ClipboardStore: ObservableObject {
             try? await Task.sleep(for: .seconds(1.2))
             if ClipboardStore.shared.lastCopied == item.id { ClipboardStore.shared.lastCopied = nil }
         }
-        if Prefs.autoPaste && AXIsProcessTrusted() {
+        if Prefs.autoPaste && Hands.accessibilityGranted() {
             NotchModel.shared.close()
             Paster.paste()
         }
@@ -134,7 +134,7 @@ final class ClipboardStore: ObservableObject {
         guard saved.indices.contains(index) else { return }
         let item = saved[index]
         copy(item)
-        if !(Prefs.autoPaste && AXIsProcessTrusted()) {
+        if !(Prefs.autoPaste && Hands.accessibilityGranted()) {
             NotchModel.shared.announce(Announcement(symbol: "doc.on.clipboard.fill", tint: .ok, title: "Copiado · ⌃⌥\(index + 1)",
                                                     subtitle: String(item.preview.prefix(60))))
         }

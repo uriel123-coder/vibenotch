@@ -1079,7 +1079,7 @@ enum Agenda {
 @MainActor
 enum Pointer {
     static func context() -> String {
-        guard AXIsProcessTrusted() else { return "" }
+        guard Hands.accessibilityGranted() else { return "" }
         let mouse = NSEvent.mouseLocation
         let top = NSScreen.screens.first?.frame.maxY ?? 0
         var element: AXUIElement?

@@ -96,7 +96,7 @@ final class VoiceKey {
         pb.clearContents()
         pb.setString(text, forType: .string)
         ClipboardStore.shared.skipCurrentChange()
-        guard AXIsProcessTrusted() else {
+        guard Hands.accessibilityGranted() else {
             NotchModel.shared.announce(Announcement(symbol: "doc.on.clipboard", tint: .warn, title: "Copiado · pégalo con ⌘V",
                                                     subtitle: "Para escribirlo solo, activa VibeNotch en Accesibilidad"), for: 5)
             return
@@ -119,7 +119,7 @@ final class VoiceKey {
 
     /// What's selected in apps that don't share it (Chrome, Kindle, PDFs, Electron): a quick ⌘C, then your clipboard back as it was.
     static func copySelection() async -> String {
-        guard AXIsProcessTrusted() else { return "" }
+        guard Hands.accessibilityGranted() else { return "" }
         let pb = NSPasteboard.general
         let before = pb.changeCount
         let saved: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in

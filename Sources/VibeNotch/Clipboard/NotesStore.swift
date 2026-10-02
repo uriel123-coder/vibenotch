@@ -66,7 +66,7 @@ final class NotesStore: ObservableObject {
             try? await Task.sleep(for: .seconds(1.2))
             if NotesStore.shared.lastCopied == note.id { NotesStore.shared.lastCopied = nil }
         }
-        if Prefs.autoPaste && AXIsProcessTrusted() {
+        if Prefs.autoPaste && Hands.accessibilityGranted() {
             NotchModel.shared.close()
             Paster.paste()
         }
