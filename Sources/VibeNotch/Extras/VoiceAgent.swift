@@ -978,11 +978,15 @@ enum Rules {
                         options: .regularExpression) != nil {
             return [VoiceAgent.Action(kind: "permisos", order: order)]
         }
-        if let one = profile(whole, wholeF) ?? video(whole, wholeF) { return [one] }
+        // Read/look-up requests have priority over profile matching. Without
+        // this ordering, “enséñame el último mail de Lynqin” could interpret
+        // “mail” as a person's name and “LinkedIn” as the destination.
+        if let one = video(whole, wholeF) { return [one] }
         if let one = looking(whole, wholeF),
            !(one.kind == "ver" && one.name.isEmpty && !context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
             return [one]
         }
+        if let one = profile(whole, wholeF) { return [one] }
         let edits = ["resum", "traduc", "explica", "corrige", "corregi", "mejora", "significa", "reescrib", "parafrase", "simplifica",
                      "hazlo", "formal", "mas corto", "mas largo", "amable", "profesional", "ortografia", "mejor", "entend", "entiend"]
         let pointing = ["esto", "esta ", "este ", "eso", "seleccion", "copiado", "portapapeles", "hazlo", "texto", "parrafo", "resumelo", "traducelo", "corrigelo",
