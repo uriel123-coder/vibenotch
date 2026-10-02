@@ -115,6 +115,12 @@ enum VoiceAgent {
             return assistant.finish(.answer(ask), say: "No te entendí bien. ¿Qué necesitas?", linger: 20, talk: true, ask: true, record: false)
         }
         guard available else { return assistant.fail(unavailableReason) }
+        // Anything that isn't a plain order goes to the one that talks: it understands, looks at what it needs and answers or acts.
+        if talking {
+            var a = Action(kind: "charla", order: order)
+            a.text = order
+            return await Hands.perform(a)
+        }
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             do {
@@ -1163,7 +1169,8 @@ enum Rules {
         // About you («¿qué me escribió mi papá?», «¿tengo algo pendiente?»): the web doesn't know; the model picks where to look.
         let personal = f.range(of: #"\b(mi|mis|me|conmigo|tengo|tenia|yo)\b"#, options: .regularExpression) != nil
             && f.range(of: #"\b(clima|tiempo hace|precio|cuesta|noticias|significa|que es|quien es|quien fue)\b"#, options: .regularExpression) == nil
-        if VoiceAgent.isQuestion(o), !personal || !VoiceAgent.available,
+        // With the model, questions go to it: it searches when it needs to and remembers the conversation.
+        if VoiceAgent.isQuestion(o), !VoiceAgent.available || (!personal && context.selection.isEmpty && false),
            !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
             a.kind = "buscar_web"; a.text = o; return a
         }
@@ -1604,7 +1611,11 @@ enum Conversation {
 
     static var active: Bool { (call && Date().timeIntervalSince(at) < 1200) || (!turns.isEmpty && Date().timeIntervalSince(at) < 600) }
 
+    /// Goes up with every turn, so the talking session knows when something happened that it didn't see.
+    private(set) static var serial = 0
+
     static func record(_ question: String, _ answer: String, topic newTopic: String? = nil) {
+        serial += 1
         if !active { turns = []; topic = "" }
         turns = Array((turns + [(question, answer)]).suffix(call ? 16 : 6))
         if let newTopic, !newTopic.isEmpty { topic = newTopic }
@@ -1662,6 +1673,17 @@ enum Conversation {
 // MARK: - Apple Intelligence
 
 #if canImport(FoundationModels)
+/// One thing the talking model can look at, described with a dynamic schema so no macros are needed.
+@available(macOS 26, *)
+private struct LookTool: Tool {
+    let name: String
+    let description: String
+    let parameters: GenerationSchema
+    let run: @Sendable (GeneratedContent) async -> String
+
+    func call(arguments: GeneratedContent) async throws -> String { await run(arguments) }
+}
+
 @available(macOS 26, *)
 @MainActor
 private enum Brain {
@@ -1672,7 +1694,7 @@ private enum Brain {
         session.prewarm()
         ready = (session, Date())
         if chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 590 {
-            let chat = LanguageModelSession(instructions: chatInstructions())
+            let chat = LanguageModelSession(tools: tools(), instructions: chatInstructions())
             chat.prewarm()
             chatSession = (chat, Date())
         }
@@ -1886,6 +1908,33 @@ private enum Brain {
 
     private static var chatSession: (session: LanguageModelSession, at: Date)?
     private static var chatCall = false
+    private static var chatSerial = 0
+
+    /// What it can look at before answering; it acts through «HAZ:» so sending and deleting keep their confirmations.
+    private static func tools() -> [any Tool] {
+        func tool(_ name: String, _ description: String, _ field: String, _ about: String, optional: Bool = true,
+                  run: @escaping @Sendable (String) async -> String) -> (any Tool)? {
+            let root = DynamicGenerationSchema(name: name, properties: [
+                .init(name: field, description: about, schema: DynamicGenerationSchema(type: String.self), isOptional: optional),
+            ])
+            guard let schema = try? GenerationSchema(root: root, dependencies: []) else { return nil }
+            return LookTool(name: name, description: description, parameters: schema) { args in
+                await run(((try? args.value(String.self, forProperty: field)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+        return [
+            tool("ver_pantalla", "Lee lo que el usuario tiene abierto en su pantalla ahora: cualquier app o página web. Úsala cuando habla de «esto», de su pantalla o de la app o página que tiene abierta.",
+                 "pregunta", "Qué quiere saber de su pantalla") { _ in await Peek.screen() },
+            tool("leer_chat", "Lee sus mensajes recientes de WhatsApp con una persona o grupo. Sin nombre, trae sus chats sin leer.",
+                 "con", "La persona o grupo como lo dijo («papá», «Joe», «familia»); vacío para los no leídos") { await Peek.chat($0) },
+            tool("leer_correos", "Lee sus correos recientes, o los de un remitente o tema.",
+                 "de", "Remitente o tema; vacío para los recientes") { await Peek.mail($0) },
+            tool("ver_agenda", "Lee los eventos de su calendario de un día.",
+                 "dia", "El día como lo dijo («hoy», «mañana», «el viernes»)") { await Peek.agenda($0) },
+            tool("buscar_web", "Busca en internet algo actual o que no sabes: noticias, resultados, precios, datos, personas públicas, lugares, clima.",
+                 "consulta", "Qué buscar, en pocas palabras", optional: false) { await Peek.web($0) },
+        ].compactMap { $0 }
+    }
 
     /// People and choices it has learned, so it doesn't ask again.
     private static func learned() -> String {
@@ -1909,7 +1958,12 @@ private enum Brain {
         Si pide ideas, una lista o un plan: de 3 a 6 puntos que empiecen con «- », cada uno concreto y útil, sin negritas ni títulos. \
         Si pide «más corto», déjalo en la mitad. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. No pongas trabas: haz lo que puedas con lo que tienes. \
-        No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase y sugiere que te pida buscarlo.
+        No digas que eres un modelo de lenguaje. Nunca digas que no puedes ver sus cosas: tienes herramientas para verlas.
+        HERRAMIENTAS (úsalas tú mismo antes de responder, sin pedir permiso ni preguntar): ver_pantalla si habla de «esto», su pantalla, \
+        la app o página abierta; leer_chat si pregunta qué le dijeron o escribieron por WhatsApp; leer_correos para sus correos; \
+        ver_agenda para su calendario; buscar_web para algo actual o que no sabes (noticias, resultados, precios, datos). \
+        Piensa primero qué quiere lograr, usa lo que necesites y luego contesta directo con lo que encontraste: nombres, fechas, cifras. \
+        Si lo que encontraste no responde su pregunta, dilo en una frase; nunca inventes ni relaciones cosas que no tienen que ver.
         Háblale de tú. Si te saluda, saluda en una frase y pregunta en qué le ayudas. \
         Si pregunta qué sabes hacer, contesta en 2 frases con 3 o 4 ejemplos, sin lista. Lo que sabes hacer en su Mac: abrir apps y páginas, \
         buscar en la web, investigar un tema con varias fuentes, mandar WhatsApps, mensajes y correos, agendar en su calendario, \
@@ -1920,7 +1974,7 @@ private enum Brain {
         Puede hacer varias cosas a la vez: mientras trabaja en algo, el usuario le puede pedir otra. \
         También: ver lo que hay en la pantalla de cualquier app o página, leer y resumir sus correos, leer sus chats de WhatsApp, \
         poner videos de YouTube y música, encontrar perfiles (LinkedIn, Instagram…) y dar clic en cosas de la pantalla. No prometas nada más.
-        MUY IMPORTANTE: si te pide HACER algo de esa lista (mandar, poner, abrir, buscar, ver, leer, agendar, recordar…), \
+        MUY IMPORTANTE: si te pide HACER algo en su Mac (mandar, poner, reproducir, abrir, agendar, recordar, crear, dar clic…), \
         no expliques cómo se hace ni escribas el mensaje: responde SOLO una línea «HAZ: » seguida de la orden clara y completa, \
         con sus mismas palabras y sin agregar nada que no pidió. Por ejemplo, «oye mándale a papá dile hola» → «HAZ: mándale a papá por WhatsApp que hola».
         \(Conversation.call ? """
@@ -1930,7 +1984,7 @@ private enum Brain {
         Cuando el usuario diga que ya está, recuérdale que te puede pedir «haz un documento con esto» o «investiga eso».
         """ : "")
         Hoy es \(f.string(from: Date())). (Tiene abierta la app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "Finder"); \
-        menciónala solo si pregunta por ella. Para saber qué hay en su pantalla usa «HAZ: mira mi pantalla y …».)
+        menciónala solo si pregunta por ella.)
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
         """
@@ -1939,23 +1993,26 @@ private enum Brain {
     /// Talking: keeps the conversation for a few minutes and shows the answer as it's written.
     static func chat(_ prompt: String, onPartial: @escaping (String) -> Void) async throws -> String {
         // Another order may still be talking on it; a session answers one thing at a time.
+        // Starts over with the recent turns when something happened outside this session (a message sent, a chat read).
         let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > (Conversation.call ? 1200 : 600)
-            || chatSession!.session.isResponding || chatCall != Conversation.call
+            || chatSession!.session.isResponding || chatCall != Conversation.call || chatSerial != Conversation.serial
         chatCall = Conversation.call
-        let session = fresh ? LanguageModelSession(instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
+        let session = fresh ? LanguageModelSession(tools: tools(), instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
             ? "\nConversación reciente:\n" + Conversation.history : "")) : chatSession!.session
         let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 450)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
         do {
             let answer = try await stream(session, prompt, options: talk, onPartial: shown)
             chatSession = (session, Date())
+            chatSerial = Conversation.serial + 1
             return tidy(answer)
         } catch {
             guard !fresh else { throw error }
             // The conversation got too long for the model: start over with just the recent turns.
-            let session = LanguageModelSession(instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
+            let session = LanguageModelSession(tools: tools(), instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
             let answer = try await stream(session, prompt, options: talk, onPartial: shown)
             chatSession = (session, Date())
+            chatSerial = Conversation.serial + 1
             return tidy(answer)
         }
     }
@@ -2134,6 +2191,7 @@ enum Hands {
     private static var a: Assistant { .shared }
     /// The chat handed an order back to be done; it doesn't bounce again.
     static var delegating = false
+    private static var clearedStaleAccess = false
 
     static func perform(_ s: VoiceAgent.Action) async {
         if let (key, value) = Habits.mentioned(in: s.order) {
@@ -3001,6 +3059,16 @@ enum Hands {
     /// Without Accessibility it can't press or read anything: asks macOS itself, opens the right switch and waits for you to turn it on.
     static func ensureAccess(_ why: String) async -> Bool {
         if AXIsProcessTrusted() { return true }
+        if !clearedStaleAccess {
+            clearedStaleAccess = true
+            // A switch turned on for an older copy of VibeNotch looks on in Settings but doesn't count for this one:
+            // clearing VibeNotch's entry makes macOS list this copy, so the switch you turn on is the right one.
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.urielnak.vibenotch"]
+            try? reset.run()
+            reset.waitUntilExit()
+        }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(pane) }
         a.step("hand.raised.fill", "Para \(why) activa VibeNotch en Accesibilidad; te espero…")
