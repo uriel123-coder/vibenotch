@@ -45,7 +45,7 @@ enum VoiceAgent {
             }
         }
         #endif
-        return "Para eso necesito macOS 26 con Apple Intelligence"
+        return "No tengo disponible el motor inteligente local en esta Mac; sí puedo ejecutar comandos, abrir apps, leer la pantalla y buscar en internet."
     }
 
     /// Called when you start talking: loading the model takes seconds, so it happens while you speak.
@@ -114,7 +114,9 @@ enum VoiceAgent {
             let ask = "No te entendí bien, escuché «\(order.trimmingCharacters(in: .punctuationCharacters))». ¿Qué necesitas?"
             return assistant.finish(.answer(ask), say: "No te entendí bien. ¿Qué necesitas?", linger: 20, talk: true, ask: true, record: false)
         }
-        guard available else { return assistant.fail(unavailableReason) }
+        guard available else {
+            return await offlineFallback(order, context: context)
+        }
         // Anything that isn't a plain order goes to the one that talks: it understands, looks at what it needs and answers or acts.
         if talking {
             var a = Action(kind: "charla", order: order)
@@ -136,6 +138,29 @@ enum VoiceAgent {
             }
         }
         #endif
+    }
+
+    /// Useful behavior on Macs without Foundation Models: keep the deterministic
+    /// commands working and use the screen/web tools instead of repeating a
+    /// macOS-version error.
+    private static func offlineFallback(_ order: String, context: Context) async {
+        let f = fold(order)
+        if f.contains("que ves") || f.contains("qué ves") || f.contains("pantalla") || f.contains("mira esto") || f.contains("ayudame con esto") {
+            var action = Action(kind: "ver", order: order)
+            action.text = order
+            return await Hands.perform(action)
+        }
+        if isQuestion(order) && !f.contains("mi pantalla") && !f.contains("mis mensajes") && !f.contains("mi correo") {
+            var action = Action(kind: "buscar_web", order: order)
+            action.text = order
+            return await Hands.perform(action)
+        }
+        if !context.pointer.isEmpty && Context.aboutText(order) {
+            Assistant.shared.finish(.answer("Estoy viendo: \(context.pointer)"),
+                                     say: "Estoy viendo \(context.pointer)", linger: 12, talk: true)
+            return
+        }
+        Assistant.shared.fail("Puedo ejecutar comandos y usar la pantalla, pero esta orden necesita un motor inteligente local que no está disponible.")
     }
 
     /// What you're looking at, so "esto", "esta persona" and "lo que seleccioné" mean something.
