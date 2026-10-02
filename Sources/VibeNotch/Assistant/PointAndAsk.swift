@@ -14,6 +14,7 @@ final class PointAndAsk {
     private var rightControl = false
     private var rightOption = false
     private var rightCommand = false
+    private(set) var lastContext = ""
 
     func start() {
         guard flagsMonitor == nil else { return }
@@ -33,6 +34,7 @@ final class PointAndAsk {
         rightControl = false
         rightOption = false
         rightCommand = false
+        lastContext = ""
         hide()
     }
 
@@ -45,7 +47,7 @@ final class PointAndAsk {
         case 54: rightCommand = event.modifierFlags.contains(.command)
         default: break
         }
-        let pointing = rightOption && (rightControl || rightCommand)
+        let pointing = event.modifierFlags.contains(.function) || (rightOption && (rightControl || rightCommand))
         if pointing { show() } else { hide() }
     }
 
@@ -53,11 +55,14 @@ final class PointAndAsk {
         guard active else { return }
         let origin = overlay?.frame.origin ?? .zero
         trail.add(NSPoint(x: event.locationInWindow.x - origin.x, y: event.locationInWindow.y - origin.y))
+        let context = Pointer.context()
+        if !context.isEmpty { lastContext = context }
     }
 
     private func show() {
         if active { return }
         active = true
+        lastContext = ""
         trail.reset()
         let frame = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
         let panel = NSPanel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)

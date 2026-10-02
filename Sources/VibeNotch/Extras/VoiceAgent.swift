@@ -184,8 +184,9 @@ enum VoiceAgent {
             }
             let clip = NSPasteboard.general.string(forType: .string) ?? ""
             let editable = VoiceKey.focusedIsText()
+            let pointed = [PointAndAsk.shared.lastContext, Pointer.context()].first { !$0.isEmpty } ?? ""
             return Context(app: front?.localizedName ?? "", selection: String(selection.prefix(20000)), clipboard: String(clip.prefix(20000)),
-                           pointer: Pointer.context(), editable: editable, bundleID: front?.bundleIdentifier ?? "",
+                           pointer: pointed, editable: editable, bundleID: front?.bundleIdentifier ?? "",
                            field: editable ? String(field.prefix(20000)) : "")
         }
     }

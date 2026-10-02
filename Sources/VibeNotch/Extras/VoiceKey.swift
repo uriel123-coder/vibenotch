@@ -11,6 +11,7 @@ final class VoiceKey {
     private var monitors: [Any] = []
     private var pending: DispatchWorkItem?
     private var holding = false
+    private var fnHolding = false
     /// The device-dependent bit for the right Option key; `.option` alone can't tell left from right.
     private static let rightOption: UInt = 0x40
 
@@ -36,6 +37,17 @@ final class VoiceKey {
             pending?.cancel()
             pending = nil
             if d.mode != .note && d.active { d.cancel() }
+            return
+        }
+        let fnDown = e.modifierFlags.contains(.function)
+        if fnDown && !fnHolding && !d.active {
+            fnHolding = true
+            Self.listen(.assistant)
+            return
+        }
+        if fnHolding && !fnDown {
+            fnHolding = false
+            if d.mode == .assistant { d.finish() }
             return
         }
         let down = e.modifierFlags.rawValue & Self.rightOption != 0
