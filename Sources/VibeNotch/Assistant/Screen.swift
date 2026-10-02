@@ -35,7 +35,7 @@ enum Screen {
     }
 
     static func read(_ bundleID: String? = nil, limit: Int = 20000) async -> Seen? {
-        guard let app = target(bundleID), AXIsProcessTrusted() else { return nil }
+        guard let app = target(bundleID), Hands.accessibilityGranted() else { return nil }
         let pid = app.processIdentifier
         let root = AXUIElementCreateApplication(pid)
         // Chrome, Electron apps (Slack, Cursor, Notion…) only build their page tree when a reader asks for it.
@@ -53,7 +53,7 @@ enum Screen {
 
     /// Clicks the first button, link or row whose words include `words`: «ábrelo», «dale clic a Enviar».
     static func press(_ words: String, in bundleID: String? = nil) async -> Bool {
-        guard let app = target(bundleID), AXIsProcessTrusted() else { return false }
+        guard let app = target(bundleID), Hands.accessibilityGranted() else { return false }
         let root = AXUIElementCreateApplication(app.processIdentifier)
         let wanted = People.fold(words)
         return await Task.detached(priority: .userInitiated) { () -> Bool in

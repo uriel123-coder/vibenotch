@@ -2191,6 +2191,16 @@ enum Hands {
     private static var a: Assistant { .shared }
     /// The chat handed an order back to be done; it doesn't bounce again.
     static var delegating = false
+
+    /// Refreshes macOS's TCC decision without opening another prompt. The plain
+    /// AXIsProcessTrusted() call can remain stale immediately after the user flips
+    /// the switch in System Settings.
+    static func accessibilityGranted() -> Bool {
+        if AXIsProcessTrusted() { return true }
+        return AXIsProcessTrustedWithOptions([
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
+        ] as CFDictionary)
+    }
     static func perform(_ s: VoiceAgent.Action) async {
         if let (key, value) = Habits.mentioned(in: s.order) {
             let fits: [Habits.Key: Set<String>] = [.messages: ["whatsapp", "mensaje"], .music: ["musica"], .mail: ["correo"]]
@@ -3059,7 +3069,7 @@ enum Hands {
         // Do not reset TCC here. macOS stores Accessibility permission against the
         // signed app identity; resetting it makes an already-authorized installation
         // ask again and can invalidate the permission while the app is running.
-        if AXIsProcessTrusted() { return true }
+        if accessibilityGranted() { return true }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(pane) }
         a.step("hand.raised.fill", "Para \(why) activa VibeNotch en Accesibilidad; te espero…")
@@ -3067,7 +3077,7 @@ enum Hands {
         for _ in 0..<180 {
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return false }
-            if AXIsProcessTrusted() {
+            if accessibilityGranted() {
                 a.step("checkmark.shield.fill", "Listo, ya tengo permiso")
                 return true
             }
@@ -3079,13 +3089,13 @@ enum Hands {
     static func pressSend(in bundle: String) async -> Bool {
         let family = bundle.lowercased().contains("whatsapp") ? "whatsapp" : bundle.lowercased()
         func inFront() -> Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.lowercased().contains(family) == true }
-        if !AXIsProcessTrusted() {
+        if !accessibilityGranted() {
             guard await ensureAccess("enviarlo yo") else { return false }
             NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier?.lowercased().contains(family) == true }?.activate()
         }
         let start = Date()
         while !inFront(), Date().timeIntervalSince(start) < 8 { try? await Task.sleep(for: .milliseconds(200)) }
-        guard inFront(), AXIsProcessTrusted() else { return false }
+        guard inFront(), accessibilityGranted() else { return false }
         try? await Task.sleep(for: .milliseconds(1600))
         guard inFront(), !Task.isCancelled else { return false }
         let source = CGEventSource(stateID: .combinedSessionState)
