@@ -2191,8 +2191,6 @@ enum Hands {
     private static var a: Assistant { .shared }
     /// The chat handed an order back to be done; it doesn't bounce again.
     static var delegating = false
-    private static var clearedStaleAccess = false
-
     static func perform(_ s: VoiceAgent.Action) async {
         if let (key, value) = Habits.mentioned(in: s.order) {
             let fits: [Habits.Key: Set<String>] = [.messages: ["whatsapp", "mensaje"], .music: ["musica"], .mail: ["correo"]]
@@ -3058,17 +3056,10 @@ enum Hands {
 
     /// Without Accessibility it can't press or read anything: asks macOS itself, opens the right switch and waits for you to turn it on.
     static func ensureAccess(_ why: String) async -> Bool {
+        // Do not reset TCC here. macOS stores Accessibility permission against the
+        // signed app identity; resetting it makes an already-authorized installation
+        // ask again and can invalidate the permission while the app is running.
         if AXIsProcessTrusted() { return true }
-        if !clearedStaleAccess {
-            clearedStaleAccess = true
-            // A switch turned on for an older copy of VibeNotch looks on in Settings but doesn't count for this one:
-            // clearing VibeNotch's entry makes macOS list this copy, so the switch you turn on is the right one.
-            let reset = Process()
-            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-            reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.urielnak.vibenotch"]
-            try? reset.run()
-            reset.waitUntilExit()
-        }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(pane) }
         a.step("hand.raised.fill", "Para \(why) activa VibeNotch en Accesibilidad; te espero…")
