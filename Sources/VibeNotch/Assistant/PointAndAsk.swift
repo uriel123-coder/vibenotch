@@ -11,12 +11,14 @@ final class PointAndAsk {
     private var overlay: NSWindow?
     private var trail = TrailView()
     private(set) var active = false
+    private var rightControl = false
+    private var rightOption = false
+    private var rightCommand = false
 
     func start() {
         guard flagsMonitor == nil else { return }
-        let flags: NSEvent.EventTypeMask = [.flagsChanged]
-        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: flags) { [weak self] event in
-            Task { @MainActor in self?.flagsChanged(event.modifierFlags) }
+        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            Task { @MainActor in self?.flagsChanged(event) }
         }
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] event in
             Task { @MainActor in self?.mouseMoved(event) }
@@ -28,11 +30,22 @@ final class PointAndAsk {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         flagsMonitor = nil
         mouseMonitor = nil
+        rightControl = false
+        rightOption = false
+        rightCommand = false
         hide()
     }
 
-    private func flagsChanged(_ flags: NSEvent.ModifierFlags) {
-        let pointing = flags.contains(.control) && flags.contains(.option)
+    private func flagsChanged(_ event: NSEvent) {
+        // VoiceOS uses the right-side trigger. Support right Control+Option and
+        // right Command+Option, but never let the left Option key activate it.
+        switch event.keyCode {
+        case 61: rightOption = event.modifierFlags.contains(.option)
+        case 62: rightControl = event.modifierFlags.contains(.control)
+        case 54: rightCommand = event.modifierFlags.contains(.command)
+        default: break
+        }
+        let pointing = rightOption && (rightControl || rightCommand)
         if pointing { show() } else { hide() }
     }
 
@@ -70,33 +83,55 @@ final class PointAndAsk {
 
 @MainActor
 private final class TrailView: NSView {
-    private var points: [NSPoint] = []
+    private struct Mark { let point: NSPoint; let at: Date }
+    private var points: [Mark] = []
+    private var ticker: Timer?
+    private let lifetime: TimeInterval = 0.85
 
     override var isOpaque: Bool { false }
 
     func reset() {
         points.removeAll(keepingCapacity: true)
+        ticker?.invalidate()
+        ticker = nil
         needsDisplay = true
     }
 
     func add(_ point: NSPoint) {
-        points.append(point)
+        points.append(Mark(point: point, at: Date()))
         if points.count > 220 { points.removeFirst(points.count - 220) }
+        if ticker == nil {
+            ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                self?.expire()
+            }
+        }
+        needsDisplay = true
+    }
+
+    private func expire() {
+        let cutoff = Date().addingTimeInterval(-lifetime)
+        points.removeAll { $0.at < cutoff }
+        if points.isEmpty { ticker?.invalidate(); ticker = nil }
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         guard points.count > 1 else { return }
-        let path = NSBezierPath()
-        path.move(to: points[0])
-        for point in points.dropFirst() { path.line(to: point) }
-        path.lineWidth = 5
-        NSColor.systemBlue.withAlphaComponent(0.22).setStroke()
-        path.stroke()
-        path.lineWidth = 2
-        NSColor.systemBlue.withAlphaComponent(0.95).setStroke()
-        path.stroke()
-        if let last = points.last {
+        let now = Date()
+        for pair in zip(points, points.dropFirst()) {
+            let age = now.timeIntervalSince(pair.1.at)
+            let alpha = max(0, min(1, 1 - age / lifetime))
+            let path = NSBezierPath()
+            path.move(to: pair.0.point)
+            path.line(to: pair.1.point)
+            path.lineWidth = 5
+            NSColor.systemBlue.withAlphaComponent(0.22 * alpha).setStroke()
+            path.stroke()
+            path.lineWidth = 2
+            NSColor.systemBlue.withAlphaComponent(0.95 * alpha).setStroke()
+            path.stroke()
+        }
+        if let last = points.last?.point {
             NSColor.systemBlue.withAlphaComponent(0.25).setFill()
             NSBezierPath(ovalIn: NSRect(x: last.x - 13, y: last.y - 13, width: 26, height: 26)).fill()
             NSColor.white.setStroke()
