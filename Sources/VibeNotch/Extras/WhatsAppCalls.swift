@@ -58,8 +58,8 @@ final class WhatsAppCalls: ObservableObject {
     }
 
     private func poll() {
-        if Self.trace && !AXIsProcessTrusted() { print("CALLTEST sin permiso de Accesibilidad"); fflush(stdout) }
-        guard AppSettings.shared.whatsappCalls, AXIsProcessTrusted(),
+        if Self.trace && !Hands.accessibilityGranted() { print("CALLTEST sin permiso de Accesibilidad"); fflush(stdout) }
+        guard AppSettings.shared.whatsappCalls, Hands.accessibilityGranted(),
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else {
             if call != nil { apply(nil) }
             return

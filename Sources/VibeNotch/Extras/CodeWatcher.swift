@@ -32,7 +32,7 @@ final class CodeWatcher {
 
     private func poll() {
         let claudeOpen = !NSRunningApplication.runningApplications(withBundleIdentifier: ClaudeAppMonitor.bundleID).isEmpty
-        guard AppSettings.shared.codesEnabled || claudeOpen, !scanning, AXIsProcessTrusted(),
+        guard AppSettings.shared.codesEnabled || claudeOpen, !scanning, Hands.accessibilityGranted(),
               let pid = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first?.processIdentifier
         else { return }
         scanning = true
@@ -68,7 +68,7 @@ final class CodeWatcher {
         lastCode = (code, Date())
         if Self.trace { print("TRACE código \(code) de \(app)"); fflush(stdout) }
         Self.copy(code)
-        let pasteNow = AppSettings.shared.codesAutoPaste && AXIsProcessTrusted()
+        let pasteNow = AppSettings.shared.codesAutoPaste && Hands.accessibilityGranted()
         if pasteNow { Paster.paste() }
         var a = Announcement(symbol: "lock.shield.fill", tint: .blue, title: "Código \(Self.spaced(code))",
                              subtitle: pasteNow ? "\(app) · ya lo pegué" : "\(app) · copiado, pégalo con ⌘V")

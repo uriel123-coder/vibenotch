@@ -1171,7 +1171,9 @@ enum Rules {
         let personal = f.range(of: #"\b(mi|mis|me|conmigo|tengo|tenia|yo)\b"#, options: .regularExpression) != nil
             && f.range(of: #"\b(clima|tiempo hace|precio|cuesta|noticias|significa|que es|quien es|quien fue)\b"#, options: .regularExpression) == nil
         // With the model, questions go to it: it searches when it needs to and remembers the conversation.
-        if VoiceAgent.isQuestion(o), !VoiceAgent.available || (!personal && context.selection.isEmpty && false),
+        // Personal questions go to the local agent when it is available so it can
+        // choose the correct source. Only non-personal questions fall back to web.
+        if VoiceAgent.isQuestion(o), !VoiceAgent.available && !personal,
            !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
             a.kind = "buscar_web"; a.text = o; return a
         }
@@ -2376,7 +2378,7 @@ enum Hands {
         case "chat":
             await readChat(s)
         case "permisos":
-            let hadAccess = AXIsProcessTrusted()
+            let hadAccess = accessibilityGranted()
             guard await ensureAccess("ver y usar tus apps") else {
                 return a.fail("Cuando actives VibeNotch en Accesibilidad, pídemelo otra vez")
             }

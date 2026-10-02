@@ -408,7 +408,7 @@ private struct ClipboardPage: View {
 private struct ExtrasPage: View {
     @ObservedObject private var s = AppSettings.shared
     @ObservedObject private var mail = MailCodes.shared
-    @State private var trusted = AXIsProcessTrusted()
+    @State private var trusted = Hands.accessibilityGranted()
     private let recheck = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -522,7 +522,7 @@ private struct ExtrasPage: View {
                 FooterText("En la pestaña Clips pasa el mouse sobre un texto: 💬 traduce y ᵃᵇᶜ corrige la ortografía. El resultado se copia listo para pegar. Usa el traductor y el corrector de macOS, sin internet; la primera vez macOS puede pedirte descargar el idioma (macOS 15 o más nuevo).")
             }
         }
-        .onReceive(recheck) { _ in trusted = AXIsProcessTrusted() }
+        .onReceive(recheck) { _ in trusted = Hands.accessibilityGranted() }
     }
 }
 
