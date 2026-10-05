@@ -7,11 +7,22 @@ struct AssistantView: View {
     @ObservedObject private var model = NotchModel.shared
 
     var body: some View {
+        let dictating = assistant.phase == .listening && dictation.mode == .type
         VStack(alignment: .leading, spacing: 8) {
             if !model.island { Color.clear.frame(height: model.notchSize.height - 6) }
             HStack(spacing: 10) {
-                Orb(phase: assistant.phase, level: assistant.speaking ? assistant.voicePulse : dictation.level, speaking: assistant.speaking)
-                Text(assistant.status)
+                if dictating {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(.white))
+                        .scaleEffect(0.92 + CGFloat(dictation.level) * 0.3)
+                        .frame(width: 26, height: 26)
+                } else {
+                    Orb(phase: assistant.phase, level: assistant.speaking ? assistant.voicePulse : dictation.level, speaking: assistant.speaking)
+                }
+                Text(dictating ? "Dictando…" : assistant.phase == .listening && !assistant.followUp ? "Jarvis te escucha" : assistant.status)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(assistant.phase == .failed ? Color.orange : .white.opacity(0.95))
                     .lineLimit(1)
@@ -19,7 +30,8 @@ struct AssistantView: View {
                     .animation(.easeOut(duration: 0.2), value: assistant.status)
                 Spacer(minLength: 6)
                 if assistant.phase == .listening {
-                    Text(dictation.mode == .type ? "Suelta ⌥ para terminar" : assistant.followUp ? "Responde o espera" : "Haz una pausa al terminar")
+                    Text(dictating ? "Lo escribo donde está tu cursor · suelta ⌥" : assistant.followUp ? "Responde o espera"
+                         : "Señala con el mouse mientras hablas")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.35))
                 }
@@ -32,13 +44,14 @@ struct AssistantView: View {
                 }
             }
             if assistant.phase == .listening {
-                Text(dictation.transcript.isEmpty ? (assistant.followUp ? "Te escucho…" : "Te escucho… pídeme lo que necesites") : dictation.transcript)
+                Text(dictation.transcript.isEmpty ? (dictating ? "Habla y lo escribo, no es una orden para Jarvis" : assistant.followUp ? "Te escucho…" : "Pídeme lo que necesites")
+                     : dictation.transcript)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(dictation.transcript.isEmpty ? 0.4 : 0.92))
                     .lineLimit(1)
                     .truncationMode(.head)
                     .animation(.easeOut(duration: 0.12), value: dictation.transcript)
-                if dictation.transcript.isEmpty && !assistant.followUp && !assistant.recent.isEmpty {
+                if dictation.transcript.isEmpty && !dictating && !assistant.followUp && !assistant.recent.isEmpty {
                     Recents(orders: Array(assistant.recent.prefix(3)))
                 }
             } else if !assistant.heard.isEmpty {

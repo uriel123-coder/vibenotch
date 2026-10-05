@@ -1,6 +1,8 @@
 import AppKit
+import ScreenCaptureKit
+import Vision
 
-/// Visual pointing mode: hold Control+Option and move the mouse to mark what the
+/// Visual pointing mode: hold Fn (or right Control+Option) and move the mouse to mark what the
 /// assistant should look at. The overlay never receives clicks or keyboard input.
 @MainActor
 final class PointAndAsk {
@@ -17,9 +19,26 @@ final class PointAndAsk {
     private(set) var lastContext = ""
     private var lastAt = Date.distantPast
     private var showing: DispatchWorkItem?
+    /// Texts under the cursor along the stroke, in order.
+    private var marks: [String] = []
+    /// The painted area in screen coordinates (bottom-left origin).
+    private var area = CGRect.null
+    private var lastProbe = Date.distantPast
+    private var reading: Task<String, Never>?
 
     /// What you pointed at, only while it's fresh: an old point shouldn't color the next order.
     var recentContext: String { Date().timeIntervalSince(lastAt) < 30 ? lastContext : "" }
+
+    /// Waits for the text read inside the painted area, then forgets it so it isn't reused by the next order.
+    func take() async -> String {
+        guard Date().timeIntervalSince(lastAt) < 30 else { return "" }
+        let read = await reading?.value ?? ""
+        let pointed = read.isEmpty ? lastContext : read
+        lastContext = ""
+        reading = nil
+        lastAt = .distantPast
+        return pointed
+    }
 
     func start() {
         guard flagsMonitor == nil else { return }
@@ -66,15 +85,29 @@ final class PointAndAsk {
     private func mouseMoved(_ event: NSEvent) {
         guard active else { return }
         let origin = overlay?.frame.origin ?? .zero
-        trail.add(NSPoint(x: event.locationInWindow.x - origin.x, y: event.locationInWindow.y - origin.y))
-        let context = Pointer.context()
-        if !context.isEmpty { lastContext = context; lastAt = Date() }
+        let screen = NSEvent.mouseLocation
+        trail.add(NSPoint(x: screen.x - origin.x, y: screen.y - origin.y))
+        area = area.union(CGRect(x: screen.x, y: screen.y, width: 1, height: 1))
+        // Asking Accessibility on every mouse event stutters the pointer.
+        guard Date().timeIntervalSince(lastProbe) > 0.08 else { return }
+        lastProbe = Date()
+        let here = Pointer.context()
+        guard !here.isEmpty else { return }
+        let leaf = here.components(separatedBy: " · ").first ?? here
+        if marks.last != leaf, !marks.contains(leaf) { marks.append(leaf) }
+        lastContext = String(marks.joined(separator: " · ").prefix(1200))
+        lastAt = Date()
     }
 
     private func show() {
         if active { return }
         active = true
         lastContext = ""
+        marks = []
+        area = .null
+        reading = nil
+        let mouse = NSEvent.mouseLocation
+        area = CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1)
         trail.reset()
         let frame = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
         let panel = NSPanel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -83,6 +116,7 @@ final class PointAndAsk {
         panel.hasShadow = false
         panel.level = .screenSaver
         panel.ignoresMouseEvents = true
+        panel.sharingType = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = trail
         overlay = panel
@@ -95,6 +129,40 @@ final class PointAndAsk {
         trail.reset()
         overlay?.orderOut(nil)
         overlay = nil
+        // A real stroke (not just holding Fn still): read the text inside what you painted.
+        if area.width > 24 || area.height > 24 {
+            let rect = area.insetBy(dx: -30, dy: -30)
+            lastAt = Date()
+            reading = Task { await Self.read(rect) }
+        }
+    }
+
+    /// Text inside a screen rectangle. Needs Screen Recording; without it the Accessibility marks are used.
+    private static func read(_ rect: CGRect) async -> String {
+        guard CGPreflightScreenCaptureAccess(),
+              let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
+              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
+              let display = content.displays.first(where: { $0.displayID == (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) })
+        else { return "" }
+        let local = rect.intersection(screen.frame)
+        // ScreenCaptureKit wants top-left coordinates relative to the display.
+        let source = CGRect(x: local.minX - screen.frame.minX, y: screen.frame.maxY - local.maxY, width: local.width, height: local.height)
+        let config = SCStreamConfiguration()
+        config.sourceRect = source
+        config.width = Int(source.width * 2)
+        config.height = Int(source.height * 2)
+        let mine = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+        let filter = SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
+        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return "" }
+        return await Task.detached(priority: .userInitiated) { () -> String in
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["es-MX", "en-US"]
+            request.usesLanguageCorrection = true
+            try? VNImageRequestHandler(cgImage: image).perform([request])
+            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            return String(lines.joined(separator: "\n").prefix(2000))
+        }.value
     }
 }
 
@@ -119,7 +187,7 @@ private final class TrailView: NSView {
         if points.count > 220 { points.removeFirst(points.count - 220) }
         if ticker == nil {
             ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-                self?.expire()
+                MainActor.assumeIsolated { self?.expire() }
             }
         }
         needsDisplay = true
@@ -141,10 +209,11 @@ private final class TrailView: NSView {
             let path = NSBezierPath()
             path.move(to: pair.0.point)
             path.line(to: pair.1.point)
-            path.lineWidth = 5
-            NSColor.systemBlue.withAlphaComponent(0.22 * alpha).setStroke()
+            path.lineCapStyle = .round
+            path.lineWidth = 14
+            NSColor.systemBlue.withAlphaComponent(0.18 * alpha).setStroke()
             path.stroke()
-            path.lineWidth = 2
+            path.lineWidth = 4
             NSColor.systemBlue.withAlphaComponent(0.95 * alpha).setStroke()
             path.stroke()
         }

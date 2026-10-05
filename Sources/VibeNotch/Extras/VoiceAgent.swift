@@ -82,6 +82,9 @@ enum VoiceAgent {
         let id = assistant.begin(order)
         var context = Context.capture()
         let task = Task { @MainActor in
+            var order = order
+            let pointed = await PointAndAsk.shared.take()
+            if !pointed.isEmpty { (order, context) = Context.aim(order, at: pointed, context) }
             if context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Context.aboutText(order),
                context.bundleID != Bundle.main.bundleIdentifier {
                 context.selection = String(await VoiceKey.copySelection().prefix(20000))
@@ -97,6 +100,13 @@ enum VoiceAgent {
     /// Everything after the instant intents; skills call it with their saved orders.
     static func execute(_ order: String, context: Context, talking: Bool = true) async {
         let assistant = Assistant.shared
+        let bare = fold(order).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+        if ["que es", "quien es", "que es eso", "que es esto", "busca eso", "busca esto", "buscalo", "investigalo", "que dice", "que dice esto"].contains(bare),
+           context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pending = .partial(order.trimmingCharacters(in: .punctuationCharacters), Date())
+            let ask = "¿Qué cosa? Mantén Fn, señálalo con el mouse y dime «qué es esto»."
+            return assistant.finish(.answer(ask), say: "¿Qué cosa? Mantén Fn y señálalo con el mouse.", linger: 15, talk: true, ask: true, record: false)
+        }
         if let steps = Rules.plan(order, context: context) {
             for step in steps { await Hands.perform(step) }
             return
@@ -180,6 +190,33 @@ enum VoiceAgent {
             let cues = ["texto", " esto ", " este ", " esta ", " eso ", "seleccion", "lo que dice", "parrafo", "entender", "entiendo", "explica",
                         "resum", "traduc", "corrig", "corrige", "mejor", "significa", "analiza", "revisa", "ortografia", "reescrib"]
             return cues.contains { f.contains($0) }
+        }
+
+        /// You painted something with Fn: «busca eso» searches it, «resume esto» works on it as if you had selected it.
+        @MainActor static func aim(_ order: String, at pointed: String, _ context: Context) -> (String, Context) {
+            var c = context
+            c.pointer = pointed
+            let f = VoiceAgent.fold(order)
+            let edits = ["resum", "traduc", "explica", "corrig", "corrige", "mejora", "significa", "analiza", "reescrib", "entiend", "entend", "ortografia"]
+            if edits.contains(where: { f.contains($0) }) {
+                if c.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { c.selection = pointed }
+                return (order, c)
+            }
+            let short = String(pointed.split(whereSeparator: \.isNewline).prefix(3).joined(separator: " ").prefix(140))
+            let deictic = #"\b(lo que te (estoy )?(ensenando|senalando|marcando)|lo que te (ensene|ensenyo|ensen|senalo|senale|marco|marque)|lo que (subraye|marque|senale)|eso|esto|esta|este|ese|esa|ahi|aqui)\b"#
+            if let r = f.range(of: deictic, options: .regularExpression) {
+                let start = f.distance(from: f.startIndex, to: r.lowerBound), length = f.distance(from: r.lowerBound, to: r.upperBound)
+                var base = f.count == order.count ? order : f
+                let i = base.index(base.startIndex, offsetBy: start)
+                base.replaceSubrange(i..<base.index(i, offsetBy: length), with: short)
+                return (base, c)
+            }
+            let bare = f.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+            if ["busca", "buscalo", "buscala", "investiga", "investigalo", "que es", "quien es", "googlealo", "abrelo", "abre"].contains(bare) {
+                let verb = bare.hasPrefix("busca") || bare.hasPrefix("google") ? "busca" : bare.hasPrefix("investiga") ? "investiga" : bare.hasPrefix("abre") ? "abre" : bare
+                return ("\(verb) \(short)", c)
+            }
+            return (order, c)
         }
 
         var inMessenger: Bool { Context.messengers.contains(bundleID) }
@@ -3077,15 +3114,57 @@ enum Hands {
         if let pane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(pane) }
         a.step("hand.raised.fill", "Para \(why) activa VibeNotch en Accesibilidad; te espero…")
         if AppSettings.shared.assistantSpeaks { Voice.say("Activa VibeNotch en Accesibilidad y sigo.") }
-        for _ in 0..<180 {
+        let restarted = Date().timeIntervalSince(UserDefaults.standard.object(forKey: "vn.accessRestart") as? Date ?? .distantPast) < 600
+        for i in 0..<180 {
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return false }
             if accessibilityGranted() {
                 a.step("checkmark.shield.fill", "Listo, ya tengo permiso")
                 return true
             }
+            // The switch can be on while this process still reads «no» until it starts again.
+            if i == 40 && !restarted {
+                a.step("arrow.clockwise", "Si ya lo activaste, me reinicio para que macOS lo note y sigo…")
+                try? await Task.sleep(for: .seconds(1.5))
+                relaunch(resuming: Assistant.shared.heard)
+                return false
+            }
         }
         return false
+    }
+
+    /// Starts a fresh copy of the app and quits this one; the order is picked up again after launch.
+    static func relaunch(resuming order: String) {
+        let d = UserDefaults.standard
+        d.set(Date(), forKey: "vn.accessRestart")
+        d.set(order, forKey: "vn.resumeOrder")
+        let path = Bundle.main.bundlePath.replacingOccurrences(of: "'", with: "'\\''")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "sleep 1; open -n '\(path)'"]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+
+    /// After a permission restart: if macOS still says no, its entry for VibeNotch is from an old copy, so it's cleared
+    /// and asked again; then the order you gave goes on.
+    static func resumeAfterRestart() {
+        let d = UserDefaults.standard
+        guard let order = d.string(forKey: "vn.resumeOrder"),
+              Date().timeIntervalSince(d.object(forKey: "vn.accessRestart") as? Date ?? .distantPast) < 120 else { return }
+        d.removeObject(forKey: "vn.resumeOrder")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            MainActor.assumeIsolated {
+                if !accessibilityGranted(), let id = Bundle.main.bundleIdentifier {
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                    p.arguments = ["reset", "Accessibility", id]
+                    try? p.run()
+                    p.waitUntilExit()
+                }
+                VoiceAgent.run(order.isEmpty ? "dame permisos" : order)
+            }
+        }
     }
 
     /// Waits for the chat to be in front and activates its real send control.

@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Screen.track()
             PointAndAsk.shared.start()
             _ = Shortcuts.names()
+            Hands.resumeAfterRestart()
         }
         if ProcessInfo.processInfo.environment["VIBENOTCH_TABTEST"] != nil { TabTest.run() }
 
