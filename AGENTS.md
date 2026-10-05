@@ -6,7 +6,7 @@
 - El SDK de esta Mac **no tiene FoundationModels**: `./build.sh` local compila, pero el binario sale **sin cerebro** (el asistente no platica ni entiende).
 - Por eso: **nunca instales en `/Applications` una compilación local**. Solo se instala el zip del release de GitHub, que compila CI (macos-26).
 - Que compile en local no prueba nada de esa parte. Después de cada push revisa CI: `gh run watch <id> -R uriel123-coder/vibenotch --exit-status`. Si CI falla, la versión está rota.
-- Verifica que el binario instalado tenga el modelo: `strings /Applications/VibeNotch.app/Contents/MacOS/VibeNotch | grep -c LanguageModelSession` debe ser mayor que 0.
+- Verifica que el binario instalado tenga el modelo: `otool -L /Applications/VibeNotch.app/Contents/MacOS/VibeNotch | grep -c FoundationModels` debe ser mayor que 0.
 - `Tool` choca con un tipo de la app; si usas herramientas del modelo, escribe `FoundationModels.Tool`.
 
 ## Límites del modelo local

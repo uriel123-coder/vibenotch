@@ -1050,8 +1050,30 @@ enum Rules {
         return parts.map { $0.joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: ",.;: ")) }.filter { !$0.isEmpty }
     }
 
+    /// «oye, me puedes poner algo de Bad Bunny» → «pon algo de Bad Bunny», so every rule sees the plain order.
+    static func direct(_ clause: String) -> String {
+        var o = clause.trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!¡¿? "))
+        let polite = #"^(oye|jarvis|porfa|por favor|a ver|me puedes|puedes|podrias|me podrias|quiero que|necesito que)[\s,]+"#
+        for _ in 0..<3 {
+            let f = VoiceAgent.fold(o)
+            guard f.count == o.count, let r = f.range(of: polite, options: .regularExpression) else { break }
+            o.removeFirst(f.distance(from: f.startIndex, to: r.upperBound))
+            o = o.trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
+        }
+        let verbs = ["poner": "pon", "ponerme": "ponme", "pongas": "pon", "me pongas": "ponme", "abrir": "abre", "abrirme": "abreme", "abras": "abre",
+                     "me abras": "abreme", "buscar": "busca", "buscarme": "buscame", "busques": "busca", "me busques": "buscame",
+                     "mandar": "manda", "mandarle": "mandale", "mandes": "manda", "le mandes": "mandale", "enviar": "envia", "enviarle": "enviale",
+                     "reproducir": "reproduce", "reproduzcas": "reproduce", "agendar": "agenda", "agendes": "agenda", "escribir": "escribe",
+                     "escribirle": "escribele", "le escribas": "escribele", "llamar": "llama", "llamarle": "llamale"]
+        let f = VoiceAgent.fold(o)
+        for (from, to) in verbs.sorted(by: { $0.key.count > $1.key.count }) where f.hasPrefix(from + " ") && f.count == o.count {
+            return to + String(o.dropFirst(from.count))
+        }
+        return o
+    }
+
     private static func parse(_ clause: String, context: VoiceAgent.Context) -> VoiceAgent.Action? {
-        let o = clause.trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!¡ "))
+        let o = direct(clause)
         let f = VoiceAgent.fold(o)
         func rest(_ prefixes: [String]) -> String? {
             for p in prefixes.sorted(by: { $0.count > $1.count }) where f.hasPrefix(p + " ") {
