@@ -12,6 +12,7 @@ final class VoiceKey {
     private var pending: DispatchWorkItem?
     private var holding = false
     private var fnHolding = false
+    private var fnPending: DispatchWorkItem?
     /// The device-dependent bit for the right Option key; `.option` alone can't tell left from right.
     private static let rightOption: UInt = 0x40
 
@@ -31,6 +32,13 @@ final class VoiceKey {
         guard AppSettings.shared.voiceKey else { return }
         let d = Dictation.shared
         if e.type == .keyDown {
+            // Fn plus a key (arrows, F1…, the globe shortcuts) is the key's other meaning, not talking.
+            if fnHolding {
+                fnHolding = false
+                fnPending?.cancel()
+                fnPending = nil
+                if d.mode == .assistant && d.active { d.cancel(); Assistant.shared.cancelListening() }
+            }
             // ⌥ plus a key is a shortcut or a special character (@, ñ, €…), not dictation.
             guard holding else { return }
             holding = false
@@ -39,14 +47,30 @@ final class VoiceKey {
             if d.mode != .note && d.active { d.cancel() }
             return
         }
+        // Hold Fn alone to talk to the assistant; a quick tap or Fn with another key does nothing.
         let fnDown = e.modifierFlags.contains(.function)
+            && e.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         if fnDown && !fnHolding && !d.active {
             fnHolding = true
-            Self.listen(.assistant)
+            let work = DispatchWorkItem {
+                MainActor.assumeIsolated {
+                    let k = VoiceKey.shared
+                    k.fnPending = nil
+                    guard k.fnHolding, !Dictation.shared.active else { return }
+                    Self.listen(.assistant)
+                }
+            }
+            fnPending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
             return
         }
         if fnHolding && !fnDown {
             fnHolding = false
+            if let fnPending {
+                fnPending.cancel()
+                self.fnPending = nil
+                return
+            }
             if d.mode == .assistant { d.finish() }
             return
         }

@@ -117,12 +117,6 @@ enum VoiceAgent {
         guard available else {
             return await offlineFallback(order, context: context)
         }
-        // Anything that isn't a plain order goes to the one that talks: it understands, looks at what it needs and answers or acts.
-        if talking {
-            var a = Action(kind: "charla", order: order)
-            a.text = order
-            return await Hands.perform(a)
-        }
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             do {
@@ -209,7 +203,7 @@ enum VoiceAgent {
             }
             let clip = NSPasteboard.general.string(forType: .string) ?? ""
             let editable = VoiceKey.focusedIsText()
-            let pointed = [PointAndAsk.shared.lastContext, Pointer.context()].first { !$0.isEmpty } ?? ""
+            let pointed = [PointAndAsk.shared.recentContext, Pointer.context()].first { !$0.isEmpty } ?? ""
             return Context(app: front?.localizedName ?? "", selection: String(selection.prefix(20000)), clipboard: String(clip.prefix(20000)),
                            pointer: pointed, editable: editable, bundleID: front?.bundleIdentifier ?? "",
                            field: editable ? String(field.prefix(20000)) : "")
@@ -1199,10 +1193,7 @@ enum Rules {
         // About you («¿qué me escribió mi papá?», «¿tengo algo pendiente?»): the web doesn't know; the model picks where to look.
         let personal = f.range(of: #"\b(mi|mis|me|conmigo|tengo|tenia|yo)\b"#, options: .regularExpression) != nil
             && f.range(of: #"\b(clima|tiempo hace|precio|cuesta|noticias|significa|que es|quien es|quien fue)\b"#, options: .regularExpression) == nil
-        // With the model, questions go to it: it searches when it needs to and remembers the conversation.
-        // Personal questions go to the local agent when it is available so it can
-        // choose the correct source. Only non-personal questions fall back to web.
-        if VoiceAgent.isQuestion(o), !VoiceAgent.available && !personal,
+        if VoiceAgent.isQuestion(o), !personal || !VoiceAgent.available,
            !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
             a.kind = "buscar_web"; a.text = o; return a
         }
@@ -1705,17 +1696,6 @@ enum Conversation {
 // MARK: - Apple Intelligence
 
 #if canImport(FoundationModels)
-/// One thing the talking model can look at, described with a dynamic schema so no macros are needed.
-@available(macOS 26, *)
-private struct LookTool: Tool {
-    let name: String
-    let description: String
-    let parameters: GenerationSchema
-    let run: @Sendable (GeneratedContent) async -> String
-
-    func call(arguments: GeneratedContent) async throws -> String { await run(arguments) }
-}
-
 @available(macOS 26, *)
 @MainActor
 private enum Brain {
@@ -1726,7 +1706,7 @@ private enum Brain {
         session.prewarm()
         ready = (session, Date())
         if chatSession == nil || Date().timeIntervalSince(chatSession!.at) > 590 {
-            let chat = LanguageModelSession(tools: tools(), instructions: chatInstructions())
+            let chat = LanguageModelSession(instructions: chatInstructions())
             chat.prewarm()
             chatSession = (chat, Date())
         }
@@ -1942,32 +1922,6 @@ private enum Brain {
     private static var chatCall = false
     private static var chatSerial = 0
 
-    /// What it can look at before answering; it acts through «HAZ:» so sending and deleting keep their confirmations.
-    private static func tools() -> [any Tool] {
-        func tool(_ name: String, _ description: String, _ field: String, _ about: String, optional: Bool = true,
-                  run: @escaping @Sendable (String) async -> String) -> (any Tool)? {
-            let root = DynamicGenerationSchema(name: name, properties: [
-                .init(name: field, description: about, schema: DynamicGenerationSchema(type: String.self), isOptional: optional),
-            ])
-            guard let schema = try? GenerationSchema(root: root, dependencies: []) else { return nil }
-            return LookTool(name: name, description: description, parameters: schema) { args in
-                await run(((try? args.value(String.self, forProperty: field)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-        }
-        return [
-            tool("ver_pantalla", "Lee lo que el usuario tiene abierto en su pantalla ahora: cualquier app o página web. Úsala cuando habla de «esto», de su pantalla o de la app o página que tiene abierta.",
-                 "pregunta", "Qué quiere saber de su pantalla") { _ in await Peek.screen() },
-            tool("leer_chat", "Lee sus mensajes recientes de WhatsApp con una persona o grupo. Sin nombre, trae sus chats sin leer.",
-                 "con", "La persona o grupo como lo dijo («papá», «Joe», «familia»); vacío para los no leídos") { await Peek.chat($0) },
-            tool("leer_correos", "Lee sus correos recientes, o los de un remitente o tema.",
-                 "de", "Remitente o tema; vacío para los recientes") { await Peek.mail($0) },
-            tool("ver_agenda", "Lee los eventos de su calendario de un día.",
-                 "dia", "El día como lo dijo («hoy», «mañana», «el viernes»)") { await Peek.agenda($0) },
-            tool("buscar_web", "Busca en internet algo actual o que no sabes: noticias, resultados, precios, datos, personas públicas, lugares, clima.",
-                 "consulta", "Qué buscar, en pocas palabras", optional: false) { await Peek.web($0) },
-        ].compactMap { $0 }
-    }
-
     /// People and choices it has learned, so it doesn't ask again.
     private static func learned() -> String {
         let people = Aliases.all.compactMap { who, w in w.name.map { "- \(who): \($0)" } }.prefix(15)
@@ -1990,12 +1944,7 @@ private enum Brain {
         Si pide ideas, una lista o un plan: de 3 a 6 puntos que empiecen con «- », cada uno concreto y útil, sin negritas ni títulos. \
         Si pide «más corto», déjalo en la mitad. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. No pongas trabas: haz lo que puedas con lo que tienes. \
-        No digas que eres un modelo de lenguaje. Nunca digas que no puedes ver sus cosas: tienes herramientas para verlas.
-        HERRAMIENTAS (úsalas tú mismo antes de responder, sin pedir permiso ni preguntar): ver_pantalla si habla de «esto», su pantalla, \
-        la app o página abierta; leer_chat si pregunta qué le dijeron o escribieron por WhatsApp; leer_correos para sus correos; \
-        ver_agenda para su calendario; buscar_web para algo actual o que no sabes (noticias, resultados, precios, datos). \
-        Piensa primero qué quiere lograr, usa lo que necesites y luego contesta directo con lo que encontraste: nombres, fechas, cifras. \
-        Si lo que encontraste no responde su pregunta, dilo en una frase; nunca inventes ni relaciones cosas que no tienen que ver.
+        No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase y sugiere que te pida buscarlo.
         Háblale de tú. Si te saluda, saluda en una frase y pregunta en qué le ayudas. \
         Si pregunta qué sabes hacer, contesta en 2 frases con 3 o 4 ejemplos, sin lista. Lo que sabes hacer en su Mac: abrir apps y páginas, \
         buscar en la web, investigar un tema con varias fuentes, mandar WhatsApps, mensajes y correos, agendar en su calendario, \
@@ -2016,7 +1965,7 @@ private enum Brain {
         Cuando el usuario diga que ya está, recuérdale que te puede pedir «haz un documento con esto» o «investiga eso».
         """ : "")
         Hoy es \(f.string(from: Date())). (Tiene abierta la app \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "Finder"); \
-        menciónala solo si pregunta por ella.)
+        menciónala solo si pregunta por ella. Para saber qué hay en su pantalla usa «HAZ: mira mi pantalla y …».)
         Lo que sabes del usuario:
         \(facts.isEmpty ? "- (nada todavía)" : facts)\(learned())
         """
@@ -2029,7 +1978,7 @@ private enum Brain {
         let fresh = chatSession == nil || Date().timeIntervalSince(chatSession!.at) > (Conversation.call ? 1200 : 600)
             || chatSession!.session.isResponding || chatCall != Conversation.call || chatSerial != Conversation.serial
         chatCall = Conversation.call
-        let session = fresh ? LanguageModelSession(tools: tools(), instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
+        let session = fresh ? LanguageModelSession(instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
             ? "\nConversación reciente:\n" + Conversation.history : "")) : chatSession!.session
         let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 450)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
@@ -2041,7 +1990,7 @@ private enum Brain {
         } catch {
             guard !fresh else { throw error }
             // The conversation got too long for the model: start over with just the recent turns.
-            let session = LanguageModelSession(tools: tools(), instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
+            let session = LanguageModelSession(instructions: chatInstructions() + "\nConversación reciente:\n" + Conversation.history)
             let answer = try await stream(session, prompt, options: talk, onPartial: shown)
             chatSession = (session, Date())
             chatSerial = Conversation.serial + 1
@@ -3135,11 +3084,9 @@ enum Hands {
 
         // Prefer the actual control. This prevents the common case where
         // Return only leaves the composed text in the input field.
-        for label in ["Enviar", "Send", "Send message", "Mandar"] {
-            if await Screen.press(label, in: bundle) {
-                try? await Task.sleep(for: .milliseconds(500))
-                return inFront() && accessibilityGranted()
-            }
+        if await Screen.pressButton(["Enviar", "Send", "Send message", "Enviar mensaje"], in: bundle) {
+            try? await Task.sleep(for: .milliseconds(500))
+            return inFront() && accessibilityGranted()
         }
 
         // Keyboard fallback for apps that expose no send button at all.

@@ -77,6 +77,28 @@ enum Screen {
         }.value
     }
 
+    /// Presses a button whose name is exactly one of `names` («Enviar», «Send»): a message that merely
+    /// contains the word must never be what gets clicked.
+    static func pressButton(_ names: [String], in bundleID: String? = nil) async -> Bool {
+        guard let app = target(bundleID), Hands.accessibilityGranted() else { return false }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        let wanted = Set(names.map { People.fold($0) })
+        return await Task.detached(priority: .userInitiated) { () -> Bool in
+            guard let window = element(root, kAXFocusedWindowAttribute) ?? children(root).first else { return false }
+            var queue = [window], seen = 0
+            while !queue.isEmpty, seen < 6000 {
+                let e = queue.removeFirst()
+                seen += 1
+                if string(e, kAXRoleAttribute) == "AXButton", actions(e).contains(kAXPressAction as String),
+                   [kAXTitleAttribute, kAXDescriptionAttribute].contains(where: { wanted.contains(People.fold(string(e, $0))) }) {
+                    return AXUIElementPerformAction(e, kAXPressAction as CFString) == .success
+                }
+                queue.append(contentsOf: children(e))
+            }
+            return false
+        }.value
+    }
+
     // MARK: - Accessibility
 
     nonisolated private static func collect(_ root: AXUIElement, limit: Int) -> (window: String, body: String) {

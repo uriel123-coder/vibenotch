@@ -15,6 +15,11 @@ final class PointAndAsk {
     private var rightOption = false
     private var rightCommand = false
     private(set) var lastContext = ""
+    private var lastAt = Date.distantPast
+    private var showing: DispatchWorkItem?
+
+    /// What you pointed at, only while it's fresh: an old point shouldn't color the next order.
+    var recentContext: String { Date().timeIntervalSince(lastAt) < 30 ? lastContext : "" }
 
     func start() {
         guard flagsMonitor == nil else { return }
@@ -47,8 +52,15 @@ final class PointAndAsk {
         case 54: rightCommand = event.modifierFlags.contains(.command)
         default: break
         }
-        let pointing = event.modifierFlags.contains(.function) || (rightOption && (rightControl || rightCommand))
-        if pointing { show() } else { hide() }
+        let fnAlone = event.modifierFlags.contains(.function) && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+        let pointing = fnAlone || (rightOption && (rightControl || rightCommand))
+        showing?.cancel()
+        showing = nil
+        guard pointing else { return hide() }
+        // A quick tap of Fn (or Fn with an arrow) shouldn't flash an overlay over the whole screen.
+        let work = DispatchWorkItem { MainActor.assumeIsolated { PointAndAsk.shared.show() } }
+        showing = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     private func mouseMoved(_ event: NSEvent) {
@@ -56,7 +68,7 @@ final class PointAndAsk {
         let origin = overlay?.frame.origin ?? .zero
         trail.add(NSPoint(x: event.locationInWindow.x - origin.x, y: event.locationInWindow.y - origin.y))
         let context = Pointer.context()
-        if !context.isEmpty { lastContext = context }
+        if !context.isEmpty { lastContext = context; lastAt = Date() }
     }
 
     private func show() {
