@@ -100,8 +100,9 @@ final class Dictation: ObservableObject {
         stopAudio()
         request?.endAudio()
         let gen = generation
-        // The final result usually lands within a second; don't hang if it never does.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+        // The final result usually lands within a second; the live words are almost always the same, so don't wait long for it.
+        let wait = transcript.trimmingCharacters(in: .whitespaces).isEmpty ? 2.5 : 0.8
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             MainActor.assumeIsolated {
                 let d = Dictation.shared
                 if d.generation == gen && d.phase == .finishing { d.save() }
@@ -173,7 +174,9 @@ final class Dictation: ObservableObject {
         let work = DispatchWorkItem {
             MainActor.assumeIsolated {
                 let d = Dictation.shared
-                if d.generation == gen && d.phase == .recording { d.finish() }
+                guard d.generation == gen && d.phase == .recording else { return }
+                if VoiceKey.shared.holdingFn { return d.stopAfterSilence(seconds) }
+                d.finish()
             }
         }
         endpoint = work
@@ -217,7 +220,7 @@ final class Dictation: ObservableObject {
             let words = transcript.split(separator: " ").count
             // A sentence left hanging («mándale a», «dile que») is still coming.
             let hanging = VoiceAgent.unfinished(transcript) || VoiceAgent.fold(transcript).hasSuffix(" que")
-            if mode == .assistant && phase == .recording { stopAfterSilence(hanging ? 4.5 : words < 4 ? 3.5 : 2.8) }
+            if mode == .assistant && phase == .recording { stopAfterSilence(hanging ? 4 : words < 4 ? 2.8 : 2.2) }
         }
         guard final || failed else { return }
         // The recognizer ended while you're still talking (a pause, «no speech», the server's minute): keep the words and listen on.

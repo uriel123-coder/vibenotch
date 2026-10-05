@@ -20,6 +20,8 @@
 - Reglas, sin hacer nada real: `VIBENOTCH_AGENTTEST='orden|otra' build/VibeNotch.app/Contents/MacOS/VibeNotch`.
 - Con el modelo: descarga el artefacto de CI (`gh run download <id> -R uriel123-coder/vibenotch -n VibeNotch`) y corre lo mismo con esa app.
 - No mandes mensajes reales por WhatsApp para probar. Los datos de WhatsApp solo se leen, nunca se escriben.
+- Al abrir la app no leas datos de otras apps (WhatsApp, Mail): macOS pide «acceder a datos de otras apps» en cada actualización. Léelos solo cuando una orden los necesite.
+- Ventanas propias (paneles, overlays) llevan `hidesOnDeactivate = false`: VibeNotch casi nunca es la app de enfrente.
 
 ## Publicar
 

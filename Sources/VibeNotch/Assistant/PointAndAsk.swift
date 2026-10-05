@@ -110,7 +110,9 @@ final class PointAndAsk {
         area = CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1)
         trail.reset()
         let frame = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-        let panel = NSPanel(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        // VibeNotch is almost never the frontmost app; a panel that hides on deactivate would never be seen.
+        panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false

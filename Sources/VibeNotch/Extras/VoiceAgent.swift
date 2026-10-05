@@ -127,6 +127,13 @@ enum VoiceAgent {
         guard available else {
             return await offlineFallback(order, context: context)
         }
+        // On a Mac short on memory each model call takes many seconds: talk goes straight to the chat, which hands
+        // real orders back as «HAZ:», instead of a first call that only decides it was talk.
+        if talking, chatty(order), context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var talk = Action(kind: "charla", order: order)
+            talk.text = order
+            return await Hands.perform(talk)
+        }
         #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             do {
@@ -279,6 +286,18 @@ enum VoiceAgent {
 
     static func fold(_ s: String) -> String {
         s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+    }
+
+    /// Talk, a question or asking for ideas, with nothing to do on the Mac.
+    static func chatty(_ order: String) -> Bool {
+        let f = " " + fold(order) + " "
+        let doing = ["mand", "envia", "escribe", "whats", "correo", " mail", "mensaje", " abre", " pon ", " ponme", "agenda", "recuerda",
+                     "alarma", "temporizador", " llama", "busca", "investiga", "reproduce", " clic", "pantalla", "documento", "atajo",
+                     "rutina", " nota", "chat", "esto", "eso", "selecci"]
+        if doing.contains(where: { f.contains($0) }) { return false }
+        let talk = [" explica", " cuentame", " platicame", " hablame", " ideas", " opinas", " que piensas", " recomiendame", " ayudame a pensar",
+                    " como hago", " como le hago", " como puedo", " por que", " creame", " inventa", " dime", " hola", " gracias", " sabes"]
+        return isQuestion(order) || talk.contains { f.contains($0) }
     }
 
     static func isQuestion(_ s: String) -> Bool {
@@ -1999,8 +2018,8 @@ private enum Brain {
         como el mejor asistente humano: tu trabajo es ahorrarle trabajo y que de verdad entienda. \
         Lo que te dice viene de un dictado y puede tener palabras mal escritas: entiende la intención, no la letra. \
         Si es plática, 1 o 2 frases. Si pregunta algo o pide ayuda, explica lo necesario para que le sirva: \
-        la respuesta directa primero y luego el porqué, ejemplos o pasos concretos, en 3 a 6 frases claras (hasta 150 palabras). \
-        Si pide ideas, una lista o un plan: de 3 a 6 puntos que empiecen con «- », cada uno concreto y útil, sin negritas ni títulos. \
+        la respuesta directa primero y luego el porqué o un ejemplo, en 2 a 4 frases claras (hasta 90 palabras). \
+        Si pide ideas, una lista o un plan: de 3 a 5 puntos que empiecen con «- », cada uno de una línea, concreto y útil, sin negritas ni títulos. \
         Si pide «más corto», déjalo en la mitad. \
         No empieces con «¡Claro!» ni repitas la pregunta. Nunca uses marcadores como [nombre]. No pongas trabas: haz lo que puedas con lo que tienes. \
         No digas que eres un modelo de lenguaje. Si no sabes algo reciente, dilo en una frase y sugiere que te pida buscarlo.
@@ -2039,7 +2058,7 @@ private enum Brain {
         chatCall = Conversation.call
         let session = fresh ? LanguageModelSession(instructions: chatInstructions() + (Conversation.active && !Conversation.turns.isEmpty
             ? "\nConversación reciente:\n" + Conversation.history : "")) : chatSession!.session
-        let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: 450)
+        let talk = GenerationOptions(temperature: 0.5, maximumResponseTokens: Conversation.call ? 380 : 300)
         let shown: (String) -> Void = { onPartial(tidy($0)) }
         do {
             let answer = try await stream(session, prompt, options: talk, onPartial: shown)

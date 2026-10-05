@@ -13,6 +13,8 @@ final class VoiceKey {
     private var holding = false
     private var fnHolding = false
     private var fnPending: DispatchWorkItem?
+    /// Talking while Fn is held: it ends when you let go, not when you pause.
+    var holdingFn: Bool { fnHolding && fnPending == nil }
     /// The device-dependent bit for the right Option key; `.option` alone can't tell left from right.
     private static let rightOption: UInt = 0x40
 

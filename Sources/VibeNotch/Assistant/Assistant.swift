@@ -771,13 +771,26 @@ enum People {
                     if found.count > 400 { stop.pointee = true }
                 }
             }
-            // Recent WhatsApp chats first: those are the names you'll say.
-            let chats = WhatsAppPeople.all().sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }.prefix(80)
-            for e in chats {
-                for n in e.name.split(separator: " ").map(String.init) where n.count > 2 && n.first?.isLetter == true { found.append(n) }
-            }
+            // WhatsApp names come from the last time a WhatsApp order read them: opening its data at launch makes macOS
+            // ask «access data from other apps» on every update.
+            found += (try? JSONDecoder().decode([String].self, from: Data(contentsOf: whatsAppNames))) ?? []
             DispatchQueue.main.async { MainActor.assumeIsolated { People.names = Array(Set(found)) } }
         }
+    }
+
+    nonisolated private static var whatsAppNames: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VibeNotch/nombres-whatsapp.json")
+    }
+
+    /// Recent WhatsApp chats first: those are the names you'll say.
+    nonisolated private static func remember(_ chats: [WhatsAppPeople.Entry]) {
+        var names: [String] = []
+        for e in chats.sorted(by: { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }).prefix(80) {
+            for n in e.name.split(separator: " ").map(String.init) where n.count > 2 && n.first?.isLetter == true { names.append(n) }
+        }
+        guard !names.isEmpty, let data = try? JSONEncoder().encode(Array(Set(names))) else { return }
+        try? data.write(to: whatsAppNames, options: .atomic)
     }
 
     static func find(_ spoken: String) async -> Person? {
@@ -824,7 +837,9 @@ enum People {
                                            phone: mobile?.value.stringValue, score: s + (mobile == nil ? 0 : 3)))
                 }
             }
-            for e in WhatsAppPeople.all() {
+            let chats = WhatsAppPeople.all()
+            remember(chats)
+            for e in chats {
                 var s = score(e.name, for: q)
                 guard s > 0 else { continue }
                 if let last = e.last { s += last.timeIntervalSinceNow > -7 * 86400 ? 8 : last.timeIntervalSinceNow > -60 * 86400 ? 4 : 0 }
