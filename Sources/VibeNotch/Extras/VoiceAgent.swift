@@ -560,7 +560,7 @@ enum VoiceAgent {
 @MainActor
 enum Quick {
     enum Intent: CustomStringConvertible {
-        case remember(String), forget(String), recall, agenda(Date), open(URL), files(String)
+        case remember(String), forget(String), recall, agenda(Date), open(URL), web(URL, String), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
         case tab(NotchTab), awake(Bool), call(Bool), reply(String), history
@@ -589,12 +589,14 @@ enum Quick {
             case .recall: "mostrar memoria"
             case .agenda(let d): "agenda \(d)"
             case .open(let u): "abrir \(u.lastPathComponent)"
+            case .web(let u, _): "abrir en la web \(u.absoluteString)"
             case .files(let q): "archivos «\(q)»"
             }
         }
     }
 
-    static func intent(_ order: String) -> Intent? {
+    static func intent(_ said: String) -> Intent? {
+        let order = Rules.direct(said)
         let t = VoiceAgent.fold(order).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
         func rest(_ prefixes: [String]) -> String? {
             for p in prefixes where t.hasPrefix(p + " ") {
@@ -672,9 +674,19 @@ enum Quick {
             let p = VoiceAgent.fold(place)
             if p.split(separator: " ").count <= 3, let hit = tabs.first(where: { p.hasPrefix($0.0) }) { return .tab(hit.1) }
         }
-        if let name = rest(["abre la aplicacion", "abre la app", "abreme", "abrir", "abre"]), name.split(separator: " ").count <= 3,
-           let app = VoiceCommand.findApp(name) {
-            return .open(app)
+        if var name = rest(["abre la aplicacion", "abre la app", "abreme la app", "abreme", "abrir", "abre"]) {
+            // «abre la app de notas», «abre Cursor en mi computadora».
+            name = name.replacingOccurrences(of: #"(?i)^(de|del|la app de|la aplicaci[oó]n de)\s+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)\s+(en|de)\s+(mi|la)\s+(computadora|compu|mac|laptop|pc)\s*$"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)\s+(por favor|porfa)\s*$"#, with: "", options: .regularExpression)
+            if name.split(separator: " ").count <= 3, let app = VoiceCommand.findApp(name) { return .open(app) }
+            let webApps = ["spotify": "https://open.spotify.com", "netflix": "https://www.netflix.com", "gmail": "https://mail.google.com",
+                           "notion": "https://www.notion.so", "figma": "https://www.figma.com", "chatgpt": "https://chatgpt.com",
+                           "instagram": "https://www.instagram.com", "facebook": "https://www.facebook.com", "tiktok": "https://www.tiktok.com",
+                           "linkedin": "https://www.linkedin.com", "twitter": "https://x.com", "canva": "https://www.canva.com",
+                           "google drive": "https://drive.google.com", "drive": "https://drive.google.com", "google docs": "https://docs.google.com",
+                           "whatsapp web": "https://web.whatsapp.com", "outlook": "https://outlook.live.com", "amazon": "https://www.amazon.com.mx"]
+            if let web = webApps[VoiceAgent.fold(name)], let url = URL(string: web) { return .web(url, name) }
         }
         if let q = rest(["busca el archivo", "busca los archivos", "busca mis archivos de", "busca mis archivos", "busca el documento",
                          "busca el pdf", "encuentra el archivo", "encuentra mis archivos de", "encuentra el documento"]) {
@@ -936,7 +948,7 @@ enum Quick {
             }
             a.step("paperplane", "Enviándolo…")
             running.activate()
-            if await Hands.pressSend(in: running.bundleIdentifier ?? family) {
+            if await Hands.pressSend(in: running.bundleIdentifier ?? family, text: last.action.text) {
                 VoiceAgent.unsent = false
                 a.finish(.done(symbol: "checkmark.message.fill", title: "Enviado", detail: last.action.text, bundleID: running.bundleIdentifier),
                          say: "Listo, enviado.", linger: 4)
@@ -998,6 +1010,10 @@ enum Quick {
             _ = try? await NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
             a.finish(.done(symbol: "app.badge.checkmark", title: "Abrí \(name)", detail: "", bundleID: Bundle(url: app)?.bundleIdentifier),
                      say: "Listo, abrí \(name).", linger: 3)
+        case .web(let url, let name):
+            guard NSWorkspace.shared.open(url) else { a.fail("No pude abrir \(name)"); return true }
+            a.finish(.done(symbol: "safari", title: "No tienes la app de \(name); la abrí en la web", detail: url.host() ?? "", bundleID: nil),
+                     say: "Lo abrí en la web.", linger: 4)
         case .files(let q):
             a.step("doc.text.magnifyingglass", "Buscando «\(q)» en tu Mac…")
             let urls = await Hands.findFiles(q)
@@ -1245,9 +1261,23 @@ enum Rules {
         let files = ["busca el archivo", "busca los archivos", "busca mis archivos de", "busca mis archivos", "busca el documento", "busca el pdf",
                      "encuentra el archivo", "encuentra el documento"]
         if let r = rest(files) { a.kind = "buscar_archivo"; a.name = r; return a }
+        // «búscame en mis carpetas algo relacionado con LinkedIn» is on the Mac, not on the web.
+        if f.range(of: #"^(busca|buscame|encuentra|encuentrame)\b"#, options: .regularExpression) != nil,
+           f.range(of: #"\ben (mis|mi|la|las|el) (carpetas?|archivos|documentos|compu|computadora|mac|disco|descargas|escritorio)\b|\ben (el )?finder\b"#,
+                   options: .regularExpression) != nil {
+            var name = o.replacingOccurrences(of: #"(?i)^(b[uú]scame|busca|encu[eé]ntrame|encuentra)\s+"#, with: "", options: .regularExpression)
+            for junk in [#"(?i)\ben (mis|mi|la|las|el) (carpetas?|archivos|documentos|compu|computadora|mac|disco|descargas|escritorio)\b"#,
+                         #"(?i)\ben (el )?finder\b"#,
+                         #"(?i)\b(algo|algunas? cosas?|archivos?|documentos?|cosas)\s+(que\s+)?(est[eé]n?|sean?|tengan?\s+que\s+ver)?\s*(relacionad[oa]s?\s+)?(con|de|sobre)\b"#,
+                         #"(?i)\b(lo que|todo lo que)\s+(tenga|tengan)\s+que\s+ver\s+con\b"#, #"(?i)\brelacionad[oa]s?\s+con\b"#] {
+                name = name.replacingOccurrences(of: junk, with: " ", options: .regularExpression)
+            }
+            name = name.split(separator: " ").joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
+            if !name.isEmpty { a.kind = "buscar_archivo"; a.name = name; return a }
+        }
         if let r = rest(["buscame en google", "busca en google", "busca en internet", "busca en la web", "googlea", "investigame", "investiga",
                          "buscame", "busca"]) {
-            a.kind = "buscar_web"; a.text = r; return a
+            a.kind = "buscar_web"; a.text = query(r); return a
         }
         if let answer = smallTalk(f) { a.kind = "responder"; a.text = answer; return a }
         let greetings = ["hola", "oye", "buenas", "buenos dias", "buenas tardes", "buenas noches", "gracias", "quien eres", "que eres",
@@ -1273,9 +1303,36 @@ enum Rules {
             && f.range(of: #"\b(clima|tiempo hace|precio|cuesta|noticias|significa|que es|quien es|quien fue)\b"#, options: .regularExpression) == nil
         if VoiceAgent.isQuestion(o), !personal || !VoiceAgent.available,
            !["chiste", "cuento", "poema", "escribe", "redacta", "inventa"].contains(where: { f.contains($0) }) {
-            a.kind = "buscar_web"; a.text = o; return a
+            a.kind = "buscar_web"; a.text = query(o); return a
         }
         return nil
+    }
+
+    /// What to type in the search box: «qué es Linkin, LYNQIN, no LinkedIn. Quiero que busques y me digas qué es» → «qué es LYNQIN».
+    static func query(_ said: String) -> String {
+        var q = said
+        let tails = [#"(?i)[,.;]?\s*(y\s+)?(quiero|necesito)\s+que\s+(lo\s+|la\s+|me\s+)?(busques|investigues|digas|expliques|encuentres).*$"#,
+                     #"(?i)[,.;]?\s*y\s+(me\s+)?(dime|digas|explicas?|expliques|cuentas?|cuentes)\b.*$"#,
+                     #"(?i)[,.;]?\s*(por\s+favor|porfa|porfis)\s*[.!]*$"#,
+                     #"(?i)[,.;]?\s*(b[uú]scal[oa]|investigal[oa])(\s+as[ií])?\s*[.!]*$"#]
+        for t in tails { q = q.replacingOccurrences(of: t, with: "", options: .regularExpression) }
+        // «…, se escribe L-Y-N-Q-I-N» / «se escribe Lynqin»: the spelling replaces the word it fixes.
+        if let r = q.range(of: #"(?i)[,.;]?\s*(que\s+|y\s+)?se\s+(escribe|deletrea)(\s+as[ií])?[:,]?\s+"#, options: .regularExpression) {
+            let head = String(q[..<r.lowerBound]), tail = String(q[r.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
+            let word = VoiceAgent.spelled(VoiceAgent.fold(tail), strict: false).map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? tail
+            q = VoiceAgent.respell(head, with: word) ?? (head + " " + word)
+        }
+        // «, no LinkedIn»: what it isn't doesn't belong in the search.
+        q = q.replacingOccurrences(of: #"(?i),\s*no\s+(es\s+|el\s+de\s+|la\s+de\s+)?[\p{L}\d.]+(\s+[\p{L}\d.]+)?\s*(?=[,.;]|$)"#, with: "", options: .regularExpression)
+        // «Linkin, LYNQIN»: a second try at the same word right after a comma is the correction.
+        if let m = try? NSRegularExpression(pattern: #"([\p{L}\d]+),\s+([\p{L}\d]+)\s*[,.;]*\s*$"#),
+           let hit = m.firstMatch(in: q, range: NSRange(q.startIndex..., in: q)),
+           let first = Range(hit.range(at: 1), in: q), let second = Range(hit.range(at: 2), in: q),
+           VoiceAgent.fold(String(q[first])).prefix(1) == VoiceAgent.fold(String(q[second])).prefix(1) {
+            q = String(q[..<first.lowerBound]) + q[second]
+        }
+        q = q.trimmingCharacters(in: CharacterSet(charactersIn: ",.;: "))
+        return q.isEmpty ? said : q
     }
 
     /// The words a regex group matched, in their original spelling and accents.
@@ -3118,7 +3175,7 @@ enum Hands {
             return a.finish(draft, say: "No tengo el número de \(name). Elige su chat en \(app). Si me dices «el número de \(name) es…», la próxima vez lo mando directo.",
                             linger: 14)
         }
-        if auto, await pressSend(in: bundle) { return a.finish(sent, say: "Listo, le mandé el mensaje a \(name).", linger: 5) }
+        if auto, await pressSend(in: bundle, text: s.text) { return a.finish(sent, say: "Listo, le mandé el mensaje a \(name).", linger: 5) }
         VoiceAgent.unsent = true
         a.finish(draft, say: "Está escrito en el chat de \(name). Di «envíalo» y lo mando.", linger: 12)
     }
@@ -3189,33 +3246,51 @@ enum Hands {
     /// Waits for the chat to be in front and activates its real send control.
     /// Return is only a fallback for clients that do not expose the button in
     /// their Accessibility tree (for example some WhatsApp web builds).
-    static func pressSend(in bundle: String) async -> Bool {
+    static func pressSend(in bundle: String, text: String = "") async -> Bool {
         let family = bundle.lowercased().contains("whatsapp") ? "whatsapp" : bundle.lowercased()
+        let app = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier?.lowercased().contains(family) == true }
         func inFront() -> Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier?.lowercased().contains(family) == true }
         if !accessibilityGranted() {
             guard await ensureAccess("enviarlo yo") else { return false }
-            NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier?.lowercased().contains(family) == true }?.activate()
+            app?.activate()
         }
+        let id = app?.bundleIdentifier ?? bundle
         let start = Date()
         while !inFront(), Date().timeIntervalSince(start) < 8 { try? await Task.sleep(for: .milliseconds(200)) }
         guard inFront(), accessibilityGranted() else { return false }
-        try? await Task.sleep(for: .milliseconds(1600))
+        // The chat and its draft take a moment to appear; with the text known, wait for the draft itself.
+        let ready = Date()
+        var drafted = false
+        repeat {
+            try? await Task.sleep(for: .milliseconds(300))
+            if !text.isEmpty { drafted = await Screen.draftStillThere(text, in: id) }
+        } while !drafted && Date().timeIntervalSince(ready) < (text.isEmpty ? 1.6 : 6)
         guard inFront(), !Task.isCancelled else { return false }
-
-        // Prefer the actual control. This prevents the common case where
-        // Return only leaves the composed text in the input field.
-        if await Screen.pressButton(["Enviar", "Send", "Send message", "Enviar mensaje"], in: bundle) {
-            try? await Task.sleep(for: .milliseconds(500))
-            return inFront() && accessibilityGranted()
+        func sent() async -> Bool {
+            try? await Task.sleep(for: .milliseconds(700))
+            // Without a readable draft there's nothing to check against; trust the press.
+            guard drafted else { return true }
+            let still = await Screen.draftStillThere(text, in: id)
+            return !still
+        }
+        func pressReturn() {
+            let source = CGEventSource(stateID: .combinedSessionState)
+            for down in [true, false] {
+                CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: down)?.post(tap: .cghidEventTap)
+            }
         }
 
-        // Keyboard fallback for apps that expose no send button at all.
-        let source = CGEventSource(stateID: .combinedSessionState)
-        for down in [true, false] {
-            CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: down)?.post(tap: .cghidEventTap)
+        // Return in the draft's own box is what WhatsApp expects; the button is the backup.
+        if drafted { _ = await Screen.focusComposer(holding: text, in: id) }
+        pressReturn()
+        if await sent() { return true }
+        if await Screen.pressButton(["Enviar", "Send", "Send message", "Enviar mensaje"], in: id), await sent() { return true }
+        if drafted, inFront() {
+            _ = await Screen.focusComposer(holding: text, in: id)
+            pressReturn()
+            if await sent() { return true }
         }
-        try? await Task.sleep(for: .milliseconds(700))
-        return inFront() && accessibilityGranted()
+        return false
     }
 
     /// WhatsApp needs the country code: «55 1234 5678» in Mexico is 525512345678.

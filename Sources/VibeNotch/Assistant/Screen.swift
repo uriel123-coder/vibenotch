@@ -99,6 +99,40 @@ enum Screen {
         }.value
     }
 
+    /// The text box that holds a draft (WhatsApp's composer after «whatsapp://send?text=…»), focused so Return goes to it.
+    static func focusComposer(holding text: String, in bundleID: String) async -> Bool {
+        guard let app = target(bundleID), Hands.accessibilityGranted() else { return false }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        let key = String(People.fold(text).prefix(24))
+        return await Task.detached(priority: .userInitiated) { () -> Bool in
+            guard let box = composer(root, key) else { return false }
+            AXUIElementSetAttributeValue(box, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            return true
+        }.value
+    }
+
+    /// The draft is still sitting in a text box, so it wasn't sent.
+    static func draftStillThere(_ text: String, in bundleID: String) async -> Bool {
+        guard let app = target(bundleID), Hands.accessibilityGranted() else { return false }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        let key = String(People.fold(text).prefix(24))
+        return await Task.detached(priority: .userInitiated) { composer(root, key) != nil }.value
+    }
+
+    nonisolated private static func composer(_ root: AXUIElement, _ key: String) -> AXUIElement? {
+        guard !key.isEmpty, let window = element(root, kAXFocusedWindowAttribute) ?? children(root).first else { return nil }
+        var queue = [window], seen = 0
+        while !queue.isEmpty, seen < 8000 {
+            let e = queue.removeFirst()
+            seen += 1
+            if ["AXTextArea", "AXTextField"].contains(string(e, kAXRoleAttribute)), People.fold(string(e, kAXValueAttribute)).contains(key) {
+                return e
+            }
+            queue.append(contentsOf: children(e))
+        }
+        return nil
+    }
+
     // MARK: - Accessibility
 
     nonisolated private static func collect(_ root: AXUIElement, limit: Int) -> (window: String, body: String) {

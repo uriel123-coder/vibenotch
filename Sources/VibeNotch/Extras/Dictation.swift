@@ -101,7 +101,7 @@ final class Dictation: ObservableObject {
         request?.endAudio()
         let gen = generation
         // The final result usually lands within a second; the live words are almost always the same, so don't wait long for it.
-        let wait = transcript.trimmingCharacters(in: .whitespaces).isEmpty ? 2.5 : 0.8
+        let wait = transcript.trimmingCharacters(in: .whitespaces).isEmpty ? 2.5 : 1.2
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             MainActor.assumeIsolated {
                 let d = Dictation.shared
