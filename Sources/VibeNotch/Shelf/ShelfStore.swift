@@ -114,9 +114,21 @@ final class ShelfStore: ObservableObject {
                     Task { @MainActor in ShelfStore.shared.store(data, ext: "png", prefix: "Imagen") }
                 }
             } else if p.canLoadObject(ofClass: String.self) {
+                // Editors (Cursor, VS Code…) drag a file as its path or contents: keep the file and its extension, never turn .md into .txt.
+                let named = p.suggestedName.map { URL(fileURLWithPath: $0) }
                 _ = p.loadObject(ofClass: String.self) { text, _ in
                     guard let text else { return }
-                    Task { @MainActor in ShelfStore.shared.store(Data(text.utf8), ext: "txt", prefix: "Texto") }
+                    let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+                    let files = lines.compactMap { line -> URL? in
+                        let url = line.hasPrefix("file://") ? URL(string: line) : line.hasPrefix("/") ? URL(fileURLWithPath: line) : nil
+                        return url.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                    }
+                    Task { @MainActor in
+                        if !files.isEmpty, files.count == lines.count { return ShelfStore.shared.add(files) }
+                        let ext = named?.pathExtension.isEmpty == false ? named!.pathExtension : "txt"
+                        let prefix = named?.deletingPathExtension().lastPathComponent ?? "Texto"
+                        ShelfStore.shared.store(Data(text.utf8), ext: ext, prefix: prefix.isEmpty ? "Texto" : prefix)
+                    }
                 }
             }
         }
