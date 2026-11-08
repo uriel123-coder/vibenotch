@@ -130,19 +130,24 @@ private struct GeneralPage: View {
                 FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante debajo de la barra de menús si no.")
             }
 
-            Section("Cómo se abre") {
+            Section {
                 LabeledContent("Al pasar el mouse") {
                     Picker("", selection: $s.hoverDelay) {
                         Text("Al instante").tag(0.05)
                         Text("Rápido").tag(0.15)
                         Text("Normal").tag(0.3)
                         Text("Con calma").tag(0.6)
+                        Text("3 segundos").tag(3.0)
                     }
                     .labelsHidden()
                     .fixedSize()
                 }
                 Toggle("Mostrar una pequeña asa cuando la isla está vacía", isOn: $s.islandHandle)
                 Toggle("Mostrar dónde soltar al arrastrar archivos", isOn: $s.dropHint)
+            } header: {
+                Text("Cómo se abre")
+            } footer: {
+                FooterText("En isla flotante (sin notch) siempre espera al menos 3 s al pasar el mouse, para que puedas hacer clic en los menús de atrás. Un clic en la isla abre al instante.")
             }
 
             Section("Sistema") {

@@ -20,7 +20,8 @@ fi
 
 FLAGS=(-swift-version 5)
 if [ "$MODE" = debug ]; then
-  FLAGS+=(-Onone -g)
+  # Single-threaded: parallel swift-frontend jobs OOMs on 8 GB Macs.
+  FLAGS+=(-Onone -g -j 1 -num-threads 1)
   ARCHS=("$(uname -m)")
 else
   FLAGS+=(-O)

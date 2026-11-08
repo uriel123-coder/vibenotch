@@ -7,6 +7,7 @@ struct NotchRootView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
+    @ObservedObject private var airPods = AirPodsPointer.shared
     @ObservedObject private var prompter = Prompter.shared
     @ObservedObject private var calls = WhatsAppCalls.shared
     @ObservedObject private var dictation = Dictation.shared
@@ -19,6 +20,7 @@ struct NotchRootView: View {
         let shape = NotchShape(topRadius: r.top, bottomRadius: r.bottom, island: model.island)
         let hidden = model.island && model.state == .closed && !model.showsIndicators && !model.showsHandle
             && !assistant.visible && !dictation.active && !prompter.active
+        let airGlow = airPods.ceremonyActive || airPods.mode == .controlling
 
         ZStack(alignment: .top) {
             shape.fill(.black)
@@ -45,6 +47,7 @@ struct NotchRootView: View {
         .clipShape(shape)
         .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : model.island ? 0.1 : 0), lineWidth: 1))
         .overlay(SiriGlow(shape: shape, active: (assistant.phase == .listening && dictation.mode != .type) || assistant.busy || assistant.speaking))
+        .overlay(AirPodsGlow(shape: shape, active: airGlow && !assistant.visible && !dictation.active && !prompter.active))
         .background(
             shape.fill(.black)
                 .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
@@ -70,6 +73,8 @@ struct NotchRootView: View {
         .animation(.notch, value: prompter.active)
         .animation(.notch, value: dictation.active)
         .animation(.notch, value: assistant.visible)
+        .animation(.notch, value: airPods.ceremonyActive)
+        .animation(.notch, value: airPods.mode)
         .background(TranslatorHost())
         .environment(\.colorScheme, .dark)
     }
@@ -97,6 +102,35 @@ private struct SiriGlow<S: Shape>: View {
     }
 }
 
+/// Cool white–cyan ring when AirPods connect or the head pointer is live (Dynamic Island vibe).
+private struct AirPodsGlow<S: Shape>: View {
+    let shape: S
+    let active: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !active || AppSettings.shared.reduceMotion)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let colors: [Color] = [
+                Color(red: 0.55, green: 0.82, blue: 1.0),
+                .white,
+                Color(red: 0.35, green: 0.7, blue: 1.0),
+                Color(red: 0.7, green: 0.9, blue: 1.0),
+                Color(red: 0.55, green: 0.82, blue: 1.0),
+            ]
+            let g = AngularGradient(colors: colors, center: .center, angle: .degrees(t * 110))
+            ZStack {
+                shape.stroke(g, lineWidth: 7).blur(radius: 10).opacity(0.7)
+                shape.stroke(g, lineWidth: 1.4).opacity(0.9)
+            }
+            .mask(shape)
+        }
+        .opacity(active ? 1 : 0)
+        .scaleEffect(active ? 1 : 0.92)
+        .animation(.spring(response: 0.38, dampingFraction: 0.72), value: active)
+        .allowsHitTesting(false)
+    }
+}
+
 /// What the collapsed notch/island shows on each side while something is happening.
 @MainActor
 struct LiveIndicators {
@@ -105,11 +139,17 @@ struct LiveIndicators {
     let timer = TimerStore.shared
     let music = MusicStore.shared
     let calls = WhatsAppCalls.shared
+    let airPods = AirPodsPointer.shared
 
     var playing: MusicStore.Track? { Prefs.showMusic && music.isPlaying ? music.track : nil }
 
     @MainActor @ViewBuilder var left: some View {
-        if let call = calls.call {
+        if airPods.ceremonyActive || airPods.mode == .controlling {
+            Image(systemName: "airpodspro")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1.0))
+                .symbolEffect(.pulse, isActive: airPods.ceremonyActive || airPods.mode == .controlling)
+        } else if let call = calls.call {
             Image(systemName: call.video ? "video.fill" : "phone.fill")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(Color.ok)
@@ -127,7 +167,12 @@ struct LiveIndicators {
 
     @MainActor @ViewBuilder var right: some View {
         let working = agents.ordered.filter { $0.status == .working }.count
-        if !agents.asks.isEmpty {
+        if airPods.mode == .controlling {
+            PulseDot(color: Color(red: 0.55, green: 0.82, blue: 1.0), size: 7)
+        } else if airPods.ceremonyActive {
+            Text("OK").font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1.0))
+        } else if !agents.asks.isEmpty {
             PulseDot(color: .warn, size: 7)
         } else if let call = calls.call {
             if call.phase == .ringing {
@@ -161,6 +206,10 @@ struct LiveIndicators {
     }
 
     @MainActor var label: String {
+        if airPods.ceremonyActive {
+            return airPods.deviceName.isEmpty ? "AirPods conectados" : airPods.deviceName
+        }
+        if airPods.mode == .controlling { return "Puntero AirPods" }
         if let a = agents.asks.first { return "\(a.kind.short) pide permiso" }
         if let c = calls.call { return c.phase == .ringing ? "\(c.name) te llama" : "\(c.name) · WhatsApp" }
         if let s = agents.headline { return "\(s.kind.short) · \(s.activity ?? s.status.label)" }
@@ -216,12 +265,15 @@ struct PeekView: View {
     @ObservedObject private var shelf = ShelfStore.shared
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
+    @ObservedObject private var airPods = AirPodsPointer.shared
 
     var body: some View {
         VStack(spacing: 6) {
             if !model.island { Color.clear.frame(height: model.notchSize.height - 6) }
             if model.dropHint {
                 dropHint
+            } else if airPods.ceremonyActive {
+                AirPodsCeremony()
             } else if let ask = agents.asks.first {
                 AskCard(ask: ask, compact: true)
             } else if let call = calls.call, model.announcement == nil {
@@ -447,5 +499,51 @@ struct OpenView: View {
         }
         .buttonStyle(PressStyle())
         .help(tab.title)
+    }
+}
+
+/// Premium connect moment: two orbs drift in, pulse, and settle like macOS / Dynamic Island.
+struct AirPodsCeremony: View {
+    @ObservedObject private var airPods = AirPodsPointer.shared
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: AppSettings.shared.reduceMotion)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let pulse = 0.85 + 0.15 * sin(t * 4.2)
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(colors: [
+                                Color(red: 0.55, green: 0.82, blue: 1.0).opacity(0.55),
+                                .clear,
+                            ], center: .center, startRadius: 2, endRadius: 22)
+                        )
+                        .frame(width: 44, height: 44)
+                        .scaleEffect(pulse)
+                    HStack(spacing: 5) {
+                        Capsule().fill(.white.opacity(0.92)).frame(width: 7, height: 16)
+                            .offset(y: -1 + sin(t * 3.1))
+                        Capsule().fill(.white.opacity(0.92)).frame(width: 7, height: 16)
+                            .offset(y: -1 + sin(t * 3.1 + 0.6))
+                    }
+                    .scaleEffect(0.92 + 0.08 * pulse)
+                }
+                .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(airPods.deviceName.isEmpty ? "AirPods" : airPods.deviceName)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Text(airPods.enabled ? "Listos para el puntero" : "Conectados")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if airPods.enabled, airPods.mode != .controlling {
+                    Button("Activar") { airPods.beginControl() }
+                        .buttonStyle(PillStyle(fill: Color(red: 0.35, green: 0.7, blue: 1.0).opacity(0.35)))
+                }
+            }
+            .foregroundStyle(.white)
+        }
     }
 }

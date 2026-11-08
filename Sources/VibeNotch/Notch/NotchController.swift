@@ -437,8 +437,14 @@ final class NotchController {
                     }
                 }
                 hoverWork = work
-                let extra = hiddenByFullscreen ? 0.35 : model.island ? 0.07 : 0
-                DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.shared.hoverDelay + extra, execute: work)
+                // Island floats over the menu bar: a short hover steals clicks underneath.
+                // Wait ~3 s so the user can still click menus; intentional clicks still open right away.
+                let delay: Double = {
+                    if hiddenByFullscreen { return AppSettings.shared.hoverDelay + 0.35 }
+                    if model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
+                    return AppSettings.shared.hoverDelay
+                }()
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
             } else if !hot {
                 hoverWork?.cancel()
                 hoverWork = nil
