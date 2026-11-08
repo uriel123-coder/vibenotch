@@ -83,8 +83,9 @@ enum VoiceAgent {
         var context = Context.capture()
         let task = Task { @MainActor in
             var order = order
-            let pointed = await PointAndAsk.shared.take()
+            let (pointed, shot) = await PointAndAsk.shared.takeAll()
             if !pointed.isEmpty { (order, context) = Context.aim(order, at: pointed, context) }
+            if let shot { context.shot = shot.path }
             if context.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Context.aboutText(order),
                context.bundleID != Bundle.main.bundleIdentifier {
                 context.selection = String(await VoiceKey.copySelection().prefix(20000))
@@ -185,6 +186,8 @@ enum VoiceAgent {
         var bundleID = ""
         /// Everything in the focused field, for «corrige esto» with nothing selected.
         var field = ""
+        /// PNG of what you painted with Fn; for «mándale esta foto a…» / Visual Intelligence.
+        var shot = ""
 
         static let messengers = ["net.whatsapp.WhatsApp", "com.apple.MobileSMS", "com.tinyspeck.slackmacgap", "ru.keepcoder.Telegram",
                                  "com.hnc.Discord", "com.facebook.archon", "desktop.WhatsApp"]
@@ -204,6 +207,11 @@ enum VoiceAgent {
             var c = context
             c.pointer = pointed
             let f = VoiceAgent.fold(order)
+            // «mándale esto / esta foto a…» must keep «esto» so the photo rule fires; don't rewrite it into OCR text.
+            if f.range(of: #"\b(manda|mandale|envia|enviale|pasale|escribele)\b"#, options: .regularExpression) != nil,
+               f.range(of: #"\b(esto|eso|esta|este|foto|imagen|captura|senal|marcad)\b"#, options: .regularExpression) != nil {
+                return (order, c)
+            }
             let edits = ["resum", "traduc", "explica", "corrig", "corrige", "mejora", "significa", "analiza", "reescrib", "entiend", "entend", "ortografia"]
             if edits.contains(where: { f.contains($0) }) {
                 if c.selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { c.selection = pointed }
@@ -433,6 +441,15 @@ enum VoiceAgent {
                 if order.hasPrefix("[sel] ") {
                     order = String(order.dropFirst(6))
                     context.selection = "No era un vil traidor sino un vil bóger. Esa mañana hubiera dado todo lo que tenía por haber sido un adulto."
+                } else if order.hasPrefix("[foto] ") {
+                    order = String(order.dropFirst(7))
+                    let png = FileManager.default.temporaryDirectory.appendingPathComponent("vn-foto-test.png")
+                    if !FileManager.default.fileExists(atPath: png.path) {
+                        let img = NSImage(size: NSSize(width: 8, height: 8))
+                        img.lockFocus(); NSColor.systemBlue.setFill(); NSRect(x: 0, y: 0, width: 8, height: 8).fill(); img.unlockFocus()
+                        try? img.pngData?.write(to: png)
+                    }
+                    context.shot = png.path
                 } else if order.hasPrefix("[wa] ") {
                     order = String(order.dropFirst(5)); context.bundleID = "net.whatsapp.WhatsApp"; context.editable = true
                 } else if order.hasPrefix("[msg] ") {
@@ -1529,6 +1546,28 @@ enum Rules {
         let viaAny = #"(?i)\s+(por|en|con|v[ií]a|desde)\s+(whatsapp|whats|wats|wasap|guasap|mensaje|imessage|sms)\b"#
         let bareO = o.replacingOccurrences(of: viaAny, with: "", options: .regularExpression)
         let bareF = f.replacingOccurrences(of: viaAny, with: "", options: .regularExpression)
+        // «mándale esto / esta foto / lo que te señalé a papá»: the blue stroke's photo.
+        let shot = context.shot.isEmpty ? (PointAndAsk.shared.recentShot?.path ?? "") : context.shot
+        let photoWords = ["esto", "eso", "esta", "este", "esa", "ese", "esta foto", "esta imagen", "esta captura", "la foto", "la imagen",
+                          "la captura", "lo senalado", "lo marcado", "lo que te ensene", "lo que te ensenyo", "lo que te senale",
+                          "lo que te senalo", "lo que te marque", "lo que te mostre", "lo que te muestro"]
+        let photo = photoWords.sorted { $0.count > $1.count }.joined(separator: "|")
+        if let m = match("^(?:mandale|manda|mandame|enviale|envia|pasale)\\s+(?:un|una|el|la)?\\s*(?:mensaje\\s+(?:con\\s+)?|whatsapp\\s+(?:con\\s+)?)?(?:\(photo))\\s+(?:por whatsapp\\s+)?(?:a|para)\\s+((?:mi\\s+)?\\S+(?:\\s+\\S+)?)(?:\\s+(?:diciendo|que diga|con el texto)\\s+(.+))?$", bareF)
+            ?? match("^(?:mandale|manda|enviale|envia|pasale)\\s+(?:a|para)\\s+((?:mi\\s+)?\\S+(?:\\s+\\S+)?)\\s+(?:\(photo))$", bareF),
+           let who = group(m, 1, bareO, bareF) {
+            guard !shot.isEmpty else {
+                var a = VoiceAgent.Action(kind: "responder", order: o)
+                a.text = "Mantén Fn, pinta con el mouse lo que quieres mandar y di «mándale esta foto a \(who)»."
+                return a
+            }
+            var a = VoiceAgent.Action(kind: "whatsapp", order: o, to: who)
+            a.url = shot; a.name = "foto"
+            if m.numberOfRanges > 2, let caption = group(m, 2, bareO, bareF), !caption.isEmpty {
+                a.text = capitalized(caption)
+                if let last = a.text.last, !".!?".contains(last) { a.text += "." }
+            } else { a.text = " " }
+            return a
+        }
         if let m = match(#"^(?:mandale|manda|mandame|enviale|envia|escribele|escribe|hazle)\s+(?:un|una|el)?\s*(whatsapp|wasap|guasap|mensajito|mensaje|msj|sms|imessage)\s+(?:de|que diga|diciendo)\s+(.+?)\s+(?:a|para)\s+((?:mi\s+)?\S+(?:\s+\S+)?)$"#, bareF),
            let kind = group(m, 1, bareO, bareF), let said = group(m, 2, bareO, bareF), let who = group(m, 3, bareO, bareF) {
             let via = f.contains("whats") || f.contains("wasap") || f.contains("guasap") ? " por whatsapp" : ""
@@ -1536,9 +1575,17 @@ enum Rules {
             return message(rebuilt, VoiceAgent.fold(rebuilt), context: context)
         }
         // «mándale hola desde Whats a Joe»: a few words to say, then who.
-        if let m = match(#"^(?:mandale|enviale|escribele|dile)\s+(?!a\s|al\s|un\s|una\s|el\s|la\s|los\s|las\s|mensaje|whats|correo|mail|que\s)(.{1,60}?)\s+a\s+((?:mi\s+)?\S+(?:\s+\S+)?)$"#, bareF),
+        if let m = match(#"^(?:mandale|enviale|escribele|dile)\s+(?!a\s|al\s|un\s|una\s|el\s|la\s|los\s|las\s|mensaje|whats|correo|mail|que\s|esto|eso|esta)(.{1,60}?)\s+a\s+((?:mi\s+)?\S+(?:\s+\S+)?)$"#, bareF),
            let said = group(m, 1, bareO, bareF), let who = group(m, 2, bareO, bareF), said.split(separator: " ").count <= 8 {
             let via = f.contains("whats") || f.contains("wats") || f.contains("wasap") || f.contains("guasap") ? " por whatsapp" : ""
+            let rebuilt = "manda mensaje a \(who)\(via) diciendo \(said)"
+            return message(rebuilt, VoiceAgent.fold(rebuilt), context: context)
+        }
+        // «dile Gabriel Bettech, hola» / «dile a papá hola»: «dile» without needing «mensaje».
+        if let m = match(#"^dile\s+(?!que\s)(?:a\s+)?((?:mi\s+)?\S+(?:\s+\S+)?)(?:\s*[,:]\s*|\s+)(.+)$"#, bareF),
+           let who = group(m, 1, bareO, bareF), let said = group(m, 2, bareO, bareF),
+           !["hola jarvis", "oye"].contains(VoiceAgent.fold(who)), said.split(separator: " ").count <= 40 {
+            let via = f.contains("whats") || f.contains("wasap") || f.contains("guasap") ? " por whatsapp" : ""
             let rebuilt = "manda mensaje a \(who)\(via) diciendo \(said)"
             return message(rebuilt, VoiceAgent.fold(rebuilt), context: context)
         }
@@ -2089,7 +2136,8 @@ private enum Brain {
         platicar en modo llamada («hablemos») para armar una idea y luego convertirla en documento. \
         Puede hacer varias cosas a la vez: mientras trabaja en algo, el usuario le puede pedir otra. \
         También: ver lo que hay en la pantalla de cualquier app o página, leer y resumir sus correos, leer sus chats de WhatsApp, \
-        poner videos de YouTube y música, encontrar perfiles (LinkedIn, Instagram…) y dar clic en cosas de la pantalla. No prometas nada más.
+        poner videos de YouTube y música, encontrar perfiles (LinkedIn, Instagram…) y dar clic en cosas de la pantalla. \
+        También: el usuario puede señalar algo con Fn (trazo azul) y pedirte «qué es esto», «resume esto» o «mándale esta foto a …». No prometas nada más.
         MUY IMPORTANTE: si te pide HACER algo en su Mac (mandar, poner, reproducir, abrir, agendar, recordar, crear, dar clic…), \
         no expliques cómo se hace ni escribas el mensaje: responde SOLO una línea «HAZ: » seguida de la orden clara y completa, \
         con sus mismas palabras y sin agregar nada que no pidió. Por ejemplo, «oye mándale a papá dile hola» → «HAZ: mándale a papá por WhatsApp que hola».
@@ -3100,10 +3148,13 @@ enum Hands {
             }
         }
         if name.isEmpty { name = "esa persona" }
-        guard !s.text.isEmpty else { return a.fail("¿Qué le digo a \(name)? Dime «dile a \(name) que …»") }
+        let photo = s.name == "foto" && !s.url.isEmpty && FileManager.default.fileExists(atPath: s.url)
+        guard !s.text.trimmingCharacters(in: .whitespaces).isEmpty || photo else {
+            return a.fail("¿Qué le digo a \(name)? Dime «dile a \(name) que …»")
+        }
         var s = s
         #if canImport(FoundationModels)
-        if #available(macOS 26, *), VoiceAgent.available, s.text.split(separator: " ").count > 2 {
+        if #available(macOS 26, *), VoiceAgent.available, !photo, s.text.split(separator: " ").count > 2 {
             a.step("text.bubble", "Escribiendo el mensaje…")
             if let better = await Brain.message(s.text, to: name, within: 12) { s.text = better }
         }
@@ -3114,9 +3165,11 @@ enum Hands {
         guard AppSettings.shared.assistantAskBeforeSend else { return await deliver(ready) }
         outgoing = ready
         VoiceAgent.pending = .outgoing(Date())
-        var say = "¿Le mando a \(name): «\(s.text)»?"
+        let preview = photo ? (s.text.trimmingCharacters(in: .whitespaces).isEmpty ? "la foto que señalaste" : "la foto y «\(s.text)»") : "«\(s.text)»"
+        var say = "¿Le mando a \(name) \(preview)?"
         if !others.isEmpty { say = "Hay más de uno: elegí a \(name), también está \(others.joined(separator: " y ")). " + say }
-        a.finish(.outgoing(Assistant.Outgoing(app: app, bundleID: bundle, to: name, handle: phone ?? email ?? "", text: s.text)),
+        a.finish(.outgoing(Assistant.Outgoing(app: app, bundleID: bundle, to: name, handle: phone ?? email ?? "",
+                                              text: photo ? "📷 \(s.text.trimmingCharacters(in: .whitespaces))" : s.text)),
                  say: say, linger: 60, talk: true, ask: true)
     }
 
@@ -3139,10 +3192,14 @@ enum Hands {
         let whatsapp = s.kind == "whatsapp"
         let app = whatsapp ? "WhatsApp" : "Mensajes"
         let bundle = whatsapp ? "net.whatsapp.WhatsApp" : "com.apple.MobileSMS"
-        let sent = Assistant.Card.done(symbol: "checkmark.message.fill", title: "Le mandé el mensaje a \(name) por \(app)", detail: s.text, bundleID: bundle)
+        let photo = s.name == "foto" && !s.url.isEmpty && FileManager.default.fileExists(atPath: s.url)
+        let caption = s.text.trimmingCharacters(in: .whitespaces)
+        let detail = photo ? (caption.isEmpty ? "Foto que señalaste" : "Foto · \(caption)") : s.text
+        let sent = Assistant.Card.done(symbol: photo ? "photo.on.rectangle.angled" : "checkmark.message.fill",
+                                       title: "Le mandé \(photo ? "la foto" : "el mensaje") a \(name) por \(app)", detail: detail, bundleID: bundle)
         let auto = true
 
-        if !whatsapp, auto, let handle = phone ?? email {
+        if !whatsapp, auto, !photo, let handle = phone ?? email {
             a.step("message.fill", "Mandándole el mensaje a \(name)…")
             let script = """
             tell application "Messages"
@@ -3159,21 +3216,41 @@ enum Hands {
         let url: URL?
         if whatsapp {
             var c = URLComponents(string: "whatsapp://send")!
-            c.queryItems = [URLQueryItem(name: "text", value: s.text)] + (number.count >= 10 ? [URLQueryItem(name: "phone", value: number)] : [])
+            var items: [URLQueryItem] = []
+            if !photo, !caption.isEmpty { items.append(URLQueryItem(name: "text", value: s.text)) }
+            if number.count >= 10 { items.append(URLQueryItem(name: "phone", value: number)) }
+            c.queryItems = items.isEmpty ? nil : items
             url = c.url
         } else {
             var c = URLComponents()
             c.scheme = "sms"
             c.path = phone ?? email ?? ""
-            c.queryItems = [URLQueryItem(name: "body", value: s.text)]
+            if !photo { c.queryItems = [URLQueryItem(name: "body", value: s.text)] }
             url = c.url
         }
-        a.step(whatsapp ? "message" : "message.fill", number.isEmpty && whatsapp ? "Abriendo WhatsApp…" : "Abriendo el chat de \(name)…")
+        a.step(photo ? "photo" : (whatsapp ? "message" : "message.fill"),
+               number.isEmpty && whatsapp ? "Abriendo WhatsApp…" : "Abriendo el chat de \(name)…")
         guard let url, NSWorkspace.shared.open(url) else { return a.fail("No pude abrir \(app)") }
-        let draft = Assistant.Card.draft(app: app, bundleID: bundle, to: name, subject: "", body: s.text)
+        let draft = Assistant.Card.draft(app: app, bundleID: bundle, to: name, subject: "", body: detail)
         guard whatsapp ? number.count >= 10 : (phone ?? email) != nil else {
+            if photo { VoiceKey.pasteImage(URL(fileURLWithPath: s.url)) }
             return a.finish(draft, say: "No tengo el número de \(name). Elige su chat en \(app). Si me dices «el número de \(name) es…», la próxima vez lo mando directo.",
                             linger: 14)
+        }
+        if photo {
+            a.step("photo.on.rectangle.angled", "Pegando la foto en el chat…")
+            try? await Task.sleep(for: .milliseconds(1400))
+            VoiceKey.pasteImage(URL(fileURLWithPath: s.url))
+            try? await Task.sleep(for: .milliseconds(700))
+            if !caption.isEmpty {
+                VoiceKey.type(" " + caption)
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            if auto, await pressSend(in: bundle, text: "") {
+                return a.finish(sent, say: "Listo, le mandé la foto a \(name).", linger: 5)
+            }
+            VoiceAgent.unsent = true
+            return a.finish(draft, say: "La foto está en el chat de \(name). Di «envíalo» y la mando.", linger: 12)
         }
         if auto, await pressSend(in: bundle, text: s.text) { return a.finish(sent, say: "Listo, le mandé el mensaje a \(name).", linger: 5) }
         VoiceAgent.unsent = true

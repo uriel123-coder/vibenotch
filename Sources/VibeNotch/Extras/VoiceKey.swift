@@ -123,6 +123,39 @@ final class VoiceKey {
         type(text)
     }
 
+    /// Puts an image on the clipboard and pastes it (⌘V) where the cursor is; restores the clipboard after.
+    static func pasteImage(_ url: URL) {
+        guard let image = NSImage(contentsOf: url) else { return }
+        let pb = NSPasteboard.general
+        let saved: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for t in item.types { if let data = item.data(forType: t) { copy.setData(data, forType: t) } }
+            return copy
+        }
+        pb.clearContents()
+        pb.writeObjects([image])
+        ClipboardStore.shared.skipCurrentChange()
+        guard Hands.accessibilityGranted() else {
+            NotchModel.shared.announce(Announcement(symbol: "photo", tint: .warn, title: "Foto copiada · pégala con ⌘V",
+                                                    subtitle: "Para pegarla yo, activa VibeNotch en Accesibilidad"), for: 5)
+            return
+        }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: down)
+            e?.flags = .maskCommand
+            e?.post(tap: .cghidEventTap)
+        }
+        guard !saved.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            MainActor.assumeIsolated {
+                pb.clearContents()
+                pb.writeObjects(saved)
+                ClipboardStore.shared.skipCurrentChange()
+            }
+        }
+    }
+
     /// Pastes through the clipboard (works in every app, emoji and accents included) and puts back what you had copied.
     static func type(_ text: String) {
         let pb = NSPasteboard.general

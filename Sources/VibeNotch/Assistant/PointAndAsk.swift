@@ -1,5 +1,6 @@
 import AppKit
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 import Vision
 
 /// Visual pointing mode: hold Fn (or right Control+Option) and move the mouse to mark what the
@@ -24,20 +25,35 @@ final class PointAndAsk {
     /// The painted area in screen coordinates (bottom-left origin).
     private var area = CGRect.null
     private var lastProbe = Date.distantPast
-    private var reading: Task<String, Never>?
+    private var reading: Task<(text: String, image: URL?), Never>?
+    private var lastShot: URL?
 
     /// What you pointed at, only while it's fresh: an old point shouldn't color the next order.
     var recentContext: String { Date().timeIntervalSince(lastAt) < 30 ? lastContext : "" }
 
+    /// Photo of the painted area, only while it's fresh.
+    var recentShot: URL? {
+        guard Date().timeIntervalSince(lastAt) < 30, let lastShot, FileManager.default.fileExists(atPath: lastShot.path) else { return nil }
+        return lastShot
+    }
+
     /// Waits for the text read inside the painted area, then forgets it so it isn't reused by the next order.
     func take() async -> String {
-        guard Date().timeIntervalSince(lastAt) < 30 else { return "" }
-        let read = await reading?.value ?? ""
-        let pointed = read.isEmpty ? lastContext : read
+        let (text, _) = await takeAll()
+        return text
+    }
+
+    /// Text and photo of what you painted; both are forgotten after this so the next order starts clean.
+    func takeAll() async -> (text: String, image: URL?) {
+        guard Date().timeIntervalSince(lastAt) < 30 else { return ("", nil) }
+        let read = await reading?.value
+        let pointed = (read?.text.isEmpty == false ? read!.text : lastContext)
+        let shot = read?.image ?? lastShot
         lastContext = ""
+        lastShot = nil
         reading = nil
         lastAt = .distantPast
-        return pointed
+        return (pointed, shot)
     }
 
     func start() {
@@ -103,6 +119,7 @@ final class PointAndAsk {
         if active { return }
         active = true
         lastContext = ""
+        lastShot = nil
         marks = []
         area = .null
         reading = nil
@@ -131,32 +148,47 @@ final class PointAndAsk {
         trail.reset()
         overlay?.orderOut(nil)
         overlay = nil
-        // A real stroke (not just holding Fn still): read the text inside what you painted.
+        // A real stroke (not just holding Fn still): photo + text inside what you painted.
         if area.width > 24 || area.height > 24 {
             let rect = area.insetBy(dx: -30, dy: -30)
             lastAt = Date()
-            reading = Task { await Self.read(rect) }
+            reading = Task { @MainActor in
+                let result = await Self.capture(rect)
+                if let url = result.image { PointAndAsk.shared.lastShot = url }
+                if !result.text.isEmpty { PointAndAsk.shared.lastContext = result.text }
+                return result
+            }
         }
     }
 
-    /// Text inside a screen rectangle. Needs Screen Recording; without it the Accessibility marks are used.
-    private static func read(_ rect: CGRect) async -> String {
+    /// Photo and text inside a screen rectangle. Needs Screen Recording; without it only Accessibility marks are used.
+    private static func capture(_ rect: CGRect) async -> (text: String, image: URL?) {
         guard CGPreflightScreenCaptureAccess(),
               let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
               let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
               let display = content.displays.first(where: { $0.displayID == (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) })
-        else { return "" }
+        else { return ("", nil) }
         let local = rect.intersection(screen.frame)
         // ScreenCaptureKit wants top-left coordinates relative to the display.
         let source = CGRect(x: local.minX - screen.frame.minX, y: screen.frame.maxY - local.maxY, width: local.width, height: local.height)
         let config = SCStreamConfiguration()
         config.sourceRect = source
-        config.width = Int(source.width * 2)
-        config.height = Int(source.height * 2)
+        config.width = max(2, Int(source.width * 2))
+        config.height = max(2, Int(source.height * 2))
         let mine = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let filter = SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
-        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return "" }
-        return await Task.detached(priority: .userInitiated) { () -> String in
+        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return ("", nil) }
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VibeNotch/Capturas", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("señalado-\(Int(Date().timeIntervalSince1970)).png")
+        let saved: URL? = await Task.detached(priority: .userInitiated) { () -> URL? in
+            let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+            guard let dest else { return nil }
+            CGImageDestinationAddImage(dest, image, nil)
+            return CGImageDestinationFinalize(dest) ? url : nil
+        }.value
+        let text = await Task.detached(priority: .userInitiated) { () -> String in
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["es-MX", "en-US"]
@@ -165,6 +197,7 @@ final class PointAndAsk {
             let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
             return String(lines.joined(separator: "\n").prefix(2000))
         }.value
+        return (text, saved)
     }
 }
 
