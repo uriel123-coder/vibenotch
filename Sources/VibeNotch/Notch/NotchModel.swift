@@ -110,6 +110,7 @@ final class NotchModel: ObservableObject {
         AgentStore.shared.hasActivity || TimerStore.shared.isActive || (Prefs.showMusic && MusicStore.shared.isPlaying)
             || WhatsAppCalls.shared.call != nil
             || AirPodsPointer.shared.ceremonyActive
+            || AirPodsPointer.shared.enabled
             || AirPodsPointer.shared.mode == .controlling
     }
 
@@ -174,8 +175,9 @@ final class NotchModel: ObservableObject {
             if WhatsAppCalls.shared.call != nil && announcement == nil {
                 return island ? CGSize(width: 470, height: 60) : CGSize(width: max(n.width + 280, 470), height: n.height + 52)
             }
-            if AirPodsPointer.shared.ceremonyActive {
-                return island ? CGSize(width: 440, height: 78) : CGSize(width: max(n.width + 260, 440), height: n.height + 68)
+            if AirPodsPointer.shared.ceremonyActive || AirPodsPointer.shared.enabled
+                || AirPodsPointer.shared.mode == .controlling {
+                return island ? CGSize(width: 520, height: 96) : CGSize(width: max(n.width + 320, 520), height: n.height + 86)
             }
             if island { return CGSize(width: 420, height: 58) }
             return CGSize(width: max(n.width + 220, 420), height: n.height + 50)

@@ -3,8 +3,9 @@ import CoreAudio
 import CoreMotion
 import SwiftUI
 
-/// Control del mouse con el movimiento de la cabeza (AirPods Pro / Max), al estilo AirPointer:
-/// giro → desplaza el cursor; un asentir rápido → clic; el notch muestra la ceremonia al conectar.
+/// Control del mouse con el movimiento de la cabeza — **solo AirPods** vía
+/// `CMHeadphoneMotionManager` (nunca el iPhone / `CMMotionManager`).
+/// Giro → desplaza el cursor; un asentir rápido → clic; el notch celebra la conexión.
 @MainActor
 final class AirPodsPointer: NSObject, ObservableObject {
     static let shared = AirPodsPointer()
@@ -30,6 +31,7 @@ final class AirPodsPointer: NSObject, ObservableObject {
         }
     }
 
+    /// Solo audífonos con sensor de cabeza — jamás CMMotionManager / iPhone.
     private let manager = CMHeadphoneMotionManager()
     private var bridge: DelegateBridge?
     private var smoothedYaw = 0.0
@@ -46,6 +48,9 @@ final class AirPodsPointer: NSObject, ObservableObject {
     private let deadZone = 0.028
     private let smoothing = 0.22
 
+    /// True when CoreMotion reports headphone motion (AirPods Pro / Max, etc.).
+    var airPodsReady: Bool { headphonesConnected && motionAvailable }
+
     func start() {
         guard !started else { return }
         started = true
@@ -53,7 +58,7 @@ final class AirPodsPointer: NSObject, ObservableObject {
         self.bridge = bridge
         manager.delegate = bridge
         manager.startConnectionStatusUpdates()
-        motionAvailable = manager.isDeviceMotionAvailable
+        syncMotionFlag()
         watchAudioRoute()
         refreshAudioDevice()
         if enabled { applyEnabled() }
@@ -63,15 +68,31 @@ final class AirPodsPointer: NSObject, ObservableObject {
         enabled.toggle()
     }
 
+    /// Apaga el puntero por completo (deja de escuchar y de mover el cursor).
+    func turnOff() {
+        enabled = false
+    }
+
+    /// Enciende la función (sin mover el cursor todavía) o la apaga.
+    func setEnabled(_ on: Bool) {
+        enabled = on
+    }
+
     func beginControl() {
-        guard enabled else { enabled = true; return }
+        if !enabled { enabled = true }
         guard Hands.accessibilityGranted() else {
             lastError = "Activa Accesibilidad para mover el mouse"
             _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
             return
         }
-        guard headphonesConnected || manager.isDeviceMotionAvailable else {
-            lastError = "Conecta unos AirPods con sensor de movimiento"
+        syncMotionFlag()
+        guard airPodsReady else {
+            lastError = "Conecta tus AirPods"
+            NotchModel.shared.announce(
+                Announcement(symbol: "airpodspro", tint: .cyan, title: "Conecta tus AirPods",
+                             subtitle: "Solo AirPods · no el iPhone"),
+                for: 3.0
+            )
             return
         }
         startMotion()
@@ -86,11 +107,12 @@ final class AirPodsPointer: NSObject, ObservableObject {
 
     func pauseControl() {
         stopMotion()
-        mode = enabled ? (headphonesConnected ? .armed : .off) : .off
+        mode = enabled ? (airPodsReady ? .armed : .off) : .off
         smoothedYaw = 0
         smoothedPitch = 0
         lastSample = nil
         lastPitch = nil
+        lastError = nil
     }
 
     func recenter() {
@@ -114,25 +136,29 @@ final class AirPodsPointer: NSObject, ObservableObject {
 
     private func applyEnabled() {
         if enabled {
-            mode = headphonesConnected ? (mode == .controlling ? .controlling : .armed) : .armed
-            if headphonesConnected || manager.isDeviceMotionAvailable {
-                // Stay armed; user taps "Activar" (or we auto-start if already controlling).
-                if mode == .controlling { startMotion() }
-            }
-            if headphonesConnected { playCeremony(reason: .armed) }
+            mode = airPodsReady ? (mode == .controlling ? .controlling : .armed) : .armed
+            if airPodsReady, mode == .controlling { startMotion() }
+            if airPodsReady { playCeremony(reason: .armed) }
         } else {
             stopMotion()
             mode = .off
             ceremonyActive = false
+            lastError = nil
         }
     }
 
+    private func syncMotionFlag() {
+        motionAvailable = manager.isDeviceMotionAvailable
+    }
+
     private func startMotion() {
+        syncMotionFlag()
         guard manager.isDeviceMotionAvailable else {
             motionAvailable = false
-            lastError = "Estos audífonos no reportan movimiento"
+            lastError = "Conecta tus AirPods"
             return
         }
+        // Defensa: nunca arrancar otro gestor (CMMotionManager / teléfono).
         motionAvailable = true
         manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
             MainActor.assumeIsolated {
@@ -208,10 +234,24 @@ final class AirPodsPointer: NSObject, ObservableObject {
     // MARK: - Connection + ceremony
 
     fileprivate func didConnect() {
-        headphonesConnected = true
-        motionAvailable = manager.isDeviceMotionAvailable
+        syncMotionFlag()
         refreshAudioDevice()
-        if deviceName.isEmpty { deviceName = "AirPods" }
+        // Rechaza nombres de teléfono / Continuity; solo audífonos.
+        if looksLikePhone(deviceName) {
+            headphonesConnected = false
+            motionAvailable = false
+            lastError = "Conecta tus AirPods"
+            return
+        }
+        guard manager.isDeviceMotionAvailable else {
+            headphonesConnected = false
+            motionAvailable = false
+            lastError = "Conecta tus AirPods"
+            return
+        }
+        headphonesConnected = true
+        if deviceName.isEmpty || looksLikePhone(deviceName) { deviceName = "AirPods" }
+        lastError = nil
         playCeremony(reason: .connected)
         if enabled { mode = mode == .controlling ? .controlling : .armed }
         if enabled, mode == .controlling { startMotion() }
@@ -219,13 +259,11 @@ final class AirPodsPointer: NSObject, ObservableObject {
 
     fileprivate func didDisconnect() {
         headphonesConnected = false
+        motionAvailable = false
         stopMotion()
         if mode == .controlling { mode = enabled ? .armed : .off }
         ceremonyActive = false
-        if deviceName.lowercased().contains("airpods") || deviceName.isEmpty {
-            // Keep last name briefly; clear if route also gone.
-            refreshAudioDevice()
-        }
+        refreshAudioDevice()
     }
 
     private enum CeremonyReason { case connected, armed }
@@ -238,7 +276,7 @@ final class AirPodsPointer: NSObject, ObservableObject {
         let title = reason == .connected ? (deviceName.isEmpty ? "AirPods" : deviceName) : "Puntero listo"
         let subtitle = reason == .connected
             ? (enabled ? "Listos · toca Activar para apuntar" : "Conectados")
-            : "Conecta AirPods y mueve la cabeza"
+            : "Conecta tus AirPods y mueve la cabeza"
 
         NotchModel.shared.announce(
             Announcement(symbol: "airpodspro", tint: .init(red: 0.45, green: 0.78, blue: 1.0),
@@ -253,7 +291,7 @@ final class AirPodsPointer: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Audio route (nombre + fallback si no hay motion)
+    // MARK: - Audio route (solo nombre; nunca fuente de motion)
 
     private func watchAudioRoute() {
         var address = AudioObjectPropertyAddress(
@@ -288,24 +326,25 @@ final class AirPodsPointer: NSObject, ObservableObject {
         var nameCF: CFString = "" as CFString
         let err = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameCF)
         let name = err == noErr ? (nameCF as String) : ""
-        let looksWireless = name.localizedCaseInsensitiveContains("AirPods")
-            || name.localizedCaseInsensitiveContains("Beats")
 
-        if looksWireless {
-            let was = headphonesConnected
+        // Solo etiqueta: el audio de salida no implica motion ni «conectado» para el puntero.
+        if looksLikeAirPods(name), !looksLikePhone(name) {
             deviceName = name
-            // Fallback connect signal when CoreMotion doesn't fire (some models / macOS builds).
-            if !was, !manager.isDeviceMotionAvailable {
-                headphonesConnected = true
-                playCeremony(reason: .connected)
-            }
-        } else if !manager.isDeviceMotionAvailable {
-            if headphonesConnected {
-                headphonesConnected = false
-                if mode == .controlling { pauseControl() }
-            }
-            if !name.isEmpty { deviceName = "" }
+        } else if !headphonesConnected {
+            if !name.isEmpty, !looksLikeAirPods(name) { deviceName = "" }
         }
+    }
+
+    private func looksLikeAirPods(_ name: String) -> Bool {
+        // Solo marca de AirPods en el nombre de audio (el motion ya viene solo de headphones).
+        name.localizedCaseInsensitiveContains("AirPods")
+    }
+
+    private func looksLikePhone(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n.contains("iphone") || n.contains("ipad") || n.contains("ipod")
+            || n.contains("continuity") || n.contains("iphone microphone")
+            || (n.contains("phone") && !n.contains("airpods") && !n.contains("headphones"))
     }
 }
 

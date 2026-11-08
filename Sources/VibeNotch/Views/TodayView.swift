@@ -147,8 +147,20 @@ struct AirPodsPointerCard: View {
     private let tint = Color(red: 0.45, green: 0.78, blue: 1.0)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            CardTitle(symbol: "airpodspro", title: "AirPods · puntero", tint: tint)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 5) {
+                Image(systemName: "airpodspro").font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
+                Text("AIRPODS · PUNTERO")
+                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("MAC")
+                    .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(tint.opacity(0.16)))
+                Spacer(minLength: 0)
+            }
             HStack(spacing: 10) {
                 Image(systemName: "airpodspro")
                     .font(.system(size: 22, weight: .medium))
@@ -164,15 +176,18 @@ struct AirPodsPointerCard: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
-                Toggle("", isOn: Binding(get: { air.enabled }, set: { air.enabled = $0 }))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
             }
             if let err = air.lastError {
                 Text(err).font(.system(size: 10.5)).foregroundStyle(Color.danger)
             }
             HStack(spacing: 6) {
+                if air.enabled {
+                    Button("Apagar") { air.turnOff() }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                } else {
+                    Button("Encender") { air.setEnabled(true) }
+                        .buttonStyle(PillStyle(fill: tint.opacity(0.38)))
+                }
                 if air.mode == .controlling {
                     Button("Pausar") { air.pauseControl() }
                         .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
@@ -180,37 +195,42 @@ struct AirPodsPointerCard: View {
                         .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
                     Button("Clic") { air.click() }
                         .buttonStyle(PillStyle(fill: tint.opacity(0.3)))
-                } else {
-                    Button(air.headphonesConnected ? "Activar puntero" : "Esperar AirPods") {
+                } else if air.enabled {
+                    Button(air.airPodsReady ? "Activar" : "Conecta tus AirPods") {
                         air.beginControl()
                     }
-                    .buttonStyle(PillStyle(fill: tint.opacity(air.headphonesConnected || air.enabled ? 0.35 : 0.18)))
-                    .disabled(!air.enabled && !air.headphonesConnected)
+                    .buttonStyle(PillStyle(fill: tint.opacity(air.airPodsReady ? 0.35 : 0.16)))
+                    .disabled(!air.airPodsReady)
                 }
                 Spacer(minLength: 0)
             }
+            Text("Mueve el cursor de la Mac con la cabeza. No forma parte de Jarvis · solo AirPods, nunca el iPhone.")
+                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.38))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card(tint, opacity: air.mode == .controlling || air.ceremonyActive ? 0.1 : 0.06)
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(tint.opacity(air.ceremonyActive ? 0.45 : 0), lineWidth: 1)
+                .strokeBorder(tint.opacity(air.ceremonyActive || air.mode == .controlling ? 0.45 : 0.12), lineWidth: 1)
         )
         .animation(.snappy, value: air.mode)
         .animation(.snappy, value: air.headphonesConnected)
+        .animation(.snappy, value: air.enabled)
     }
 
     private var statusTitle: String {
         if air.mode == .controlling { return "Controlando el mouse" }
-        if air.headphonesConnected { return air.deviceName.isEmpty ? "AirPods conectados" : air.deviceName }
-        if air.enabled { return "Listo · espera AirPods" }
+        if air.airPodsReady { return air.deviceName.isEmpty ? "AirPods conectados" : air.deviceName }
+        if air.enabled { return "Esperando AirPods" }
         return "Apagado"
     }
 
     private var statusDetail: String {
-        if air.mode == .controlling { return "Gira la cabeza · asentir = clic" }
-        if air.headphonesConnected { return "Activa el puntero para mover el cursor sin manos" }
-        return "Con AirPods Pro/Max: el notch anuncia la conexión y puedes apuntar con la cabeza"
+        if air.mode == .controlling { return "Gira la cabeza · asentir = clic · Pausar o Apagar cuando quieras" }
+        if air.airPodsReady { return air.enabled ? "Toca Activar para mover el cursor" : "Enciende el puntero para usarlo" }
+        if air.enabled { return "Conecta tus AirPods Pro o Max con sensor" }
+        return "Encendido a mano · ceremonia en el notch al conectar"
     }
 }
 

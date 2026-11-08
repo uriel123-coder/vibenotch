@@ -144,7 +144,7 @@ struct LiveIndicators {
     var playing: MusicStore.Track? { Prefs.showMusic && music.isPlaying ? music.track : nil }
 
     @MainActor @ViewBuilder var left: some View {
-        if airPods.ceremonyActive || airPods.mode == .controlling {
+        if airPods.ceremonyActive || airPods.enabled || airPods.mode == .controlling {
             Image(systemName: "airpodspro")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1.0))
@@ -171,6 +171,10 @@ struct LiveIndicators {
             PulseDot(color: Color(red: 0.55, green: 0.82, blue: 1.0), size: 7)
         } else if airPods.ceremonyActive {
             Text("OK").font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1.0))
+        } else if airPods.enabled {
+            Text(airPods.airPodsReady ? "ON" : "…")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1.0))
         } else if !agents.asks.isEmpty {
             PulseDot(color: .warn, size: 7)
@@ -210,6 +214,9 @@ struct LiveIndicators {
             return airPods.deviceName.isEmpty ? "AirPods conectados" : airPods.deviceName
         }
         if airPods.mode == .controlling { return "Puntero AirPods" }
+        if airPods.enabled {
+            return airPods.airPodsReady ? "Puntero listo" : "Esperando AirPods"
+        }
         if let a = agents.asks.first { return "\(a.kind.short) pide permiso" }
         if let c = calls.call { return c.phase == .ringing ? "\(c.name) te llama" : "\(c.name) · WhatsApp" }
         if let s = agents.headline { return "\(s.kind.short) · \(s.activity ?? s.status.label)" }
@@ -272,8 +279,8 @@ struct PeekView: View {
             if !model.island { Color.clear.frame(height: model.notchSize.height - 6) }
             if model.dropHint {
                 dropHint
-            } else if airPods.ceremonyActive {
-                AirPodsCeremony()
+            } else if airPods.ceremonyActive || airPods.enabled || airPods.mode == .controlling {
+                AirPodsIslandPanel()
             } else if let ask = agents.asks.first {
                 AskCard(ask: ask, compact: true)
             } else if let call = calls.call, model.announcement == nil {
@@ -502,48 +509,111 @@ struct OpenView: View {
     }
 }
 
-/// Premium connect moment: two orbs drift in, pulse, and settle like macOS / Dynamic Island.
-struct AirPodsCeremony: View {
+/// Dynamic Island–style AirPods pointer: estado + activar / pausar / centrar / apagar.
+struct AirPodsIslandPanel: View {
     @ObservedObject private var airPods = AirPodsPointer.shared
+    private let tint = Color(red: 0.45, green: 0.78, blue: 1.0)
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: AppSettings.shared.reduceMotion)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            let pulse = 0.85 + 0.15 * sin(t * 4.2)
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            RadialGradient(colors: [
-                                Color(red: 0.55, green: 0.82, blue: 1.0).opacity(0.55),
-                                .clear,
-                            ], center: .center, startRadius: 2, endRadius: 22)
-                        )
-                        .frame(width: 44, height: 44)
-                        .scaleEffect(pulse)
-                    HStack(spacing: 5) {
-                        Capsule().fill(.white.opacity(0.92)).frame(width: 7, height: 16)
-                            .offset(y: -1 + sin(t * 3.1))
-                        Capsule().fill(.white.opacity(0.92)).frame(width: 7, height: 16)
-                            .offset(y: -1 + sin(t * 3.1 + 0.6))
+            let live = airPods.mode == .controlling || airPods.ceremonyActive
+            let pulse = live ? (0.88 + 0.12 * sin(t * 4.0)) : 1.0
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                RadialGradient(colors: [tint.opacity(0.55), .clear],
+                                               center: .center, startRadius: 2, endRadius: 22)
+                            )
+                            .frame(width: 44, height: 44)
+                            .scaleEffect(pulse)
+                        Image(systemName: "airpodspro")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.95))
+                            .symbolEffect(.pulse, isActive: airPods.mode == .controlling)
                     }
-                    .scaleEffect(0.92 + 0.08 * pulse)
-                }
-                .frame(width: 40, height: 40)
+                    .frame(width: 40, height: 40)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(airPods.deviceName.isEmpty ? "AirPods" : airPods.deviceName)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    Text(airPods.enabled ? "Listos para el puntero" : "Conectados")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        Text(subtitle)
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    statusPill
                 }
-                Spacer(minLength: 0)
-                if airPods.enabled, airPods.mode != .controlling {
-                    Button("Activar") { airPods.beginControl() }
-                        .buttonStyle(PillStyle(fill: Color(red: 0.35, green: 0.7, blue: 1.0).opacity(0.35)))
-                }
+                controls
             }
             .foregroundStyle(.white)
         }
     }
+
+    private var title: String {
+        if airPods.mode == .controlling { return "Puntero activo" }
+        if airPods.airPodsReady { return airPods.deviceName.isEmpty ? "AirPods" : airPods.deviceName }
+        return "Puntero AirPods"
+    }
+
+    private var subtitle: String {
+        if airPods.mode == .controlling { return "Cabeza = cursor · asentir = clic" }
+        if airPods.airPodsReady { return airPods.enabled ? "Listos · toca Activar" : "Conectados · enciende el puntero" }
+        if airPods.enabled { return "Conecta tus AirPods" }
+        return "Control de la Mac · solo AirPods"
+    }
+
+    private var statusPill: some View {
+        let label: String = {
+            switch airPods.mode {
+            case .controlling: return "EN VIVO"
+            case .armed: return airPods.airPodsReady ? "LISTO" : "ESPERA"
+            case .off: return "OFF"
+            }
+        }()
+        return Text(label)
+            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .tracking(0.4)
+            .foregroundStyle(airPods.mode == .controlling ? .black : tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(airPods.mode == .controlling ? tint : tint.opacity(0.18))
+            )
+    }
+
+    @ViewBuilder private var controls: some View {
+        HStack(spacing: 6) {
+            if airPods.mode == .controlling {
+                Button("Pausar") { airPods.pauseControl() }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                Button("Centrar") { airPods.recenter() }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                Button("Clic") { airPods.click() }
+                    .buttonStyle(PillStyle(fill: tint.opacity(0.32)))
+                Button("Apagar") { airPods.turnOff() }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.08)))
+            } else if airPods.enabled {
+                Button(airPods.airPodsReady ? "Activar" : "Conecta AirPods") {
+                    airPods.beginControl()
+                }
+                .buttonStyle(PillStyle(fill: tint.opacity(airPods.airPodsReady ? 0.38 : 0.16)))
+                .disabled(!airPods.airPodsReady)
+                Button("Apagar") { airPods.turnOff() }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.1)))
+            } else {
+                Button("Encender") { airPods.setEnabled(true) }
+                    .buttonStyle(PillStyle(fill: tint.opacity(0.38)))
+                if airPods.airPodsReady {
+                    Button("Activar ya") { airPods.beginControl() }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
 }
+
+typealias AirPodsCeremony = AirPodsIslandPanel
