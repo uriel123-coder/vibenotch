@@ -16,7 +16,6 @@ struct TodayView: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
-                    AirPodsPointerCard()
                     HStack(alignment: .top, spacing: 8) {
                         column(widgets.enumerated().filter { $0.offset % 2 == 0 }.map(\.element))
                         if widgets.count > 1 {
@@ -140,111 +139,6 @@ private struct CardTitle: View {
             Spacer(minLength: 0)
         }
     }
-}
-
-struct AirPodsPointerCard: View {
-    @ObservedObject private var air = AirPodsPointer.shared
-    private let tint = Color(red: 0.45, green: 0.78, blue: 1.0)
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 5) {
-                Image(systemName: "airpodspro").font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
-                Text("AIRPODS · PUNTERO")
-                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.45))
-                Text("MAC")
-                    .font(.system(size: 8.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(tint)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(tint.opacity(0.16)))
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 10) {
-                Image(systemName: "airpodspro")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(tint)
-                    .symbolEffect(.pulse, isActive: air.ceremonyActive || air.mode == .controlling)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(tint.opacity(0.14)))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusTitle)
-                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-                    Text(statusDetail)
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-            }
-            if let err = air.lastError {
-                Text(err).font(.system(size: 10.5)).foregroundStyle(Color.danger)
-            }
-            HStack(spacing: 6) {
-                if air.enabled {
-                    Button("Apagar") { air.turnOff() }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                } else {
-                    Button("Encender") { air.setEnabled(true) }
-                        .buttonStyle(PillStyle(fill: tint.opacity(0.38)))
-                }
-                if air.mode == .controlling {
-                    Button("Pausar") { air.pauseControl() }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                    Button("Centrar") { air.recenter() }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                    Button("Clic") { air.click() }
-                        .buttonStyle(PillStyle(fill: tint.opacity(0.3)))
-                } else if air.enabled {
-                    Button("Activar") { air.beginControl() }
-                        .buttonStyle(PillStyle(fill: tint.opacity(0.35)))
-                }
-                Spacer(minLength: 0)
-            }
-            if air.enabled || air.mode == .controlling {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Sensibilidad").font(.system(size: 10.5)).foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(air.sensitivity))").font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
-                    }
-                    Slider(value: Binding(get: { air.sensitivity }, set: { air.sensitivity = $0 }), in: 350...1800, step: 50)
-                        .tint(tint)
-                    Toggle("Asentir = clic", isOn: Binding(get: { air.nodClick }, set: { air.nodClick = $0 }))
-                        .font(.system(size: 11)).toggleStyle(.switch).controlSize(.mini)
-                    HStack(spacing: 12) {
-                        Toggle("Invertir X", isOn: Binding(get: { air.invertX }, set: { air.invertX = $0 }))
-                        Toggle("Invertir Y", isOn: Binding(get: { air.invertY }, set: { air.invertY = $0 }))
-                    }
-                    .font(.system(size: 10.5)).toggleStyle(.switch).controlSize(.mini)
-                }
-            }
-            Text(air.statusHint)
-                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Solo AirPods Pro / Max (sensor de cabeza). No es el AirPointer del celular ni Jarvis.")
-                .font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.28))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card(tint, opacity: air.mode == .controlling || air.ceremonyActive ? 0.1 : 0.06)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(tint.opacity(air.ceremonyActive || air.mode == .controlling ? 0.45 : 0.12), lineWidth: 1)
-        )
-        .animation(.snappy, value: air.mode)
-        .animation(.snappy, value: air.headphonesConnected)
-        .animation(.snappy, value: air.enabled)
-    }
-
-    private var statusTitle: String {
-        if air.mode == .controlling { return "Controlando el mouse" }
-        if air.airPodsReady { return air.deviceName.isEmpty ? "AirPods conectados" : air.deviceName }
-        if air.enabled { return "Esperando AirPods" }
-        return "Apagado"
-    }
-
-    private var statusDetail: String { air.statusHint }
 }
 
 struct MusicCard: View {

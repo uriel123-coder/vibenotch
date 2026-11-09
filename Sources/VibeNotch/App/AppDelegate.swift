@@ -87,7 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ClipboardStore.shared.start()
             CalendarStore.shared.start()
             MusicStore.shared.start()
-            AirPodsPointer.shared.start()
             ClaudeAppMonitor.shared.start()
             KeepAwake.shared.start()
             Updater.shared.start()
