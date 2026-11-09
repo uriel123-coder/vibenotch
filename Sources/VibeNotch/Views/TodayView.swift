@@ -196,16 +196,34 @@ struct AirPodsPointerCard: View {
                     Button("Clic") { air.click() }
                         .buttonStyle(PillStyle(fill: tint.opacity(0.3)))
                 } else if air.enabled {
-                    Button(air.airPodsReady ? "Activar" : "Conecta tus AirPods") {
-                        air.beginControl()
-                    }
-                    .buttonStyle(PillStyle(fill: tint.opacity(air.airPodsReady ? 0.35 : 0.16)))
-                    .disabled(!air.airPodsReady)
+                    Button("Activar") { air.beginControl() }
+                        .buttonStyle(PillStyle(fill: tint.opacity(0.35)))
                 }
                 Spacer(minLength: 0)
             }
-            Text("Mueve el cursor de la Mac con la cabeza. No forma parte de Jarvis · solo AirPods, nunca el iPhone.")
-                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.38))
+            if air.enabled || air.mode == .controlling {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Sensibilidad").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(air.sensitivity))").font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                    }
+                    Slider(value: Binding(get: { air.sensitivity }, set: { air.sensitivity = $0 }), in: 350...1800, step: 50)
+                        .tint(tint)
+                    Toggle("Asentir = clic", isOn: Binding(get: { air.nodClick }, set: { air.nodClick = $0 }))
+                        .font(.system(size: 11)).toggleStyle(.switch).controlSize(.mini)
+                    HStack(spacing: 12) {
+                        Toggle("Invertir X", isOn: Binding(get: { air.invertX }, set: { air.invertX = $0 }))
+                        Toggle("Invertir Y", isOn: Binding(get: { air.invertY }, set: { air.invertY = $0 }))
+                    }
+                    .font(.system(size: 10.5)).toggleStyle(.switch).controlSize(.mini)
+                }
+            }
+            Text(air.statusHint)
+                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Solo AirPods Pro / Max (sensor de cabeza). No es el AirPointer del celular ni Jarvis.")
+                .font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.28))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -226,12 +244,7 @@ struct AirPodsPointerCard: View {
         return "Apagado"
     }
 
-    private var statusDetail: String {
-        if air.mode == .controlling { return "Gira la cabeza · asentir = clic · Pausar o Apagar cuando quieras" }
-        if air.airPodsReady { return air.enabled ? "Toca Activar para mover el cursor" : "Enciende el puntero para usarlo" }
-        if air.enabled { return "Conecta tus AirPods Pro o Max con sensor" }
-        return "Encendido a mano · ceremonia en el notch al conectar"
-    }
+    private var statusDetail: String { air.statusHint }
 }
 
 struct MusicCard: View {

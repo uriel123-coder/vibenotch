@@ -559,10 +559,10 @@ struct AirPodsIslandPanel: View {
     }
 
     private var subtitle: String {
-        if airPods.mode == .controlling { return "Cabeza = cursor · asentir = clic" }
-        if airPods.airPodsReady { return airPods.enabled ? "Listos · toca Activar" : "Conectados · enciende el puntero" }
-        if airPods.enabled { return "Conecta tus AirPods" }
-        return "Control de la Mac · solo AirPods"
+        if airPods.mode == .controlling {
+            return airPods.live ? "Recibiendo movimiento" : "Gira la cabeza · Centrar fija el cero"
+        }
+        return airPods.statusHint
     }
 
     private var statusPill: some View {
@@ -596,20 +596,15 @@ struct AirPodsIslandPanel: View {
                 Button("Apagar") { airPods.turnOff() }
                     .buttonStyle(PillStyle(fill: .white.opacity(0.08)))
             } else if airPods.enabled {
-                Button(airPods.airPodsReady ? "Activar" : "Conecta AirPods") {
-                    airPods.beginControl()
-                }
-                .buttonStyle(PillStyle(fill: tint.opacity(airPods.airPodsReady ? 0.38 : 0.16)))
-                .disabled(!airPods.airPodsReady)
+                Button("Activar") { airPods.beginControl() }
+                    .buttonStyle(PillStyle(fill: tint.opacity(0.38)))
                 Button("Apagar") { airPods.turnOff() }
                     .buttonStyle(PillStyle(fill: .white.opacity(0.1)))
             } else {
                 Button("Encender") { airPods.setEnabled(true) }
                     .buttonStyle(PillStyle(fill: tint.opacity(0.38)))
-                if airPods.airPodsReady {
-                    Button("Activar ya") { airPods.beginControl() }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                }
+                Button("Activar ya") { airPods.beginControl() }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
             }
             Spacer(minLength: 0)
         }
