@@ -21,10 +21,13 @@ struct AgentsView: View {
                     if finished || awake.active {
                         HStack {
                             if awake.active {
-                                Label("La Mac no se dormirá mientras trabajan", systemImage: "cup.and.saucer.fill")
+                                Label(awake.byYou
+                                      ? (awake.endsAt != nil ? "Insomnio activo" : "La Mac no se dormirá (tú lo pediste)")
+                                      : "La Mac no se dormirá mientras trabajan",
+                                      systemImage: "cup.and.saucer.fill")
                                     .font(.system(size: 10.5, weight: .medium, design: .rounded))
                                     .foregroundStyle(.white.opacity(0.45))
-                                    .help("Lo cambias en Ajustes → Agentes → Mac despierta")
+                                    .help(awake.byYou ? "Lo apagas en Hoy → Insomnio o diciendo «ya deja dormir»" : "Lo cambias en Ajustes → Agentes → Mac despierta")
                                     .transition(.opacity)
                             }
                             Spacer()

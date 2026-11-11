@@ -105,6 +105,7 @@ struct LiveIndicators {
     let timer = TimerStore.shared
     let music = MusicStore.shared
     let calls = WhatsAppCalls.shared
+    let awake = KeepAwake.shared
 
     var playing: MusicStore.Track? { Prefs.showMusic && music.isPlaying ? music.track : nil }
 
@@ -116,6 +117,11 @@ struct LiveIndicators {
                 .symbolEffect(.pulse, isActive: call.phase == .ringing)
         } else if let s = agents.headline {
             StatusGlyph(kind: s.kind, status: s.status, size: 17)
+        } else if awake.byYou {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.orange)
+                .symbolEffect(.pulse, isActive: true)
         } else if timer.isActive {
             TimerRing(size: 15)
         } else if let t = playing {
@@ -141,6 +147,17 @@ struct LiveIndicators {
             }
         } else if working > 1 {
             Text("\(working)").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.8))
+        } else if awake.byYou {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                if let rem = awake.remaining(at: ctx.date) {
+                    Text(KeepAwake.formatRemaining(rem))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.orange)
+                        .contentTransition(.numericText(countsDown: true))
+                } else {
+                    Image(systemName: "infinity").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
+                }
+            }
         } else if timer.isActive {
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 Text(TimerStore.format(timer.remaining(at: ctx.date)))
@@ -164,6 +181,7 @@ struct LiveIndicators {
         if let a = agents.asks.first { return "\(a.kind.short) pide permiso" }
         if let c = calls.call { return c.phase == .ringing ? "\(c.name) te llama" : "\(c.name) · WhatsApp" }
         if let s = agents.headline { return "\(s.kind.short) · \(s.activity ?? s.status.label)" }
+        if awake.byYou { return awake.lidHeld ? "Insomnio · tapa ok" : "Insomnio" }
         if timer.isActive { return timer.label }
         if let t = playing { return t.artist.isEmpty ? t.title : "\(t.title) · \(t.artist)" }
         return ""
@@ -177,8 +195,10 @@ struct ClosedBar: View {
     @ObservedObject private var timer = TimerStore.shared
     @ObservedObject private var music = MusicStore.shared
     @ObservedObject private var calls = WhatsAppCalls.shared
+    @ObservedObject private var awake = KeepAwake.shared
 
     var body: some View {
+        let _ = awake.active
         let live = LiveIndicators()
         if model.island {
             HStack(spacing: 8) {

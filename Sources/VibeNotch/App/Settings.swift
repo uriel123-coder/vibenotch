@@ -1,13 +1,14 @@
 import SwiftUI
 
 enum TodayWidget: String, CaseIterable, Identifiable {
-    case music, timer, battery, calendar, system, notes
+    case music, timer, awake, battery, calendar, system, notes
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .music: "Música"
         case .timer: "Temporizador"
+        case .awake: "Insomnio (Mac despierta)"
         case .battery: "Batería"
         case .calendar: "Próximos eventos"
         case .system: "Sistema (RAM, CPU, disco)"
@@ -18,6 +19,7 @@ enum TodayWidget: String, CaseIterable, Identifiable {
         switch self {
         case .music: "music.note"
         case .timer: "timer"
+        case .awake: "cup.and.saucer.fill"
         case .battery: "bolt.fill"
         case .calendar: "calendar"
         case .system: "memorychip"
@@ -146,7 +148,17 @@ final class AppSettings: ObservableObject {
             tabs = NotchTab.allCases.filter { tabs.contains($0) || added.contains($0) }
         }
         store(NotchTab.allCases.map(\.rawValue), forKey: "knownTabs")
-        if widgets.isEmpty && d.stringArray(forKey: "todayWidgets") == nil { widgets = [.music, .timer, .notes, .battery, .calendar, .system] }
+        if widgets.isEmpty && d.stringArray(forKey: "todayWidgets") == nil {
+            widgets = [.music, .timer, .awake, .notes, .battery, .calendar, .system]
+        } else if !widgets.contains(.awake), d.object(forKey: "awakeWidgetOffered") == nil {
+            // One-time: show Insomnio next to the timer for existing installs.
+            if let i = widgets.firstIndex(of: .timer) {
+                widgets.insert(.awake, at: i + 1)
+            } else {
+                widgets.insert(.awake, at: min(1, widgets.count))
+            }
+            d.set(true, forKey: "awakeWidgetOffered")
+        }
     }
 
     private func store(_ value: Any, forKey key: String) {

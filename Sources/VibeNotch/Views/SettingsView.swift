@@ -291,7 +291,7 @@ private struct AgentsPage: View {
             } header: {
                 Text("Mac despierta")
             } footer: {
-                FooterText("Solo mientras Claude, Codex o Cursor están trabajando; al terminar, la Mac vuelve a dormirse como siempre. Si cierras la tapa sin monitor externo, macOS la duerme de todos modos.")
+                FooterText("Los agentes solo mantienen despierta la Mac mientras trabajan. Para un tiempo fijo (o hasta que lo apagues), y opcionalmente con la tapa cerrada, usa el widget Insomnio en Hoy, o dile «mantén despierta 2 horas». La tapa cerrada usa pmset y pide admin una vez (o aprovecha el sudoers de Insomnia si ya lo instalaste).")
             }
         }
     }

@@ -166,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        KeepAwake.shared.stopAll()
         HookServer.shared.stop()
         ClipboardStore.shared.flush()
     }

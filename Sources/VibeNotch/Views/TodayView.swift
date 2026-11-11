@@ -39,6 +39,7 @@ struct TodayView: View {
         switch w {
         case .music: MusicCard()
         case .timer: TimerCard()
+        case .awake: AwakeCard()
         case .battery: BatteryCard()
         case .calendar: CalendarCard()
         case .system: SystemCard()
@@ -231,6 +232,68 @@ struct TimerCard: View {
                     ForEach(presets, id: \.0) { minutes, name in
                         Button(name == "Pomodoro" ? "🍅 25" : "\(name) min") {
                             withAnimation(.snappy) { timer.start(minutes: minutes, label: name == "Pomodoro" ? "Pomodoro" : "Temporizador") }
+                        }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.1)))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+}
+
+struct AwakeCard: View {
+    @ObservedObject private var awake = KeepAwake.shared
+    private let presets: [(Double?, String)] = [(15, "15 m"), (30, "30 m"), (60, "1 h"), (120, "2 h"), (nil, "∞")]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CardTitle(symbol: "cup.and.saucer.fill", title: "Insomnio", tint: .orange)
+            if awake.byYou {
+                HStack(spacing: 12) {
+                    Image(systemName: awake.lidHeld ? "laptopcomputer.and.arrow.down" : "cup.and.saucer.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .symbolEffect(.pulse, isActive: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let rem = awake.remaining() {
+                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                                Text(KeepAwake.formatRemaining(awake.remaining(at: ctx.date) ?? rem))
+                                    .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
+                                    .contentTransition(.numericText(countsDown: true))
+                            }
+                            Text("Queda · luego duerme otra vez").font(.system(size: 11)).foregroundStyle(.secondary)
+                        } else {
+                            Text("Sin límite").font(.system(size: 24, weight: .semibold, design: .rounded))
+                            Text("Hasta que lo apagues").font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                if let note = awake.lidNote {
+                    Text(note).font(.system(size: 10)).foregroundStyle(awake.lidHeld ? Color.ok : .white.opacity(0.45))
+                }
+                HStack(spacing: 6) {
+                    Button("+30 m") { awake.extend(minutes: 30) }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                    Spacer()
+                    Button("Apagar") { withAnimation(.snappy) { awake.hold(false) } }
+                        .buttonStyle(PillStyle(fill: .orange, foreground: .black))
+                }
+            } else {
+                Text("La Mac no se duerme, con o sin tiempo. La tapa cerrada pide admin una vez.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Toggle(isOn: $awake.wantLid) {
+                    Label("Aguantar con tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                HStack(spacing: 6) {
+                    ForEach(presets, id: \.1) { minutes, name in
+                        Button(name) {
+                            withAnimation(.snappy) { awake.hold(true, minutes: minutes) }
                         }
                         .buttonStyle(PillStyle(fill: .white.opacity(0.1)))
                     }

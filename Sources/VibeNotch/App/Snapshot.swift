@@ -50,7 +50,7 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(200))
             m.open(.today)
             await shot("\(prefix)-7b-hoy-sistema", panel, dir, height: 420)
-            AppSettings.shared.widgets = [.music, .timer, .notes, .battery, .calendar, .system]
+            AppSettings.shared.widgets = [.music, .timer, .awake, .notes, .battery, .calendar, .system]
 
             let tools = ToolsStore.shared
             let savedPref = tools.nextToOriginal
@@ -174,7 +174,7 @@ enum Snapshot {
             Note(title: "Dirección de envío", text: "Av. Reforma 222, piso 4, CDMX", color: 0),
         ])
         AppSettings.shared.tabs = NotchTab.allCases
-        AppSettings.shared.widgets = [.music, .timer, .notes, .battery, .calendar, .system]
+        AppSettings.shared.widgets = [.music, .timer, .awake, .notes, .battery, .calendar, .system]
         agents.limits[.claude] = AgentLimits(windows: [
             LimitWindow(label: "5 h", used: 0.42, resetsAt: now.addingTimeInterval(2 * 3600 + 900)),
             LimitWindow(label: "Semana", used: 0.23, resetsAt: now.addingTimeInterval(4 * 86_400)),

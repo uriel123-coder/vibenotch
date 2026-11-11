@@ -322,6 +322,21 @@ enum VoiceAgent {
         return days.contains { t.contains(" \($0) ") }
     }
 
+    /// «mantén despierta 2 horas», «modo café media hora», «insomnio 30 minutos».
+    static func awakeMinutes(in text: String) -> Double? {
+        let t = fold(text)
+        if t.contains("media hora") || t.contains("media horita") { return 30 }
+        let pattern = #"(\d+(?:[.,]\d+)?)\s*(horas?|hrs?|h|minutos?|mins?|min)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let m = regex.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+              let amountRange = Range(m.range(at: 1), in: t),
+              let unitRange = Range(m.range(at: 2), in: t),
+              let amount = Double(t[amountRange].replacingOccurrences(of: ",", with: ".")) else { return nil }
+        let unit = t[unitRange]
+        if unit.hasPrefix("h") { return amount * 60 }
+        return amount
+    }
+
     /// «Nakach se escribe n-a-k-a-c-h», «se deletrea ene, a, ka…» or just «n-a-k-a-c-h»: the word it spells.
     static func respelling(_ order: String) -> String? {
         let t = fold(order)
@@ -580,7 +595,7 @@ enum Quick {
         case remember(String), forget(String), recall, agenda(Date), open(URL), web(URL, String), files(String)
         case skill(Skills.Skill), newSkill(String, String), listSkills, removeSkill(String)
         case pref(Habits.Key, String), person(Aliases.Fact), correct(VoiceAgent.Action), send
-        case tab(NotchTab), awake(Bool), call(Bool), reply(String), history
+        case tab(NotchTab), awake(Bool, minutes: Double?), call(Bool), reply(String), history
         case page, respell(String), unfinished(String), wrong
         var description: String {
             switch self {
@@ -592,7 +607,10 @@ enum Quick {
             case .reply(let r): "respuesta a su pregunta: \(r)"
             case .history: "lo que hizo hoy"
             case .tab(let t): "abrir la pestaña \(t.title)"
-            case .awake(let on): on ? "mantener la Mac despierta" : "dejar dormir la Mac"
+            case .awake(false, _): "dejar dormir la Mac"
+            case .awake(true, let minutes?):
+                minutes >= 60 ? "mantener la Mac despierta \(Int(minutes / 60)) h" : "mantener la Mac despierta \(Int(minutes)) min"
+            case .awake(true, _): "mantener la Mac despierta"
             case .send: "enviar el mensaje que quedó escrito"
             case .pref(let k, let v): "preferencia \(k.rawValue) = \(v)"
             case .person(let f): "persona «\(f.who)» \(f.kind) = \(f.value)"
@@ -679,10 +697,12 @@ enum Quick {
             return .agenda(VoiceAgent.date(in: order) ?? Date())
         }
         let awake = ["no dejes dormir", "no dejes que se duerma", "no dejes que la mac se duerma", "manten la mac despierta",
-                     "manten despierta", "que no se duerma", "no se duerma la mac", "modo cafe"]
-        let sleep = ["ya deja dormir", "deja dormir la mac", "ya puede dormir", "ya se puede dormir", "deja que se duerma", "quita el modo cafe"]
-        if sleep.contains(where: { t.contains($0) }) { return .awake(false) }
-        if awake.contains(where: { t.contains($0) }) { return .awake(true) }
+                     "manten despierta", "que no se duerma", "no se duerma la mac", "modo cafe", "modo insomnio", "insomnio"]
+        let sleep = ["ya deja dormir", "deja dormir la mac", "ya puede dormir", "ya se puede dormir", "deja que se duerma", "quita el modo cafe", "apaga el insomnio", "quita el insomnio"]
+        if sleep.contains(where: { t.contains($0) }) { return .awake(false, minutes: nil) }
+        if awake.contains(where: { t.contains($0) }) {
+            return .awake(true, minutes: VoiceAgent.awakeMinutes(in: t))
+        }
         if let place = rest(["abre el", "abre la", "abre mis", "abre", "muestrame el", "muestrame la", "muestrame mis", "muestrame",
                              "ensename el", "ensename la", "ensename", "ve a", "ir a", "ver el", "ver la", "ver mis"]) {
             let tabs: [(String, NotchTab)] = [("portapapeles", .clipboard), ("copiado", .clipboard), ("estante", .shelf), ("tareas", .jarvis),
@@ -950,10 +970,18 @@ enum Quick {
             a.finish(nil, linger: 0.5)
             a.dismiss()
             NotchModel.shared.open(tab)
-        case .awake(let on):
-            KeepAwake.shared.hold(on)
+        case .awake(let on, let minutes):
+            KeepAwake.shared.hold(on, minutes: minutes)
+            let detail: String = {
+                guard on else { return KeepAwake.shared.lidNote ?? "" }
+                if let m = minutes, m > 0 {
+                    let label = m >= 60 ? "\(Int(m / 60)) h" : "\(Int(m)) min"
+                    return "Durante \(label)" + (KeepAwake.shared.wantLid ? " · intenta tapa cerrada" : "")
+                }
+                return "Hasta que digas «ya deja dormir»" + (KeepAwake.shared.wantLid ? " · intenta tapa cerrada" : "")
+            }()
             a.finish(.done(symbol: on ? "cup.and.saucer.fill" : "moon.zzz.fill", title: on ? "La Mac no se dormirá" : "La Mac ya se puede dormir",
-                           detail: on ? "Hasta que me digas «ya deja dormir la Mac»" : "", bundleID: nil),
+                           detail: detail, bundleID: nil),
                      say: on ? "Listo, la Mac se queda despierta." : "Listo, ya se puede dormir.", linger: 4)
         case .send:
             guard let last = VoiceAgent.last else { return true }
