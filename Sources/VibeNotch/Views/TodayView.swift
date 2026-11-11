@@ -245,63 +245,171 @@ struct TimerCard: View {
 
 struct AwakeCard: View {
     @ObservedObject private var awake = KeepAwake.shared
-    private let presets: [(Double?, String)] = [(15, "15 m"), (30, "30 m"), (60, "1 h"), (120, "2 h"), (nil, "∞")]
+    @AppStorage("awakePickHours") private var hours = 0
+    @AppStorage("awakePickMinutes") private var minutes = 30
+    @AppStorage("awakePickInfinite") private var infinite = false
+    private let chips: [(h: Int, m: Int, label: String)] = [
+        (0, 15, "15 m"), (0, 30, "30 m"), (1, 0, "1 h"), (2, 0, "2 h"), (4, 0, "4 h"),
+    ]
+
+    private var totalMinutes: Double? {
+        if infinite { return nil }
+        let t = hours * 60 + minutes
+        return t > 0 ? Double(t) : nil
+    }
+
+    private var canStart: Bool { infinite || (hours * 60 + minutes) > 0 }
+
+    private var pickSummary: String {
+        if infinite { return "Sin límite" }
+        if hours > 0 && minutes > 0 { return "\(hours) h \(minutes) min" }
+        if hours > 0 { return hours == 1 ? "1 hora" : "\(hours) horas" }
+        if minutes > 0 { return "\(minutes) min" }
+        return "Elige un tiempo"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             CardTitle(symbol: "cup.and.saucer.fill", title: "Insomnio", tint: .orange)
             if awake.byYou {
-                HStack(spacing: 12) {
-                    Image(systemName: awake.lidHeld ? "laptopcomputer.and.arrow.down" : "cup.and.saucer.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.orange)
-                        .symbolEffect(.pulse, isActive: true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let rem = awake.remaining() {
-                            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                                Text(KeepAwake.formatRemaining(awake.remaining(at: ctx.date) ?? rem))
-                                    .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
-                                    .contentTransition(.numericText(countsDown: true))
-                            }
-                            Text("Queda · luego duerme otra vez").font(.system(size: 11)).foregroundStyle(.secondary)
-                        } else {
-                            Text("Sin límite").font(.system(size: 24, weight: .semibold, design: .rounded))
-                            Text("Hasta que lo apagues").font(.system(size: 11)).foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                if let note = awake.lidNote {
-                    Text(note).font(.system(size: 10)).foregroundStyle(awake.lidHeld ? Color.ok : .white.opacity(0.45))
-                }
-                HStack(spacing: 6) {
-                    Button("+30 m") { awake.extend(minutes: 30) }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                    Spacer()
-                    Button("Apagar") { withAnimation(.snappy) { awake.hold(false) } }
-                        .buttonStyle(PillStyle(fill: .orange, foreground: .black))
-                }
+                running
             } else {
-                Text("La Mac no se duerme, con o sin tiempo. La tapa cerrada pide admin una vez.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                Toggle(isOn: $awake.wantLid) {
-                    Label("Aguantar con tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                HStack(spacing: 6) {
-                    ForEach(presets, id: \.1) { minutes, name in
-                        Button(name) {
-                            withAnimation(.snappy) { awake.hold(true, minutes: minutes) }
-                        }
-                        .buttonStyle(PillStyle(fill: .white.opacity(0.1)))
-                    }
-                }
+                picking
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
+    }
+
+    private var picking: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(pickSummary)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(canStart ? .white : .white.opacity(0.35))
+                .contentTransition(.numericText())
+
+            HStack(spacing: 6) {
+                awakeStepper(value: $hours, range: 0...23, unit: "h", enabled: !infinite)
+                awakeStepper(value: $minutes, range: 0...59, unit: "m", step: 5, enabled: !infinite)
+                Button {
+                    withAnimation(.snappy) {
+                        infinite.toggle()
+                        if infinite { hours = 0; minutes = 0 }
+                        else if hours == 0 && minutes == 0 { minutes = 30 }
+                    }
+                } label: {
+                    Text("∞")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .frame(minWidth: 36, minHeight: 34)
+                }
+                .buttonStyle(PillStyle(fill: infinite ? .orange : .white.opacity(0.1),
+                                       foreground: infinite ? .black : .white))
+                .help("Sin límite de tiempo")
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    ForEach(chips, id: \.label) { chip in
+                        let on = !infinite && hours == chip.h && minutes == chip.m
+                        Button(chip.label) {
+                            withAnimation(.snappy) {
+                                infinite = false
+                                hours = chip.h
+                                minutes = chip.m
+                            }
+                        }
+                        .buttonStyle(PillStyle(fill: on ? .orange.opacity(0.35) : .white.opacity(0.08),
+                                               foreground: on ? .orange : .white.opacity(0.75)))
+                    }
+                }
+            }
+
+            Toggle(isOn: $awake.wantLid) {
+                Label("Tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("Pide admin una vez (o usa el sudoers de Insomnia)")
+
+            Button {
+                guard canStart else { return }
+                withAnimation(.snappy) { awake.hold(true, minutes: totalMinutes) }
+            } label: {
+                Label("Empezar", systemImage: "cup.and.saucer.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PillStyle(fill: canStart ? .orange : .white.opacity(0.08),
+                                   foreground: canStart ? .black : .white.opacity(0.35)))
+            .disabled(!canStart)
+        }
+    }
+
+    private var running: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: awake.lidHeld ? "laptopcomputer.and.arrow.down" : "cup.and.saucer.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .symbolEffect(.pulse, isActive: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    if awake.endsAt != nil {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            Text(KeepAwake.formatRemaining(awake.remaining(at: ctx.date) ?? 0))
+                                .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
+                                .contentTransition(.numericText(countsDown: true))
+                        }
+                        Text("Queda · luego duerme otra vez").font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else {
+                        Text("∞").font(.system(size: 28, weight: .semibold, design: .rounded))
+                        Text("Hasta que lo apagues").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            if let note = awake.lidNote {
+                Text(note).font(.system(size: 10)).foregroundStyle(awake.lidHeld ? Color.ok : .white.opacity(0.45))
+            }
+            HStack(spacing: 6) {
+                Button("+15 m") { awake.extend(minutes: 15) }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                Button("+1 h") { awake.extend(minutes: 60) }
+                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                Spacer()
+                Button("Terminar") { withAnimation(.snappy) { awake.hold(false) } }
+                    .buttonStyle(PillStyle(fill: .orange, foreground: .black))
+            }
+        }
+    }
+
+    private func awakeStepper(value: Binding<Int>, range: ClosedRange<Int>, unit: String,
+                              step: Int = 1, enabled: Bool) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
+            } label: {
+                Image(systemName: "minus").font(.system(size: 9, weight: .bold)).frame(width: 22, height: 34)
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled || value.wrappedValue <= range.lowerBound)
+
+            Text("\(value.wrappedValue)\(unit)")
+                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                .frame(minWidth: 36)
+                .opacity(enabled ? 1 : 0.35)
+
+            Button {
+                value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
+            } label: {
+                Image(systemName: "plus").font(.system(size: 9, weight: .bold)).frame(width: 22, height: 34)
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled || value.wrappedValue >= range.upperBound)
+        }
+        .foregroundStyle(.white.opacity(enabled ? 0.9 : 0.35))
+        .padding(.horizontal, 2)
+        .background(Capsule().fill(.white.opacity(enabled ? 0.1 : 0.05)))
+        .opacity(enabled ? 1 : 0.7)
     }
 }
 
