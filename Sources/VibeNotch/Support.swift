@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 enum Paths {
@@ -188,4 +189,43 @@ extension Color {
     static let ok = Color(red: 0.36, green: 0.86, blue: 0.52)
     static let warn = Color(red: 1.0, green: 0.62, blue: 0.22)
     static let danger = Color(red: 1.0, green: 0.36, blue: 0.36)
+}
+
+/// Removes the app from this Mac without asking the user to delete it by hand.
+@MainActor
+enum Uninstaller {
+    static func confirmAndRemove() {
+        let alert = NSAlert()
+        alert.messageText = "¿Quitar VibeNotch de esta Mac?"
+        alert.informativeText = "Se cierra la app, se apaga el arranque al iniciar y se mueve VibeNotch a la Papelera (también borra sus datos locales)."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quitar")
+        alert.addButton(withTitle: "Cancelar")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        remove()
+    }
+
+    static func remove() {
+        KeepAwake.shared.stopAll()
+        HookServer.shared.stop()
+        try? SMAppService.mainApp.unregister()
+
+        let fm = FileManager.default
+        try? fm.removeItem(at: Paths.bridge)
+        try? fm.removeItem(at: Paths.support)
+        UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.urielnak.vibenotch")
+
+        let appURL = Bundle.main.bundleURL
+        DispatchQueue.main.async {
+            NSWorkspace.shared.recycle([appURL]) { _, error in
+                if let error {
+                    let a = NSAlert(error: error)
+                    a.messageText = "No pude mover la app a la Papelera"
+                    a.informativeText = "Ciérrala y bórrala tú desde /Applications, o corre el script de desinstalación del README."
+                    a.runModal()
+                }
+                NSApp.terminate(nil)
+            }
+        }
+    }
 }

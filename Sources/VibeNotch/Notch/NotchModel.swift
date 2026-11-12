@@ -88,12 +88,14 @@ final class NotchModel: ObservableObject {
     var onClose: (() -> Void)?
 
     var island: Bool { !hasNotch }
+    /// Almost-invisible corner control: no live badges, only opens on click / 3 s hover.
+    var punto: Bool { AppSettings.shared.style == .punto }
 
     var radii: (top: CGFloat, bottom: CGFloat) {
         if Prompter.shared.active || Dictation.shared.active || Assistant.shared.visible { return island ? (0, 24) : (14, 26) }
         if island {
             switch state {
-            case .closed: return (0, 15)
+            case .closed: return (0, punto ? 4 : 15)
             case .peek: return (0, 22)
             case .open: return (0, 24)
             }
@@ -114,6 +116,8 @@ final class NotchModel: ObservableObject {
     var ringing: Bool { WhatsAppCalls.shared.call?.phase == .ringing }
 
     var showsIndicators: Bool {
+        // Punto líquido never advertises work on the collapsed control.
+        if punto { return false }
         if fullscreen {
             return hasLiveActivity || !AgentStore.shared.asks.isEmpty || ringing || announcement?.style == .attention
         }
@@ -121,7 +125,10 @@ final class NotchModel: ObservableObject {
     }
 
     /// Tiny pill that tells people without a notch where VibeNotch lives.
-    var showsHandle: Bool { island && AppSettings.shared.islandHandle && !fullscreen }
+    var showsHandle: Bool {
+        if punto { return !fullscreen }
+        return island && AppSettings.shared.islandHandle && !fullscreen
+    }
 
     var sideWidth: CGFloat { TimerStore.shared.isActive ? 52 : 34 }
 
@@ -157,6 +164,7 @@ final class NotchModel: ObservableObject {
         }
         switch state {
         case .closed:
+            if punto { return CGSize(width: 7, height: 7) }
             if island {
                 if showsIndicators { return CGSize(width: 260, height: 30) }
                 return showsHandle ? CGSize(width: 64, height: 6) : CGSize(width: 120, height: 0)
@@ -200,7 +208,8 @@ final class NotchModel: ObservableObject {
 
     func announce(_ a: Announcement, for seconds: Double = 4.5) {
         announcement = a
-        if state == .closed { state = .peek }
+        // Punto líquido stays quiet unless it needs attention (or you open it yourself).
+        if state == .closed, !punto || a.style == .attention { state = .peek }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
             let m = NotchModel.shared

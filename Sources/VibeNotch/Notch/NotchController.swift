@@ -209,7 +209,12 @@ final class NotchController {
         } else {
             let style = AppSettings.shared.style
             let notch = style == .notch || (style == .auto && real != nil)
-            if notch {
+            if style == .punto {
+                // Floating corner control (top-right, near Control Center) — never a fake notch.
+                model.notchSize = CGSize(width: 150, height: max(24, menuBar))
+                model.hasNotch = false
+                model.islandTop = menuBar + 4
+            } else if notch {
                 // Displays without a camera housing get a notch drawn over the middle of the menu bar.
                 model.notchSize = real ?? CGSize(width: 190, height: max(24, menuBar > 0 ? menuBar : 32))
                 model.hasNotch = true
@@ -221,12 +226,19 @@ final class NotchController {
             }
         }
         let w: CGFloat = 800, h: CGFloat = 480
-        panel.setFrame(NSRect(x: f.midX - w / 2, y: f.maxY - h, width: w, height: h), display: true)
+        // Punto líquido anchors to the top-right so it doesn't sit over the whole menu bar.
+        let x = model.punto ? f.maxX - w - 4 : f.midX - w / 2
+        panel.setFrame(NSRect(x: x, y: f.maxY - h, width: w, height: h), display: true)
     }
 
     private func rect(_ size: CGSize) -> NSRect {
         let f = screen.frame
-        return NSRect(x: f.midX - size.width / 2, y: f.maxY - model.islandTop - size.height, width: size.width, height: size.height)
+        let y = f.maxY - model.islandTop - size.height
+        if model.punto {
+            // Trailing corner, clear of the left side and away from the busy center strip.
+            return NSRect(x: f.maxX - size.width - 16, y: y, width: size.width, height: size.height)
+        }
+        return NSRect(x: f.midX - size.width / 2, y: y, width: size.width, height: size.height)
     }
 
     /// Zone that wakes the collapsed notch/island: the notch itself, or the center of the menu bar on Macs without one.
@@ -234,6 +246,11 @@ final class NotchController {
     /// plain `NSRect.contains` treats as outside.
     private func wakeZone() -> NSRect {
         let f = screen.frame
+        if model.punto {
+            // Tiny corner only — moving across the menu bar must not pop it open.
+            let r = rect(model.size()).insetBy(dx: -14, dy: -14)
+            return r.union(NSRect(x: r.minX, y: f.maxY - 6, width: r.width, height: 10))
+        }
         if model.island {
             let h = max(model.islandTop, 14)
             let strip = NSRect(x: f.midX - 150, y: f.maxY - h, width: 300, height: h + 4)
@@ -258,10 +275,13 @@ final class NotchController {
 
     private var hiddenByFullscreen: Bool { model.fullscreen && !model.showsIndicators }
 
-    /// Over a fullscreen app only the very top edge in the middle wakes VibeNotch, so moving around the
+    /// Over a fullscreen app only the very top edge wakes VibeNotch, so moving around the
     /// app's own toolbar doesn't pop it open.
     private func fullscreenZone() -> NSRect {
         let f = screen.frame
+        if model.punto {
+            return NSRect(x: f.maxX - 40, y: f.maxY - 4, width: 36, height: 8)
+        }
         return NSRect(x: f.midX - 130, y: f.maxY - 3, width: 260, height: 7)
     }
 
@@ -431,7 +451,12 @@ final class NotchController {
                         guard let self else { return }
                         self.hoverWork = nil
                         if self.model.state == .closed {
-                            self.model.state = .peek
+                            // Punto líquido opens the panel; peek would still flash “está trabajando”.
+                            if self.model.punto {
+                                self.model.open()
+                            } else {
+                                self.model.state = .peek
+                            }
                             self.model.engaged = true
                         }
                     }
@@ -441,7 +466,8 @@ final class NotchController {
                 // Wait ~3 s so the user can still click menus; intentional clicks still open right away.
                 let delay: Double = {
                     if hiddenByFullscreen { return AppSettings.shared.hoverDelay + 0.35 }
-                    if model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
+                    // Punto / isla: wait so menus behind stay clickable; a direct click still opens now.
+                    if model.punto || model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
                     return AppSettings.shared.hoverDelay
                 }()
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)

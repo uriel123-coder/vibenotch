@@ -19,6 +19,7 @@ struct NotchRootView: View {
         let shape = NotchShape(topRadius: r.top, bottomRadius: r.bottom, island: model.island)
         let hidden = model.island && model.state == .closed && !model.showsIndicators && !model.showsHandle
             && !assistant.visible && !dictation.active && !prompter.active
+        let puntoDot = model.punto && model.state == .closed && !assistant.visible && !dictation.active && !prompter.active
 
         ZStack(alignment: .top) {
             shape.fill(.black)
@@ -40,14 +41,15 @@ struct NotchRootView: View {
             .transition(.blurFade)
             .padding(.horizontal, r.top)
             .frame(width: size.width, height: size.height, alignment: .top)
+            .opacity(puntoDot ? 0 : 1)
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
-        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : model.island ? 0.1 : 0), lineWidth: 1))
+        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : (model.island && !puntoDot ? 0.1 : 0)), lineWidth: 1))
         .overlay(SiriGlow(shape: shape, active: (assistant.phase == .listening && dictation.mode != .type) || assistant.busy || assistant.speaking))
         .background(
             shape.fill(.black)
-                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : 0.5), radius: 22, y: 10)
+                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : (puntoDot ? 0 : 0.5)), radius: 22, y: 10)
         )
         .contentShape(shape)
         .onTapGesture { if model.state != .open && !prompter.active && !dictation.active && !assistant.visible { model.open() } }
@@ -61,9 +63,10 @@ struct NotchRootView: View {
             if hovering && !(model.state == .open && model.tab == .tools) { model.open(.shelf) }
         }
         .scaleEffect(hidden ? 0.6 : 1, anchor: .top)
-        .opacity(hidden ? 0 : 1)
+        .opacity(hidden ? 0 : (puntoDot ? 0.12 : 1))
         .padding(.top, model.islandTop)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.trailing, model.punto ? 16 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.punto ? .topTrailing : .top)
         .animation(.notch, value: model.state)
         .animation(.notch, value: size)
         .animation(.notch, value: hidden)

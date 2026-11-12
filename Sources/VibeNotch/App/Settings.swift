@@ -29,13 +29,14 @@ enum TodayWidget: String, CaseIterable, Identifiable {
 }
 
 enum NotchStyle: String, CaseIterable, Identifiable {
-    case auto, notch, island
+    case auto, notch, island, punto
     var id: String { rawValue }
     var title: String {
         switch self {
         case .auto: "Automático"
         case .notch: "Notch"
         case .island: "Isla flotante"
+        case .punto: "Punto líquido"
         }
     }
 }

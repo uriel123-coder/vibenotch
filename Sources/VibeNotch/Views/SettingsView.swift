@@ -127,7 +127,7 @@ private struct GeneralPage: View {
             } header: {
                 Text("Apariencia")
             } footer: {
-                FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante debajo de la barra de menús si no.")
+                FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante si no. Punto líquido es un puntito casi invisible en la esquina superior derecha (como el Centro de control): no muestra que hay agentes trabajando; clic o 3 s con el mouse lo abre.")
             }
 
             Section {
@@ -143,11 +143,12 @@ private struct GeneralPage: View {
                     .fixedSize()
                 }
                 Toggle("Mostrar una pequeña asa cuando la isla está vacía", isOn: $s.islandHandle)
+                    .disabled(s.style == .punto)
                 Toggle("Mostrar dónde soltar al arrastrar archivos", isOn: $s.dropHint)
             } header: {
                 Text("Cómo se abre")
             } footer: {
-                FooterText("En isla flotante (sin notch) siempre espera al menos 3 s al pasar el mouse, para que puedas hacer clic en los menús de atrás. Un clic en la isla abre al instante.")
+                FooterText("En isla y en punto líquido siempre espera al menos 3 s al pasar el mouse, para no molestar. Un clic abre al instante.")
             }
 
             Section("Sistema") {
@@ -165,6 +166,15 @@ private struct GeneralPage: View {
                 LabeledContent("Buscar archivos", value: "⌃⌥F")
                 LabeledContent("Copiar guardado 1…9", value: "⌃⌥1 … ⌃⌥9")
                 LabeledContent("Cerrar", value: "esc")
+            }
+
+            Section {
+                Button("Salir de VibeNotch") { NSApp.terminate(nil) }
+                Button("Quitar VibeNotch de esta Mac…", role: .destructive) { Uninstaller.confirmAndRemove() }
+            } header: {
+                Text("Quitar")
+            } footer: {
+                FooterText("Salir solo cierra la app. Quitar la desinstala (app, arranque al iniciar y datos), sin tener que borrarla a mano.")
             }
         }
     }

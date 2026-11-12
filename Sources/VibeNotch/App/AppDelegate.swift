@@ -285,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })
         menu.addItem(.separator())
         menu.addItem(item("Salir de VibeNotch", key: "q") { NSApp.terminate(nil) })
+        menu.addItem(item("Quitar VibeNotch de esta Mac…") { Uninstaller.confirmAndRemove() })
     }
 
     private func item(_ title: String, key: String = "", checked: Bool = false, _ action: @escaping () -> Void) -> NSMenuItem {
