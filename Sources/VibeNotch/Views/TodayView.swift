@@ -245,37 +245,43 @@ struct TimerCard: View {
 
 struct AwakeCard: View {
     @ObservedObject private var awake = KeepAwake.shared
+    @AppStorage("awakePickDays") private var days = 0
     @AppStorage("awakePickHours") private var hours = 0
     @AppStorage("awakePickMinutes") private var minutes = 30
     @AppStorage("awakePickInfinite") private var infinite = false
-    private let chips: [(h: Int, m: Int, label: String)] = [
-        (0, 15, "15 m"), (0, 30, "30 m"), (1, 0, "1 h"), (2, 0, "2 h"), (4, 0, "4 h"),
+
+    private struct Chip: Identifiable {
+        let id: String
+        let d: Int, h: Int, m: Int
+        var label: String { id }
+    }
+    private let chips: [Chip] = [
+        .init(id: "15 m", d: 0, h: 0, m: 15), .init(id: "1 h", d: 0, h: 1, m: 0),
+        .init(id: "4 h", d: 0, h: 4, m: 0), .init(id: "1 d", d: 1, h: 0, m: 0),
+        .init(id: "3 d", d: 3, h: 0, m: 0), .init(id: "∞", d: -1, h: 0, m: 0),
     ]
 
     private var totalMinutes: Double? {
         if infinite { return nil }
-        let t = hours * 60 + minutes
+        let t = days * 24 * 60 + hours * 60 + minutes
         return t > 0 ? Double(t) : nil
     }
 
-    private var canStart: Bool { infinite || (hours * 60 + minutes) > 0 }
+    private var canStart: Bool { infinite || (days + hours + minutes) > 0 }
 
     private var pickSummary: String {
-        if infinite { return "Sin límite" }
-        if hours > 0 && minutes > 0 { return "\(hours) h \(minutes) min" }
-        if hours > 0 { return hours == 1 ? "1 hora" : "\(hours) horas" }
-        if minutes > 0 { return "\(minutes) min" }
-        return "Elige un tiempo"
+        if infinite { return "∞ Sin límite" }
+        var parts: [String] = []
+        if days > 0 { parts.append(days == 1 ? "1 día" : "\(days) días") }
+        if hours > 0 { parts.append(hours == 1 ? "1 h" : "\(hours) h") }
+        if minutes > 0 { parts.append("\(minutes) min") }
+        return parts.isEmpty ? "Elige un tiempo" : parts.joined(separator: " · ")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             CardTitle(symbol: "cup.and.saucer.fill", title: "Insomnio", tint: .orange)
-            if awake.byYou {
-                running
-            } else {
-                picking
-            }
+            if awake.byYou { running } else { picking }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
@@ -284,45 +290,46 @@ struct AwakeCard: View {
     private var picking: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(pickSummary)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundStyle(canStart ? .white : .white.opacity(0.35))
-                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
 
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                awakeStepper(value: $days, range: 0...30, unit: "d", enabled: !infinite)
                 awakeStepper(value: $hours, range: 0...23, unit: "h", enabled: !infinite)
                 awakeStepper(value: $minutes, range: 0...59, unit: "m", step: 5, enabled: !infinite)
-                Button {
-                    withAnimation(.snappy) {
-                        infinite.toggle()
-                        if infinite { hours = 0; minutes = 0 }
-                        else if hours == 0 && minutes == 0 { minutes = 30 }
-                    }
-                } label: {
-                    Text("∞")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .frame(minWidth: 36, minHeight: 34)
-                }
-                .buttonStyle(PillStyle(fill: infinite ? .orange : .white.opacity(0.1),
-                                       foreground: infinite ? .black : .white))
-                .help("Sin límite de tiempo")
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
-                    ForEach(chips, id: \.label) { chip in
-                        let on = !infinite && hours == chip.h && minutes == chip.m
+                    ForEach(chips) { chip in
+                        let isInf = chip.d < 0
+                        let on = isInf ? infinite : (!infinite && days == chip.d && hours == chip.h && minutes == chip.m)
                         Button(chip.label) {
                             withAnimation(.snappy) {
-                                infinite = false
-                                hours = chip.h
-                                minutes = chip.m
+                                if isInf {
+                                    infinite = true
+                                    days = 0; hours = 0; minutes = 0
+                                } else {
+                                    infinite = false
+                                    days = chip.d; hours = chip.h; minutes = chip.m
+                                }
                             }
                         }
-                        .buttonStyle(PillStyle(fill: on ? .orange.opacity(0.35) : .white.opacity(0.08),
+                        .buttonStyle(PillStyle(fill: on ? .orange.opacity(0.4) : .white.opacity(0.08),
                                                foreground: on ? .orange : .white.opacity(0.75)))
                     }
                 }
             }
+
+            Toggle(isOn: $awake.wantEco) {
+                Label("Ahorrar batería", systemImage: "leaf.fill")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("Low Power Mode si se puede; la pantalla puede apagarse; casi sin timers")
 
             Toggle(isOn: $awake.wantLid) {
                 Label("Tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
@@ -330,13 +337,13 @@ struct AwakeCard: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-            .help("Pide admin una vez (o usa el sudoers de Insomnia)")
 
             Button {
                 guard canStart else { return }
-                withAnimation(.snappy) { awake.hold(true, minutes: totalMinutes) }
+                // ∞ must pass nil explicitly (not 0).
+                withAnimation(.snappy) { awake.hold(true, minutes: infinite ? nil : totalMinutes) }
             } label: {
-                Label("Empezar", systemImage: "cup.and.saucer.fill")
+                Label(infinite ? "Empezar ∞" : "Empezar", systemImage: "cup.and.saucer.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PillStyle(fill: canStart ? .orange : .white.opacity(0.08),
@@ -347,22 +354,24 @@ struct AwakeCard: View {
 
     private var running: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: awake.lidHeld ? "laptopcomputer.and.arrow.down" : "cup.and.saucer.fill")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.orange)
-                    .symbolEffect(.pulse, isActive: true)
+                    .symbolEffect(.pulse, isActive: !awake.wantEco)
                 VStack(alignment: .leading, spacing: 2) {
-                    if awake.endsAt != nil {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    if awake.isInfinite {
+                        Text("∞").font(.system(size: 26, weight: .semibold, design: .rounded))
+                        Text("Hasta que lo apagues").font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else {
+                        TimelineView(.periodic(from: .now, by: awake.wantEco ? 15 : 1)) { ctx in
                             Text(KeepAwake.formatRemaining(awake.remaining(at: ctx.date) ?? 0))
-                                .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
+                                .font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
                                 .contentTransition(.numericText(countsDown: true))
                         }
-                        Text("Queda · luego duerme otra vez").font(.system(size: 11)).foregroundStyle(.secondary)
-                    } else {
-                        Text("∞").font(.system(size: 28, weight: .semibold, design: .rounded))
-                        Text("Hasta que lo apagues").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text("Luego duerme otra vez").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 0)
@@ -370,11 +379,16 @@ struct AwakeCard: View {
             if let note = awake.lidNote {
                 Text(note).font(.system(size: 10)).foregroundStyle(awake.lidHeld ? Color.ok : .white.opacity(0.45))
             }
+            if let eco = awake.ecoNote {
+                Text(eco).font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+            }
             HStack(spacing: 6) {
-                Button("+15 m") { awake.extend(minutes: 15) }
-                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
-                Button("+1 h") { awake.extend(minutes: 60) }
-                    .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                if !awake.isInfinite {
+                    Button("+1 h") { awake.extend(minutes: 60) }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                    Button("+1 d") { awake.extend(minutes: 24 * 60) }
+                        .buttonStyle(PillStyle(fill: .white.opacity(0.12)))
+                }
                 Spacer()
                 Button("Terminar") { withAnimation(.snappy) { awake.hold(false) } }
                     .buttonStyle(PillStyle(fill: .orange, foreground: .black))
@@ -387,29 +401,30 @@ struct AwakeCard: View {
         HStack(spacing: 0) {
             Button {
                 value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
+                if enabled { infinite = false }
             } label: {
-                Image(systemName: "minus").font(.system(size: 9, weight: .bold)).frame(width: 22, height: 34)
+                Image(systemName: "minus").font(.system(size: 9, weight: .bold)).frame(width: 20, height: 32)
             }
             .buttonStyle(.plain)
             .disabled(!enabled || value.wrappedValue <= range.lowerBound)
 
             Text("\(value.wrappedValue)\(unit)")
-                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
-                .frame(minWidth: 36)
+                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                .frame(minWidth: 28)
                 .opacity(enabled ? 1 : 0.35)
 
             Button {
                 value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
+                if enabled { infinite = false }
             } label: {
-                Image(systemName: "plus").font(.system(size: 9, weight: .bold)).frame(width: 22, height: 34)
+                Image(systemName: "plus").font(.system(size: 9, weight: .bold)).frame(width: 20, height: 32)
             }
             .buttonStyle(.plain)
             .disabled(!enabled || value.wrappedValue >= range.upperBound)
         }
         .foregroundStyle(.white.opacity(enabled ? 0.9 : 0.35))
-        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity)
         .background(Capsule().fill(.white.opacity(enabled ? 0.1 : 0.05)))
-        .opacity(enabled ? 1 : 0.7)
     }
 }
 

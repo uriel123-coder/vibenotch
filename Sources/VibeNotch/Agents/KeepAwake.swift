@@ -3,34 +3,41 @@ import Foundation
 import IOKit.pwr_mgt
 
 /// Keeps the Mac awake while agents work, or for a manual “insomnio” session
-/// (with or without a timer). Optional closed-lid mode uses `pmset disablesleep`
-/// (needs admin once, or a passwordless sudoers rule like Insomnia’s).
+/// (with or without a timer). Optional closed-lid mode uses `pmset disablesleep`.
+/// Eco mode prefers Low Power Mode and never holds the display awake.
 @MainActor
 final class KeepAwake: ObservableObject {
     static let shared = KeepAwake()
 
     @Published private(set) var active = false
-    /// You asked for it («no dejes dormir» / widget Insomnio).
     @Published private(set) var byYou = false
-    /// When the manual session ends; `nil` while byYou means until you stop it.
+    /// `nil` while byYou means unlimited (until you stop it).
     @Published private(set) var endsAt: Date?
-    /// `pmset -a disablesleep 1` is on because we set it for this session.
     @Published private(set) var lidHeld = false
     @Published private(set) var lidNote: String?
-    /// Prefer closed-lid for the next / current manual session.
+    @Published private(set) var ecoNote: String?
+
     @Published var wantLid = false {
         didSet { UserDefaults.standard.set(wantLid, forKey: "awakeWantLid") }
+    }
+    /// Low Power Mode + no display hold + sparse UI ticks. Default on.
+    @Published var wantEco = true {
+        didSet { UserDefaults.standard.set(wantEco, forKey: "awakeWantEco") }
     }
 
     private var agentID: IOPMAssertionID = 0
     private var agentKind: String?
     private var youID: IOPMAssertionID = 0
     private var weDisabledSleep = false
+    private var weSetLPM = false
     private var bag: Set<AnyCancellable> = []
     private var tick: Timer?
 
     func start() {
-        wantLid = UserDefaults.standard.bool(forKey: "awakeWantLid")
+        let d = UserDefaults.standard
+        wantLid = d.bool(forKey: "awakeWantLid")
+        if d.object(forKey: "awakeWantEco") == nil { wantEco = true }
+        else { wantEco = d.bool(forKey: "awakeWantEco") }
         let s = AppSettings.shared
         AgentStore.shared.$sessions
             .map { $0.values.contains { $0.status == .working } }
@@ -42,25 +49,27 @@ final class KeepAwake: ObservableObject {
             .store(in: &bag)
     }
 
-    /// Screenshots show the indicator without taking a real power assertion.
     func demo() {
         active = true
         byYou = true
     }
+
+    var isInfinite: Bool { byYou && endsAt == nil }
 
     func remaining(at now: Date = .now) -> TimeInterval? {
         guard byYou, let ends = endsAt else { return nil }
         return max(0, ends.timeIntervalSince(now))
     }
 
-    /// Manual session. `minutes == nil` (or ≤ 0) keeps the Mac awake until you stop it.
+    /// `minutes == nil` (or ≤ 0) = unlimited until you stop it.
     func hold(_ on: Bool, minutes: Double? = nil, lid: Bool? = nil, screen: Bool? = nil) {
         if !on {
             endYou()
             return
         }
         let useLid = lid ?? wantLid
-        let useScreen = screen ?? AppSettings.shared.keepScreenOn
+        // Eco never holds the display; otherwise respect the setting / override.
+        let useScreen = wantEco ? false : (screen ?? AppSettings.shared.keepScreenOn)
         let deadline: Date? = {
             guard let m = minutes, m > 0, m.isFinite else { return nil }
             return Date().addingTimeInterval(m * 60)
@@ -74,9 +83,9 @@ final class KeepAwake: ObservableObject {
         endsAt = base.addingTimeInterval(minutes * 60)
         renewYouTimeout()
         scheduleTick()
+        objectWillChange.send()
     }
 
-    /// Drop every hold we own (quit / terminate).
     func stopAll() {
         endYou()
         if agentKind != nil {
@@ -102,12 +111,22 @@ final class KeepAwake: ObservableObject {
                 kIOPMAssertionTypeKey: type,
                 kIOPMAssertionLevelKey: IOPMAssertionLevel(kIOPMAssertionLevelOn),
                 kIOPMAssertionNameKey: name,
-                kIOPMAssertionTimeoutKey: Int(timeout.rounded(.up)) as CFNumber,
+                kIOPMAssertionTimeoutKey: Int(min(timeout.rounded(.up), Double(Int32.max))) as CFNumber,
                 kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionTurnOff,
             ]
             ok = IOPMAssertionCreateWithProperties(props as CFDictionary, &id) == kIOReturnSuccess
         } else {
-            ok = IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), name, &id) == kIOReturnSuccess
+            // Unlimited: no timeout. Also pin a 30-day safety timeout we renew, so macOS
+            // never silently drops a nameless hold on some builds.
+            let props: [String: Any] = [
+                kIOPMAssertionTypeKey: type,
+                kIOPMAssertionLevelKey: IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                kIOPMAssertionNameKey: name,
+                kIOPMAssertionTimeoutKey: 30 * 86_400 as CFNumber,
+                kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionTurnOff,
+            ]
+            ok = IOPMAssertionCreateWithProperties(props as CFDictionary, &id) == kIOReturnSuccess
+                || IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), name, &id) == kIOReturnSuccess
         }
         guard ok else {
             byYou = false
@@ -120,10 +139,16 @@ final class KeepAwake: ObservableObject {
         byYou = true
         endsAt = deadline
         lidNote = nil
+        ecoNote = wantEco ? "Eco: pantalla puede apagarse · Low Power si se puede" : nil
         if lid {
             Task { await self.enableLidSleepBlock() }
         } else {
             clearLidIfOurs()
+        }
+        if wantEco {
+            Task { await self.enableEco() }
+        } else {
+            clearEcoIfOurs()
         }
         scheduleTick()
         refreshActive()
@@ -132,9 +157,11 @@ final class KeepAwake: ObservableObject {
     private func endYou() {
         endYouAssertionOnly()
         clearLidIfOurs()
+        clearEcoIfOurs()
         byYou = false
         endsAt = nil
         lidNote = nil
+        ecoNote = nil
         tick?.invalidate()
         tick = nil
         refreshActive()
@@ -148,25 +175,42 @@ final class KeepAwake: ObservableObject {
     }
 
     private func renewYouTimeout() {
-        guard byYou, let ends = endsAt else { return }
-        let timeout = max(1, ends.timeIntervalSinceNow)
-        _ = IOPMAssertionSetProperty(youID, kIOPMAssertionTimeoutKey as CFString, Int(timeout.rounded(.up)) as CFNumber)
+        guard byYou else { return }
+        let timeout: TimeInterval
+        if let ends = endsAt {
+            timeout = max(1, ends.timeIntervalSinceNow)
+        } else {
+            timeout = 30 * 86_400
+        }
+        _ = IOPMAssertionSetProperty(youID, kIOPMAssertionTimeoutKey as CFString,
+                                     Int(min(timeout.rounded(.up), Double(Int32.max))) as CFNumber)
     }
 
     private func scheduleTick() {
         tick?.invalidate()
+        tick = nil
         guard byYou else { return }
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+        // Unlimited: renew assertion once an hour, no 1 Hz UI churn.
+        if endsAt == nil {
+            tick = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+                MainActor.assumeIsolated { KeepAwake.shared.renewYouTimeout() }
+            }
+            if let tick { RunLoop.main.add(tick, forMode: .common) }
+            return
+        }
+        // Timed: sparse ticks save battery; UI uses TimelineView only while the card is open.
+        tick = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
             MainActor.assumeIsolated {
                 let k = KeepAwake.shared
                 if let ends = k.endsAt, ends <= Date() {
                     k.endYou()
                 } else {
+                    k.renewYouTimeout()
                     k.objectWillChange.send()
                 }
             }
         }
-        RunLoop.main.add(tick!, forMode: .common)
+        if let tick { RunLoop.main.add(tick, forMode: .common) }
     }
 
     // MARK: - Agents
@@ -194,14 +238,14 @@ final class KeepAwake: ObservableObject {
         active = agentKind != nil || byYou
     }
 
-    // MARK: - Closed lid (`pmset disablesleep`)
+    // MARK: - Closed lid
 
     private func enableLidSleepBlock() async {
         do {
             try await Self.setDisableSleep(true)
             weDisabledSleep = true
             lidHeld = true
-            lidNote = "Con tapa cerrada también (pmset)"
+            lidNote = "Tapa cerrada OK"
         } catch {
             lidHeld = false
             lidNote = error.localizedDescription
@@ -215,12 +259,30 @@ final class KeepAwake: ObservableObject {
         }
         weDisabledSleep = false
         lidHeld = false
-        Task.detached {
-            try? await KeepAwake.setDisableSleep(false)
+        Task.detached { try? await KeepAwake.setDisableSleep(false) }
+    }
+
+    // MARK: - Eco (Low Power Mode)
+
+    private func enableEco() async {
+        do {
+            let wasOn = try await Self.isLowPowerModeOn()
+            if !wasOn {
+                try await Self.setLowPowerMode(true)
+                weSetLPM = true
+            }
+            ecoNote = "Eco activo · poca batería"
+        } catch {
+            ecoNote = "Eco: sin Low Power (falta permiso); pantalla sí puede dormir"
         }
     }
 
-    /// Prefer passwordless `sudo -n` (Insomnia’s sudoers or your own); else one admin prompt via osascript.
+    private func clearEcoIfOurs() {
+        guard weSetLPM else { return }
+        weSetLPM = false
+        Task.detached { try? await KeepAwake.setLowPowerMode(false) }
+    }
+
     nonisolated private static func setDisableSleep(_ on: Bool) async throws {
         let flag = on ? "1" : "0"
         if try await run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-a", "disablesleep", flag]) {
@@ -232,6 +294,30 @@ final class KeepAwake: ObservableObject {
             throw LidAwakeError("Hace falta permiso de administrador para aguantar con la tapa cerrada")
         }
         if on { try await verifySleepDisabled() }
+    }
+
+    nonisolated private static func setLowPowerMode(_ on: Bool) async throws {
+        let flag = on ? "1" : "0"
+        if try await run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-b", "lowpowermode", flag]) { return }
+        let script = "do shell script \"/usr/bin/pmset -b lowpowermode \(flag)\" with administrator privileges"
+        guard try await run("/usr/bin/osascript", ["-e", script]) else {
+            throw LidAwakeError("Sin permiso para Low Power Mode")
+        }
+    }
+
+    nonisolated private static func isLowPowerModeOn() async throws -> Bool {
+        let out = try await capture("/usr/bin/pmset", ["-g", "custom"])
+        var inBattery = false
+        for raw in out.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasSuffix(":") { inBattery = line == "Battery Power:"; continue }
+            guard inBattery else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard let key = parts.first, parts.count >= 2 else { continue }
+            if key == "lowpowermode" { return parts[1] == "1" }
+            if key == "powermode" { return parts[1] == "1" }
+        }
+        return false
     }
 
     nonisolated private static func verifySleepDisabled() async throws {
@@ -248,7 +334,7 @@ final class KeepAwake: ObservableObject {
     @discardableResult
     nonisolated private static func run(_ path: String, _ args: [String]) async throws -> Bool {
         try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: path)
                 p.arguments = args
@@ -267,7 +353,7 @@ final class KeepAwake: ObservableObject {
 
     nonisolated private static func capture(_ path: String, _ args: [String]) async throws -> String {
         try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: path)
                 p.arguments = args
@@ -277,8 +363,7 @@ final class KeepAwake: ObservableObject {
                 do {
                     try p.run()
                     p.waitUntilExit()
-                    let data = out.fileHandleForReading.readDataToEndOfFile()
-                    cont.resume(returning: String(data: data, encoding: .utf8) ?? "")
+                    cont.resume(returning: String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
                 } catch {
                     cont.resume(throwing: error)
                 }
@@ -286,11 +371,19 @@ final class KeepAwake: ObservableObject {
         }
     }
 
-    static func formatRemaining(_ s: TimeInterval) -> String {
+    /// Full countdown for the card; `compact` fits the collapsed notch.
+    static func formatRemaining(_ s: TimeInterval, compact: Bool = false) -> String {
         let t = max(0, Int(s.rounded()))
-        let h = t / 3600
+        let d = t / 86_400
+        let h = (t % 86_400) / 3600
         let m = (t % 3600) / 60
         let sec = t % 60
+        if compact {
+            if d > 0 { return h > 0 ? "\(d)d \(h)h" : "\(d)d" }
+            if h > 0 { return m > 0 ? "\(h)h \(m)m" : "\(h)h" }
+            return String(format: "%d:%02d", m, sec)
+        }
+        if d > 0 { return String(format: "%dd %d:%02d:%02d", d, h, m, sec) }
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
         return String(format: "%d:%02d", m, sec)
     }

@@ -130,7 +130,12 @@ final class NotchModel: ObservableObject {
         return island && AppSettings.shared.islandHandle && !fullscreen
     }
 
-    var sideWidth: CGFloat { TimerStore.shared.isActive ? 52 : 34 }
+    var sideWidth: CGFloat {
+        if KeepAwake.shared.byYou {
+            return KeepAwake.shared.isInfinite ? 40 : 58
+        }
+        return TimerStore.shared.isActive ? 52 : 34
+    }
 
     /// Height of the ask card in the peek, which grows with the number of questions and options.
     private func askHeight(_ ask: PermissionAsk) -> CGFloat {

@@ -151,14 +151,15 @@ struct LiveIndicators {
         } else if working > 1 {
             Text("\(working)").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.8))
         } else if awake.byYou {
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                if let rem = awake.remaining(at: ctx.date) {
-                    Text(KeepAwake.formatRemaining(rem))
-                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+            if awake.isInfinite {
+                Text("∞").font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(.orange)
+            } else {
+                TimelineView(.periodic(from: .now, by: awake.wantEco ? 30 : 5)) { ctx in
+                    Text(KeepAwake.formatRemaining(awake.remaining(at: ctx.date) ?? 0, compact: true))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.orange)
-                        .contentTransition(.numericText(countsDown: true))
-                } else {
-                    Image(systemName: "infinity").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
         } else if timer.isActive {
