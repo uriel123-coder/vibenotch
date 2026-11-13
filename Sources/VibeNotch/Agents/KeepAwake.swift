@@ -40,7 +40,13 @@ final class KeepAwake: ObservableObject {
 
     func start() {
         let d = UserDefaults.standard
-        wantLid = d.bool(forKey: "awakeWantLid")
+        // Default: cerrar tapa OK + eco. One-time migrate so older false defaults become on.
+        if d.object(forKey: "awakeLidMigrated") == nil {
+            wantLid = true
+            d.set(true, forKey: "awakeLidMigrated")
+        } else {
+            wantLid = d.object(forKey: "awakeWantLid") == nil ? true : d.bool(forKey: "awakeWantLid")
+        }
         if d.object(forKey: "awakeWantEco") == nil { wantEco = true }
         else { wantEco = d.bool(forKey: "awakeWantEco") }
         let s = AppSettings.shared
@@ -67,13 +73,14 @@ final class KeepAwake: ObservableObject {
     }
 
     /// `minutes == nil` (or ≤ 0) = unlimited until you stop it.
+    /// Closed-lid stay-awake is on by default so SSH / agents survive shutting the Mac.
     func hold(_ on: Bool, minutes: Double? = nil, lid: Bool? = nil, screen: Bool? = nil) {
         if !on {
             endYou()
             return
         }
         let useLid = lid ?? wantLid
-        // Eco never holds the display; otherwise respect the setting / override.
+        // Eco: screen may sleep; the Mac keeps working (system assertion).
         let useScreen = wantEco ? false : (screen ?? AppSettings.shared.keepScreenOn)
         let deadline: Date? = {
             guard let m = minutes, m > 0, m.isFinite else { return nil }
@@ -143,9 +150,10 @@ final class KeepAwake: ObservableObject {
         youID = id
         byYou = true
         endsAt = deadline
-        lidNote = nil
-        ecoNote = wantEco ? "Eco: pantalla puede apagarse · Low Power si se puede" : nil
+        lidNote = lid ? "Activando tapa cerrada…" : "Sin tapa cerrada (la Mac puede dormir al cerrar)"
+        ecoNote = wantEco ? "Eco: poca batería · pantalla puede apagarse (sigue trabajando)" : nil
         if lid {
+            // pmset disablesleep: única forma fiable de no dormir al cerrar (SSH, agentes, etc.).
             Task { await self.enableLidSleepBlock() }
         } else {
             clearLidIfOurs()
@@ -250,10 +258,12 @@ final class KeepAwake: ObservableObject {
             try await Self.setDisableSleep(true)
             weDisabledSleep = true
             lidHeld = true
-            lidNote = "Tapa cerrada OK"
+            // Keep remote logins (SSH) from being the reason sleep wins on some Macs.
+            _ = try? await Self.setTtysKeepAwake(true)
+            lidNote = "Tapa cerrada OK · SSH y agentes siguen"
         } catch {
             lidHeld = false
-            lidNote = error.localizedDescription
+            lidNote = "Sin permiso admin no aguanta tapa cerrada: " + error.localizedDescription
         }
     }
 
@@ -264,7 +274,17 @@ final class KeepAwake: ObservableObject {
         }
         weDisabledSleep = false
         lidHeld = false
-        Task.detached { try? await KeepAwake.setDisableSleep(false) }
+        Task.detached {
+            try? await KeepAwake.setDisableSleep(false)
+            try? await KeepAwake.setTtysKeepAwake(false)
+        }
+    }
+
+    nonisolated private static func setTtysKeepAwake(_ on: Bool) async throws {
+        let flag = on ? "1" : "0"
+        if try await run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-a", "ttyskeepawake", flag]) { return }
+        let script = "do shell script \"/usr/bin/pmset -a ttyskeepawake \(flag)\" with administrator privileges"
+        _ = try await run("/usr/bin/osascript", ["-e", script])
     }
 
     // MARK: - Eco (Low Power + dim + quick display sleep)

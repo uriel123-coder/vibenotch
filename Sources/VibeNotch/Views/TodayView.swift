@@ -323,24 +323,27 @@ struct AwakeCard: View {
                 }
             }
 
+            Text("Puedes cerrar la tapa: sigue (SSH, agentes…). Eco = poca batería; la pantalla puede apagarse y no pasa nada.")
+                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
+                .fixedSize(horizontal: false, vertical: true)
+
             Toggle(isOn: $awake.wantEco) {
-                Label("Ahorrar batería", systemImage: "leaf.fill")
+                Label("Ahorrar batería (eco)", systemImage: "leaf.fill")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-            .help("Low Power, brillo bajo y pantalla que duerme rápido: pensado para aguantar muchos días")
 
             Toggle(isOn: $awake.wantLid) {
-                Label("Tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
+                Label("Aguantar con tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
+            .help("Pide admin una vez. Sin esto, al cerrar la tapa macOS duerme y se cae el SSH.")
 
             Button {
                 guard canStart else { return }
-                // ∞ must pass nil explicitly (not 0).
                 withAnimation(.snappy) { awake.hold(true, minutes: infinite ? nil : totalMinutes) }
             } label: {
                 Label(infinite ? "Empezar ∞" : "Empezar", systemImage: "cup.and.saucer.fill")
