@@ -247,9 +247,8 @@ final class NotchController {
     private func wakeZone() -> NSRect {
         let f = screen.frame
         if model.punto {
-            // Corner hit target (easy to aim, still not the whole menu bar).
-            let r = rect(model.size()).insetBy(dx: -22, dy: -22)
-            return r.union(NSRect(x: r.minX, y: f.maxY - 8, width: max(r.width, 44), height: 12))
+            // Solo el cuadrito (más margen = se abría al pasar cerca).
+            return rect(model.size()).insetBy(dx: -6, dy: -6)
         }
         if model.island {
             let h = max(model.islandTop, 14)
@@ -349,6 +348,11 @@ final class NotchController {
     }
 
     private func syncMouseAcceptance() {
+        // Punto cerrado: siempre deja pasar clics a lo de atrás (menús, Centro de control…).
+        if model.punto && model.state == .closed {
+            panel.ignoresMouseEvents = true
+            return
+        }
         panel.ignoresMouseEvents = !rect(model.size()).insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
     }
 
@@ -364,15 +368,21 @@ final class NotchController {
         let size = model.size()
         let inside = rect(size).insetBy(dx: -2, dy: -2).contains(p)
         if type == .mouseMoved { model.isDraggingOut = false }
-        panel.ignoresMouseEvents = !inside
+        // Punto cerrado no captura el mouse: puedes picar lo de atrás.
+        if model.punto && model.state == .closed {
+            panel.ignoresMouseEvents = true
+        } else {
+            panel.ignoresMouseEvents = !inside
+        }
 
         switch type {
         case .leftMouseDown:
             dragBaseline = NSPasteboard(name: .drag).changeCount
             dragStart = (p, Date())
-            // The panel only stops ignoring the mouse after it moves, so a click on the notch usually lands on the
-            // menu bar underneath and only reaches us through the global monitor. Treat it as a click on the notch.
-            if !local && !Prompter.shared.active && !Dictation.shared.active && !Assistant.shared.visible && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
+            // Punto cerrado: un clic no abre (pasaría al menú de atrás y también abriría).
+            // Ábrelo con hover largo, el ícono de la barra o ⌃⌥N.
+            let puntoClosed = model.punto && model.state == .closed
+            if !puntoClosed && !local && !Prompter.shared.active && !Dictation.shared.active && !Assistant.shared.visible && model.state != .open && (clickZone()?.contains(p) == true || (model.state == .peek && inside)) {
                 hoverWork?.cancel()
                 hoverWork = nil
                 model.open()
@@ -467,7 +477,8 @@ final class NotchController {
                 let delay: Double = {
                     if hiddenByFullscreen { return AppSettings.shared.hoverDelay + 0.35 }
                     // Punto / isla: wait so menus behind stay clickable; a direct click still opens now.
-                    if model.punto { return max(AppSettings.shared.hoverDelay, 1.2) }
+                    // Punto: tarda a propósito para que puedas clicar lo de atrás.
+                    if model.punto { return max(AppSettings.shared.hoverDelay, 3.0) }
                     if model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
                     return AppSettings.shared.hoverDelay
                 }()

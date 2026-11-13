@@ -127,7 +127,7 @@ private struct GeneralPage: View {
             } header: {
                 Text("Apariencia")
             } footer: {
-                FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante si no. Punto líquido es un puntito casi invisible en la esquina superior derecha (como el Centro de control): no muestra que hay agentes trabajando; clic o 3 s con el mouse lo abre.")
+                FooterText("Automático usa el notch si tu Mac lo tiene y una isla flotante si no. Punto líquido es un cuadrito gris transparente arriba a la derecha: deja pasar los clics a lo de atrás; para abrirlo deja el mouse 3 s encima (o ⌃⌥N / el ícono de la barra).")
             }
 
             Section {
@@ -148,7 +148,7 @@ private struct GeneralPage: View {
             } header: {
                 Text("Cómo se abre")
             } footer: {
-                FooterText("En isla y en punto líquido siempre espera al menos 3 s al pasar el mouse, para no molestar. Un clic abre al instante.")
+                FooterText("En isla espera 3 s al pasar el mouse. En punto líquido también 3 s y el clic atraviesa el cuadrito (no abre solo).")
             }
 
             Section("Sistema") {

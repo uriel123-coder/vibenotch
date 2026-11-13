@@ -22,7 +22,7 @@ struct NotchRootView: View {
         let puntoDot = model.punto && model.state == .closed && !assistant.visible && !dictation.active && !prompter.active
 
         ZStack(alignment: .top) {
-            shape.fill(.black)
+            shape.fill(puntoDot ? Color.gray.opacity(0.4) : .black)
             Group {
                 if prompter.active {
                     PrompterView()
@@ -45,11 +45,11 @@ struct NotchRootView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
-        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : (puntoDot ? 0.55 : (model.island ? 0.1 : 0))), lineWidth: puntoDot ? 1.2 : 1))
+        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : (puntoDot ? 0.35 : (model.island ? 0.1 : 0))), lineWidth: puntoDot ? 1 : 1))
         .overlay(SiriGlow(shape: shape, active: (assistant.phase == .listening && dictation.mode != .type) || assistant.busy || assistant.speaking))
         .background(
-            shape.fill(puntoDot ? Color.white.opacity(0.35) : .black)
-                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : (puntoDot ? 0.25 : 0.5)), radius: puntoDot ? 6 : 22, y: puntoDot ? 2 : 10)
+            shape.fill(puntoDot ? Color.gray.opacity(0.45) : .black)
+                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : (puntoDot ? 0.15 : 0.5)), radius: puntoDot ? 4 : 22, y: puntoDot ? 1 : 10)
         )
         .contentShape(shape)
         .onTapGesture { if model.state != .open && !prompter.active && !dictation.active && !assistant.visible { model.open() } }
