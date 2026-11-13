@@ -137,9 +137,12 @@ final class AppSettings: ObservableObject {
         assistantConversation = d.object(forKey: "assistantConversation") as? Bool ?? true
         assistantAskBeforeSend = d.object(forKey: "assistantAskBeforeSend") as? Bool ?? true
         assistantPreciseSpeech = d.object(forKey: "assistantPreciseSpeech") as? Bool ?? true
-        codesEnabled = d.object(forKey: "codesEnabled") as? Bool ?? true
-        codesAutoPaste = d.object(forKey: "codesAutoPaste") as? Bool ?? false
-        mailCodes = d.object(forKey: "mailCodes") as? Bool ?? false
+        // Códigos de Mail/avisos: apagado (molestaba y casi no servía).
+        codesEnabled = false
+        codesAutoPaste = false
+        mailCodes = false
+        d.set(false, forKey: "codesEnabled")
+        d.set(false, forKey: "mailCodes")
         store(phoneTopic, forKey: "phoneTopic")
         if tabs.isEmpty { tabs = NotchTab.allCases }
         // Tabs added in later versions show up once for people who had already customized theirs.

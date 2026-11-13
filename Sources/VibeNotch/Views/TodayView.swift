@@ -329,7 +329,7 @@ struct AwakeCard: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-            .help("Low Power Mode si se puede; la pantalla puede apagarse; casi sin timers")
+            .help("Low Power, brillo bajo y pantalla que duerme rápido: pensado para aguantar muchos días")
 
             Toggle(isOn: $awake.wantLid) {
                 Label("Tapa cerrada", systemImage: "laptopcomputer.and.arrow.down")

@@ -91,8 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             KeepAwake.shared.start()
             Updater.shared.start()
             WhatsAppCalls.shared.start()
-            CodeWatcher.shared.start()
-            MailCodes.shared.start()
+            CodeWatcher.shared.start() // still used while Claude is open; codes stay off
             CursorQuestions.shared.start()
             VoiceKey.shared.start()
             People.loadNames()

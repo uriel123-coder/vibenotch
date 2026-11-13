@@ -422,7 +422,6 @@ private struct ClipboardPage: View {
 
 private struct ExtrasPage: View {
     @ObservedObject private var s = AppSettings.shared
-    @ObservedObject private var mail = MailCodes.shared
     @State private var trusted = Hands.accessibilityGranted()
     private let recheck = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -443,47 +442,6 @@ private struct ExtrasPage: View {
                 Text("Llamadas de WhatsApp")
             } footer: {
                 FooterText("Cuando te llaman por WhatsApp en la Mac, el notch muestra quién es con Contestar y Rechazar; durante la llamada ves el tiempo, Silenciar y Colgar. Necesita la app de WhatsApp para Mac abierta y el permiso de Accesibilidad para presionar sus botones. Nada sale de tu Mac.")
-            }
-
-            Section {
-                Toggle("Detectar códigos en los avisos", isOn: $s.codesEnabled)
-                Toggle("Pegarlo solo en el campo donde estás", isOn: $s.codesAutoPaste)
-                    .disabled(!s.codesEnabled)
-                LabeledContent {
-                    switch mail.status {
-                    case .off:
-                        Button("Conectar Mail") { mail.connect() }
-                    case .connecting:
-                        ProgressView().controlSize(.small)
-                    case .connected(let accounts):
-                        HStack {
-                            Label(accounts.isEmpty ? "Conectado" : accounts.joined(separator: ", "), systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green).lineLimit(1)
-                            Button("Desconectar") { mail.disconnect() }
-                        }
-                    case .mailClosed:
-                        HStack {
-                            Text("Mail está cerrado").foregroundStyle(.secondary)
-                            Button("Abrir Mail") { mail.connect() }
-                        }
-                    case .denied:
-                        Button("Dar permiso") {
-                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
-                        }
-                    case .failed(let why):
-                        HStack {
-                            Text(why).foregroundStyle(.secondary).lineLimit(1)
-                            Button("Reintentar") { mail.connect() }
-                        }
-                    }
-                } label: {
-                    Label("Leer tus correos (app Mail)", systemImage: "envelope.fill")
-                }
-                .disabled(!s.codesEnabled)
-            } header: {
-                Text("Códigos de verificación")
-            } footer: {
-                FooterText("Cuando llega un código por Mensajes (SMS del iPhone), Gmail, tu banco u otra app, aparece en el notch ya copiado con el botón Pegar y te dice de quién viene. No se guarda en el historial de Clips. Los avisos se leen con el permiso de Accesibilidad y solo si la app muestra la vista previa.\n\nConecta Mail para leer tus correos nuevos directamente: funciona con las cuentas que tengas en la app Mail (Gmail, iCloud, Outlook, Yahoo…; agrégalas en Ajustes del Sistema › Cuentas de Internet). Encuentra el código aunque venga más abajo en el correo o tengas las vistas previas ocultas, y te dice quién lo mandó y a qué cuenta. Solo lee los correos de los últimos minutos, mientras Mail esté abierto, y nada sale de tu Mac.")
             }
 
             Section {

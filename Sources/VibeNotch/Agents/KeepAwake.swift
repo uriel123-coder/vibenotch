@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import IOKit
 import IOKit.pwr_mgt
 
 /// Keeps the Mac awake while agents work, or for a manual “insomnio” session
@@ -30,6 +31,10 @@ final class KeepAwake: ObservableObject {
     private var youID: IOPMAssertionID = 0
     private var weDisabledSleep = false
     private var weSetLPM = false
+    private var weDimmed = false
+    private var savedBrightness: Float?
+    private var weSetDisplaySleep = false
+    private var priorDisplaySleep: String?
     private var bag: Set<AnyCancellable> = []
     private var tick: Timer?
 
@@ -262,25 +267,109 @@ final class KeepAwake: ObservableObject {
         Task.detached { try? await KeepAwake.setDisableSleep(false) }
     }
 
-    // MARK: - Eco (Low Power Mode)
+    // MARK: - Eco (Low Power + dim + quick display sleep)
 
     private func enableEco() async {
+        var bits: [String] = []
         do {
             let wasOn = try await Self.isLowPowerModeOn()
             if !wasOn {
                 try await Self.setLowPowerMode(true)
                 weSetLPM = true
             }
-            ecoNote = "Eco activo · poca batería"
+            bits.append("Low Power")
         } catch {
-            ecoNote = "Eco: sin Low Power (falta permiso); pantalla sí puede dormir"
+            bits.append("sin Low Power")
         }
+        if let cur = Self.readBrightness(), cur > 0.12 {
+            savedBrightness = cur
+            if Self.writeBrightness(0.06) {
+                weDimmed = true
+                bits.append("brillo \(Int(cur * 100))%→6%")
+            }
+        } else if Self.writeBrightness(0.06) {
+            weDimmed = true
+            savedBrightness = 0.5
+            bits.append("brillo bajo")
+        }
+        if let prev = try? await Self.displaySleepMinutes() {
+            priorDisplaySleep = prev
+            if (try? await Self.setDisplaySleepMinutes(1)) == true {
+                weSetDisplaySleep = true
+                bits.append("pantalla duerme 1 min")
+            }
+        }
+        ecoNote = "Eco: " + bits.joined(separator: " · ")
     }
 
     private func clearEcoIfOurs() {
-        guard weSetLPM else { return }
-        weSetLPM = false
-        Task.detached { try? await KeepAwake.setLowPowerMode(false) }
+        if weSetLPM {
+            weSetLPM = false
+            Task.detached { try? await KeepAwake.setLowPowerMode(false) }
+        }
+        if weDimmed {
+            weDimmed = false
+            let restore = savedBrightness ?? 0.5
+            savedBrightness = nil
+            _ = Self.writeBrightness(restore)
+        }
+        if weSetDisplaySleep {
+            weSetDisplaySleep = false
+            let prev = priorDisplaySleep ?? "10"
+            priorDisplaySleep = nil
+            Task.detached { try? await KeepAwake.setDisplaySleepMinutes(Int(prev) ?? 10) }
+        }
+    }
+
+    nonisolated private static func readBrightness() -> Float? {
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &it) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(it) }
+        var service = IOIteratorNext(it)
+        while service != 0 {
+            var value: Float = 0
+            let ok = IODisplayGetFloatParameter(service, 0, "brightness" as CFString, &value) == kIOReturnSuccess
+            IOObjectRelease(service)
+            if ok { return value }
+            service = IOIteratorNext(it)
+        }
+        return nil
+    }
+
+    @discardableResult
+    nonisolated private static func writeBrightness(_ value: Float) -> Bool {
+        let clamped = min(1, max(0.01, value))
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &it) == KERN_SUCCESS else { return false }
+        defer { IOObjectRelease(it) }
+        var service = IOIteratorNext(it)
+        var ok = false
+        while service != 0 {
+            if IODisplaySetFloatParameter(service, 0, "brightness" as CFString, clamped) == kIOReturnSuccess { ok = true }
+            IOObjectRelease(service)
+            service = IOIteratorNext(it)
+        }
+        return ok
+    }
+
+    nonisolated private static func displaySleepMinutes() async throws -> String? {
+        let out = try await capture("/usr/bin/pmset", ["-g", "custom"])
+        var inBattery = false
+        for raw in out.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasSuffix(":") { inBattery = line == "Battery Power:"; continue }
+            guard inBattery else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if parts.count >= 2, parts[0] == "displaysleep" { return String(parts[1]) }
+        }
+        return nil
+    }
+
+    nonisolated private static func setDisplaySleepMinutes(_ minutes: Int) async throws -> Bool {
+        let v = String(max(1, min(minutes, 180)))
+        if try await run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-b", "displaysleep", v]) { return true }
+        let script = "do shell script \"/usr/bin/pmset -b displaysleep \(v)\" with administrator privileges"
+        return try await run("/usr/bin/osascript", ["-e", script])
     }
 
     nonisolated private static func setDisableSleep(_ on: Bool) async throws {

@@ -143,13 +143,16 @@ final class WhatsAppCalls: ObservableObject {
         let label: String
     }
 
-    nonisolated private static let acceptWords = ["aceptar", "contestar", "responder", "accept", "answer"]
-    nonisolated private static let declineWords = ["rechazar", "ignorar", "decline", "ignore", "reject"]
-    nonisolated private static let endWords = ["finalizar", "colgar", "terminar", "end call", "end", "leave", "hang up", "salir de la llamada"]
+    // Avoid chat UI: never match bare "responder" / "end" / "terminar" (reply & menu noise).
+    nonisolated private static let acceptWords = ["aceptar", "contestar", "accept", "answer"]
+    nonisolated private static let declineWords = ["rechazar", "decline", "reject"]
+    nonisolated private static let endWords = ["finalizar llamada", "finalizar la llamada", "colgar", "end call", "hang up",
+                                               "salir de la llamada", "leave call"]
     nonisolated private static let muteWords = ["silenciar", "activar silencio", "desactivar silencio", "activar micrófono", "desactivar micrófono",
-                                    "micrófono", "mute", "unmute", "microphone"]
-    nonisolated private static let generic = ["llamada", "videollamada", "whatsapp", "call", "cifrad", "encrypt", "timbrando", "sonando", "ringing",
-                                  "calling", "llamando", "entrante", "incoming", "conectando", "connecting"]
+                                    "mute", "unmute"]
+    nonisolated private static let callHints = ["llamada", "videollamada", "video call", "voice call", "timbrando", "sonando", "ringing",
+                                                "calling", "llamando", "entrante", "incoming", "conectando", "connecting", "cifrad", "encrypt"]
+    nonisolated private static let generic = callHints + ["whatsapp", "call"]
 
     nonisolated private static func clean(_ s: String) -> String {
         s.replacingOccurrences(of: "\u{200E}", with: "").replacingOccurrences(of: "\u{200F}", with: "")
@@ -212,14 +215,18 @@ final class WhatsAppCalls: ObservableObject {
                     muteLabel = n.label.components(separatedBy: " #").first ?? n.label
                 }
             }
-            let ringing = c.accept != nil && c.decline != nil
-            let active = !ringing && c.end != nil && (c.mute != nil || !title.lowercased().hasSuffix("whatsapp"))
-            guard ringing || active else { continue }
             let texts = nodes.filter { $0.role == "AXStaticText" }.map { $0.label.components(separatedBy: " #").first ?? $0.label }
+            let blob = ([title] + texts + nodes.map(\.label)).joined(separator: " ").lowercased()
+            let looksLikeCall = callHints.contains { blob.contains($0) }
+            // Ringing: Contestar+Rechazar and clear call wording (chat "Responder" alone must not match).
+            let ringing = c.accept != nil && c.decline != nil && looksLikeCall
+            // Active: Colgar + Silenciar together, or Colgar with call wording in the window.
+            let active = !ringing && c.end != nil && (c.mute != nil || looksLikeCall)
+            guard ringing || active else { continue }
             let name = [title].filter { !$0.isEmpty && !$0.lowercased().contains("whatsapp") }.first
                 ?? texts.first { t in t.count <= 40 && !generic.contains { t.lowercased().contains($0) } && t.rangeOfCharacter(from: .letters) != nil }
                 ?? ""
-            let video = (texts + nodes.map(\.label)).contains { $0.lowercased().contains("video") }
+            let video = blob.contains("video")
             return Found(phase: ringing ? .ringing : .active, name: name, video: video, controls: c, muteLabel: muteLabel)
         }
         return notificationCenter.flatMap(scanBanner)
