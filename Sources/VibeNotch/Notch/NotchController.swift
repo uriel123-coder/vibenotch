@@ -247,9 +247,9 @@ final class NotchController {
     private func wakeZone() -> NSRect {
         let f = screen.frame
         if model.punto {
-            // Tiny corner only — moving across the menu bar must not pop it open.
-            let r = rect(model.size()).insetBy(dx: -14, dy: -14)
-            return r.union(NSRect(x: r.minX, y: f.maxY - 6, width: r.width, height: 10))
+            // Corner hit target (easy to aim, still not the whole menu bar).
+            let r = rect(model.size()).insetBy(dx: -22, dy: -22)
+            return r.union(NSRect(x: r.minX, y: f.maxY - 8, width: max(r.width, 44), height: 12))
         }
         if model.island {
             let h = max(model.islandTop, 14)
@@ -467,7 +467,8 @@ final class NotchController {
                 let delay: Double = {
                     if hiddenByFullscreen { return AppSettings.shared.hoverDelay + 0.35 }
                     // Punto / isla: wait so menus behind stay clickable; a direct click still opens now.
-                    if model.punto || model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
+                    if model.punto { return max(AppSettings.shared.hoverDelay, 1.2) }
+                    if model.island { return max(AppSettings.shared.hoverDelay, 3.0) }
                     return AppSettings.shared.hoverDelay
                 }()
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -481,6 +482,9 @@ final class NotchController {
                 closeWork?.cancel()
                 closeWork = nil
             } else if model.engaged && !model.isDraggingOut && closeWork == nil {
+                // Punto abierto: no se cierra solo al sacar el mouse (busca, escribe, etc.).
+                // Clic fuera o Esc sí lo cierran.
+                if model.punto && model.state == .open { break }
                 let work = DispatchWorkItem { [weak self] in
                     MainActor.assumeIsolated {
                         self?.closeWork = nil
@@ -488,7 +492,8 @@ final class NotchController {
                     }
                 }
                 closeWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + (model.state == .open ? 0.35 : 0.2), execute: work)
+                let delay = model.state == .open ? (model.punto ? 2.5 : 0.35) : 0.2
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
             }
         }
     }

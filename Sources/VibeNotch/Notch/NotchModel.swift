@@ -164,7 +164,8 @@ final class NotchModel: ObservableObject {
         }
         switch state {
         case .closed:
-            if punto { return CGSize(width: 7, height: 7) }
+            // Visible enough to find (top-right), still quiet — no badges.
+            if punto { return CGSize(width: 14, height: 14) }
             if island {
                 if showsIndicators { return CGSize(width: 260, height: 30) }
                 return showsHandle ? CGSize(width: 64, height: 6) : CGSize(width: 120, height: 0)

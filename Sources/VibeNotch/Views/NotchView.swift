@@ -45,11 +45,11 @@ struct NotchRootView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
-        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : (model.island && !puntoDot ? 0.1 : 0)), lineWidth: 1))
+        .overlay(shape.stroke(Color.white.opacity(dropHover ? 0.35 : (puntoDot ? 0.55 : (model.island ? 0.1 : 0))), lineWidth: puntoDot ? 1.2 : 1))
         .overlay(SiriGlow(shape: shape, active: (assistant.phase == .listening && dictation.mode != .type) || assistant.busy || assistant.speaking))
         .background(
-            shape.fill(.black)
-                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : (puntoDot ? 0 : 0.5)), radius: 22, y: 10)
+            shape.fill(puntoDot ? Color.white.opacity(0.35) : .black)
+                .shadow(color: .black.opacity(model.state == .closed && !model.island ? 0 : (puntoDot ? 0.25 : 0.5)), radius: puntoDot ? 6 : 22, y: puntoDot ? 2 : 10)
         )
         .contentShape(shape)
         .onTapGesture { if model.state != .open && !prompter.active && !dictation.active && !assistant.visible { model.open() } }
@@ -63,7 +63,7 @@ struct NotchRootView: View {
             if hovering && !(model.state == .open && model.tab == .tools) { model.open(.shelf) }
         }
         .scaleEffect(hidden ? 0.6 : 1, anchor: .top)
-        .opacity(hidden ? 0 : (puntoDot ? 0.12 : 1))
+        .opacity(hidden ? 0 : 1)
         .padding(.top, model.islandTop)
         .padding(.trailing, model.punto ? 16 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.punto ? .topTrailing : .top)
