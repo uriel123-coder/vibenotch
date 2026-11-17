@@ -73,23 +73,16 @@ final class ToolsStore: ObservableObject {
     func clear() { withAnimation(.snappy) { inputs.removeAll(); result = nil } }
 
     func accept(_ providers: [NSItemProvider]) -> Bool {
-        for p in providers {
-            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in ToolsStore.shared.add([url]) }
-                }
-            } else if p.canLoadObject(ofClass: NSImage.self) {
-                _ = p.loadObject(ofClass: NSImage.self) { image, _ in
-                    guard let data = (image as? NSImage)?.pngData else { return }
-                    Task { @MainActor in
-                        let url = FileTools.unique(Paths.folder("Shelf").appendingPathComponent("Imagen.png"))
-                        if (try? data.write(to: url)) != nil { ToolsStore.shared.add([url]) }
-                    }
-                }
+        guard !providers.isEmpty else { return false }
+        DropFiles.resolve(providers) { urls, images, _ in
+            if !urls.isEmpty { ToolsStore.shared.add(urls) }
+            for image in images {
+                guard let data = image.pngData else { continue }
+                let url = FileTools.unique(Paths.folder("Shelf").appendingPathComponent("Imagen.png"))
+                if (try? data.write(to: url)) != nil { ToolsStore.shared.add([url]) }
             }
         }
-        return !providers.isEmpty
+        return true
     }
 
     // MARK: Tools

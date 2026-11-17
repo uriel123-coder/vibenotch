@@ -17,7 +17,10 @@ struct ShelfItem: Codable, Identifiable, Equatable {
 @MainActor
 final class ShelfStore: ObservableObject {
     static let shared = ShelfStore()
-    static let dropTypes: [UTType] = [.fileURL, .image, .plainText]
+    /// Broad enough for Finder multi-select (docs, photos, folders, PDFs…) without rewriting them.
+    static let dropTypes: [UTType] = [
+        .fileURL, .directory, .image, .movie, .audio, .pdf, .data, .item, .content, .plainText,
+    ]
 
     @Published private(set) var items: [ShelfItem] = []
     @Published private(set) var busy = false
@@ -101,38 +104,20 @@ final class ShelfStore: ObservableObject {
         save()
     }
 
+    /// Accepts one or many files from Finder / apps. Keeps originals and names; never renames to «Texto1».
     func accept(_ providers: [NSItemProvider]) -> Bool {
-        for p in providers {
-            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in ShelfStore.shared.add([url]) }
-                }
-            } else if p.canLoadObject(ofClass: NSImage.self) {
-                _ = p.loadObject(ofClass: NSImage.self) { image, _ in
-                    guard let data = (image as? NSImage)?.pngData else { return }
-                    Task { @MainActor in ShelfStore.shared.store(data, ext: "png", prefix: "Imagen") }
-                }
-            } else if p.canLoadObject(ofClass: String.self) {
-                // Editors (Cursor, VS Code…) drag a file as its path or contents: keep the file and its extension, never turn .md into .txt.
-                let named = p.suggestedName.map { URL(fileURLWithPath: $0) }
-                _ = p.loadObject(ofClass: String.self) { text, _ in
-                    guard let text else { return }
-                    let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-                    let files = lines.compactMap { line -> URL? in
-                        let url = line.hasPrefix("file://") ? URL(string: line) : line.hasPrefix("/") ? URL(fileURLWithPath: line) : nil
-                        return url.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-                    }
-                    Task { @MainActor in
-                        if !files.isEmpty, files.count == lines.count { return ShelfStore.shared.add(files) }
-                        let ext = named?.pathExtension.isEmpty == false ? named!.pathExtension : "txt"
-                        let prefix = named?.deletingPathExtension().lastPathComponent ?? "Texto"
-                        ShelfStore.shared.store(Data(text.utf8), ext: ext, prefix: prefix.isEmpty ? "Texto" : prefix)
-                    }
-                }
+        guard !providers.isEmpty else { return false }
+        DropFiles.resolve(providers) { urls, images, texts in
+            if !urls.isEmpty { ShelfStore.shared.add(urls) }
+            for image in images {
+                guard let data = image.pngData else { continue }
+                ShelfStore.shared.store(data, ext: "png", prefix: "Imagen")
+            }
+            for text in texts {
+                ShelfStore.shared.store(Data(text.utf8), ext: "txt", prefix: "Nota")
             }
         }
-        return !providers.isEmpty
+        return true
     }
 
     private func store(_ data: Data, ext: String, prefix: String) {
@@ -154,5 +139,105 @@ final class ShelfStore: ObservableObject {
         var moved = item
         moved.path = url.path
         return moved
+    }
+}
+
+/// Loads every dropped file URL (Finder multi-select) without rewriting names or formats.
+enum DropFiles {
+    static func resolve(_ providers: [NSItemProvider],
+                        done: @escaping @MainActor ([URL], [NSImage], [String]) -> Void) {
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+        var images: [NSImage] = []
+        var texts: [String] = []
+
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                group.enter()
+                p.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    defer { group.leave() }
+                    guard let url = fileURL(from: item), FileManager.default.fileExists(atPath: url.path) else { return }
+                    _ = url.startAccessingSecurityScopedResource()
+                    lock.lock(); urls.append(url); lock.unlock()
+                }
+                continue
+            }
+            // Some apps only expose a path as plain text / utf8 data that is still a real file.
+            if let pathType = [UTType.utf8PlainText.identifier, UTType.plainText.identifier, "public.utf8-plain-text"].first(where: { p.hasItemConformingToTypeIdentifier($0) }) {
+                group.enter()
+                p.loadItem(forTypeIdentifier: pathType, options: nil) { item, _ in
+                    defer { group.leave() }
+                    if let asFiles = paths(from: item), !asFiles.isEmpty {
+                        lock.lock(); urls.append(contentsOf: asFiles); lock.unlock()
+                        return
+                    }
+                    // Pure text (no file on disk): keep as a note copy only when there was no file URL.
+                    if let text = string(from: item)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
+                       text.count < 200_000, !text.hasPrefix("/") {
+                        lock.lock(); texts.append(text); lock.unlock()
+                    }
+                }
+                continue
+            }
+            if p.canLoadObject(ofClass: NSImage.self) {
+                group.enter()
+                _ = p.loadObject(ofClass: NSImage.self) { obj, _ in
+                    defer { group.leave() }
+                    if let image = obj as? NSImage {
+                        lock.lock(); images.append(image); lock.unlock()
+                    }
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            // Dedupe paths while keeping order.
+            var seen = Set<String>()
+            let unique = urls.filter { seen.insert($0.path).inserted }
+            MainActor.assumeIsolated { done(unique, images, texts) }
+        }
+    }
+
+    static func fileURL(from item: (any NSSecureCoding)?) -> URL? {
+        switch item {
+        case let url as URL:
+            return url
+        case let url as NSURL:
+            return url as URL
+        case let data as Data:
+            guard let raw = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters)) else { return nil }
+            if let u = URL(string: raw), u.isFileURL { return u }
+            if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
+            return nil
+        case let s as String:
+            let raw = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let u = URL(string: raw), u.isFileURL { return u }
+            if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    static func string(from item: (any NSSecureCoding)?) -> String? {
+        switch item {
+        case let s as String: return s
+        case let data as Data: return String(data: data, encoding: .utf8)
+        default: return nil
+        }
+    }
+
+    /// One path per line, or a single absolute / file:// path.
+    static func paths(from item: (any NSSecureCoding)?) -> [URL]? {
+        guard let text = string(from: item) else { return nil }
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let files = lines.compactMap { line -> URL? in
+            let url = line.hasPrefix("file://") ? URL(string: line) : line.hasPrefix("/") ? URL(fileURLWithPath: line) : nil
+            return url.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+        }
+        guard !files.isEmpty, files.count == lines.count else { return nil }
+        return files
     }
 }

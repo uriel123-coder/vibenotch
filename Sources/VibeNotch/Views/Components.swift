@@ -322,8 +322,8 @@ enum Thumbnails {
 
     static func image(for url: URL, size: CGFloat) async -> NSImage? {
         if let hit = cache.object(forKey: url as NSURL) { return hit }
-        let req = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size, height: size), scale: 2,
-                                               representationTypes: .thumbnail)
+        let req = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: size * 2, height: size * 2), scale: 2,
+                                               representationTypes: [.thumbnail, .lowQualityThumbnail, .icon])
         guard let rep = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: req) else { return nil }
         cache.setObject(rep.nsImage, forKey: url as NSURL)
         return rep.nsImage
@@ -380,14 +380,29 @@ struct FileThumb: View {
     var body: some View {
         Group {
             if let thumb {
-                Image(nsImage: thumb).resizable().aspectRatio(contentMode: .fit)
+                Image(nsImage: thumb)
+                    .resizable()
+                    .aspectRatio(contentMode: FileTools.isImage(url) ? .fill : .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             } else {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
             }
         }
         .frame(width: size, height: size)
-        .task(id: url) { thumb = await Thumbnails.image(for: url, size: size) }
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .task(id: url) {
+            if FileTools.isImage(url) {
+                if let img = await ImageThumbs.load(url, pixels: Int(size * 3)) {
+                    thumb = img
+                } else {
+                    thumb = await Thumbnails.image(for: url, size: size)
+                }
+            } else if let ql = await Thumbnails.image(for: url, size: size) {
+                thumb = ql
+            } else {
+                thumb = NSWorkspace.shared.icon(forFile: url.path)
+            }
+        }
     }
 }
 

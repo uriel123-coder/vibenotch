@@ -81,10 +81,12 @@ struct ShelfView: View {
                 .font(.system(size: 28, weight: .medium))
                 .symbolEffect(.bounce, value: model.dropTargeted)
                 .contentTransition(.symbolEffect(.replace))
-            Text(model.dropTargeted ? "Suéltalo aquí" : "Arrastra archivos, carpetas o imágenes al notch")
+            Text(model.dropTargeted ? "Suéltalos aquí" : "Arrastra uno o varios archivos al notch")
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
-            Text("Se quedan guardados aquí hasta que los saques. Tus originales no se mueven.")
+            Text("Docs, fotos, PDFs, carpetas… se quedan con su nombre. Los originales no se mueven ni se renombran.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
