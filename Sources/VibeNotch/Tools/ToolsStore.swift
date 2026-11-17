@@ -74,12 +74,16 @@ final class ToolsStore: ObservableObject {
 
     func accept(_ providers: [NSItemProvider]) -> Bool {
         guard !providers.isEmpty else { return false }
-        DropFiles.resolve(providers) { urls, images, _ in
+        DropFiles.resolve(providers) { urls, images, files in
             if !urls.isEmpty { ToolsStore.shared.add(urls) }
             for image in images {
                 guard let data = image.pngData else { continue }
                 let url = FileTools.unique(Paths.folder("Shelf").appendingPathComponent("Imagen.png"))
                 if (try? data.write(to: url)) != nil { ToolsStore.shared.add([url]) }
+            }
+            for file in files {
+                let url = FileTools.unique(Paths.folder("Shelf").appendingPathComponent(file.name))
+                if (try? file.data.write(to: url)) != nil { ToolsStore.shared.add([url]) }
             }
         }
         return true
